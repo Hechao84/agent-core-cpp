@@ -1,0 +1,30 @@
+#pragma once
+#include <string>
+#include <functional>
+#include <memory>
+#include <atomic>
+#include <vector>
+#include "types.h"
+#include "tools/tool_selector.h"
+
+class AgentWorker {
+    public:
+        AgentWorker(AgentConfig config);
+        virtual ~AgentWorker() = default;
+        virtual void Invoke(const std::string& query, std::function<void(const std::string&)> callback) = 0;
+        virtual void Cancel();
+        void AddTools(const std::vector<std::string>& toolNames);
+    protected:
+        AgentConfig m_config;
+        std::atomic<bool> m_cancelled{false};
+        std::vector<std::string> m_toolNames;
+        std::unique_ptr<ToolSelector> m_toolSelector;
+        
+        void CallModelStream(const std::string& prompt, const std::vector<std::pair<std::string, std::string>>& messages,
+                             std::function<void(const std::string&)> onChunk, std::function<void(const std::string&)> onComplete);
+        std::string BuildPrompt(const std::string& templateName, const std::string& query, const std::string& context);
+        std::string ExecuteTool(const std::string& toolName, const std::string& input);
+        std::string GetToolSchemaForQuery(const std::string& query);
+};
+
+std::unique_ptr<AgentWorker> CreateAgentWorker(AgentConfig config);

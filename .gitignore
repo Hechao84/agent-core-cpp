@@ -1,0 +1,15 @@
+build/
+.vscode/
+opencode.json
+*.exe
+*.pdb
+*.dir/
+*.vcxproj
+*.vcxproj.filters
+*.sln
+*.cmake
+CMakeCache.txt
+CMakeFiles/
+
+# 3rd party libraries (fetched via CMake FetchContent)
+src/3rd-party/
