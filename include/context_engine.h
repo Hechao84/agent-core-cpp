@@ -2,45 +2,50 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include "model.h"
+#include "model.h" // For Message struct
+#include "types.h" // For ModelConfig if needed, though Message is likely in model.h or types.h
 
-enum class ContextStorageType {
-    FILE_MD,
-    DATABASE,
+// Assuming Message is defined in model.h or similar. 
+// If Message is not available here, we might need to include the right header.
+// Looking at previous code, Message seems to be used in model.h.
+
+enum class StorageType {
+    MEMORY_ONLY,
+    MARKDOWN_FILE,
+    DATABASE
 };
 
 struct ContextConfig {
-    ContextStorageType storageType{ContextStorageType::FILE_MD};
-    std::string storagePath; // Directory for file storage or connection string for DB
-    int maxContextTokens{4096}; // Max tokens for context window
+    StorageType storageType{StorageType::MARKDOWN_FILE};
+    std::string storagePath; 
+    int maxContextTokens{4096}; 
     std::string sessionId;
 };
 
+class ContextStorageInterface; // Forward declaration
+
 class ContextEngine {
 public:
-    virtual ~ContextEngine() = default;
-    
-    // Initialize the context engine with config
-    virtual bool Initialize(const ContextConfig& config) = 0;
-    
-    // Append a message to the context
-    virtual bool AppendMessage(const Message& message) = 0;
-    
-    // Get the current context window (recent messages within token limit)
-    virtual std::vector<Message> GetContextWindow() const = 0;
-    
-    // Get all messages in the context
-    virtual std::vector<Message> GetAllMessages() const = 0;
-    
-    // Clear the context
-    virtual void Clear() = 0;
-    
-    // Get current token count estimate
-    virtual int GetCurrentTokenCount() const = 0;
-    
-    // Get session ID
-    virtual std::string GetSessionId() const = 0;
-    
-    // Factory method to create context engine based on config
-    static std::unique_ptr<ContextEngine> Create(const ContextConfig& config);
+    explicit ContextEngine(const ContextConfig& config);
+    ~ContextEngine();
+
+    // Initialize engine (loads history from storage if configured)
+    bool Initialize();
+
+    // Core operations
+    void AddMessage(const Message& message);
+    std::vector<Message> GetContextWindow() const;
+    std::vector<Message> GetAllMessages() const;
+    void Clear();
+
+    // Info
+    int GetTokenCount() const;
+    std::string GetSessionId() const;
+
+private:
+    ContextConfig m_config;
+    std::vector<Message> m_memoryBuffer;
+    std::unique_ptr<ContextStorageInterface> m_storage;
+
+    static int EstimateTokens(const std::string& text);
 };

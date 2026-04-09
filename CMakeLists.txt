@@ -8,7 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(jiuwen-lite
     src/core/agent.cpp
     src/core/agent_worker.cpp
-    src/core/context_engine.cpp
+    src/context_engine/context_engine.cpp
+    src/context_engine/md_storage.cpp
     src/workers/agent_worker_factory.cpp
     src/workers/react_worker.cpp
     src/workers/plan_execute_worker.cpp
