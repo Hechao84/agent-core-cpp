@@ -12,4 +12,5 @@ CMakeCache.txt
 CMakeFiles/
 
 # 3rd party libraries (fetched via CMake FetchContent)
-src/3rd-party/
+src/3rd-party/*
+!src/3rd-party/README.md
