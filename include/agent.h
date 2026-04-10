@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 #include "types.h"
+#include "agent_export.h"
 
 class AgentWorker;
 

@@ -11,7 +11,7 @@ class MCPServer;
 
 class AGENT_API ResourceManager {
     public:
-        static ResourceManager& AGENT_API GetInstance();
+        static ResourceManager& GetInstance();
         
         void RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory);
         void RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory);

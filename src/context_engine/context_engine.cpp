@@ -1,12 +1,11 @@
 #include "context_engine/context_engine.h"
 #include "storage_interface.h"
 #include "md_storage.h"
+#include "db_storage.h"
 #include <algorithm>
 #include <iostream>
 
-ContextEngine::ContextEngine(const ContextConfig& config) : m_config(config) {}
-
-ContextEngine::~ContextEngine() = default;
+// ... (later)
 
 bool ContextEngine::Initialize() {
     // 1. Create Storage Backend
@@ -15,10 +14,11 @@ bool ContextEngine::Initialize() {
             m_storage = std::make_unique<MarkdownStorage>(m_config.storagePath, m_config.sessionId);
             break;
         case StorageType::DATABASE:
-            // TODO: Implement DatabaseStorage later
-            std::cerr << "Database storage not implemented, falling back to Memory Only" << std::endl;
-            m_storage = nullptr;
+        {
+            std::string dbPath = m_config.storagePath.empty() ? "agent_context.db" : m_config.storagePath;
+            m_storage = std::make_unique<DbStorage>(dbPath, m_config.sessionId);
             break;
+        }
         case StorageType::MEMORY_ONLY:
         default:
             m_storage = nullptr;

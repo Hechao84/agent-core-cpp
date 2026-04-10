@@ -4,6 +4,7 @@
 #include <functional>
 #include <memory>
 #include "types.h"
+#include "agent_export.h"
 
 struct Message {
     std::string role;
