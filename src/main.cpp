@@ -78,15 +78,24 @@ int main() {
     // 1. Context Config: Enable SQLite persistence
     config.contextConfig.sessionId = "session_01";
     config.contextConfig.storageType = ContextConfig::StorageType::DATABASE;
+    
+    // 2. Skill Config: Enable Skills from directory
+    config.skillDirectory = "./my_skills"; // Relative path for demo purposes
 
-    // 2. Model Config
+    // 3. Model Config
     config.modelConfig.baseUrl = "<your base url>";
     config.modelConfig.apiKey = "<your api key>";
     config.modelConfig.modelName = "<your model name>";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
     
+    // 4. Extended Model Params (ConfigNode)
+    config.modelConfig.extraParams.Set("max_tokens", 2048);
+    config.modelConfig.extraParams.Set("temperature", 0.0f);
+    config.modelConfig.extraParams.Set("top_p", 0.0f);
+    config.modelConfig.extraParams.Set("tool_choice", std::string("auto"));
+    
     config.promptTemplates["react_system"] = 
-        "You are a reasoning agent.\nTools:\n{tools}\nQuestion: {query}\n{context}";
+        "You are a reasoning agent. You must reply in the same language as the user's query.\nSkills:\n{skills}\nTools:\n{tools}\nQuestion: {query}\n{context}";
     
     Agent agent(config);
     agent.AddTools({"weather"});

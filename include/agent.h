@@ -7,7 +7,8 @@
 #include "agent_export.h"
 
 class AgentWorker;
-class ContextEngine; // Forward declaration to keep header clean
+class ContextEngine; // Forward declaration
+class SkillEngine;   // Forward declaration
 
 class AGENT_API Agent {
     public:
@@ -21,5 +22,6 @@ class AGENT_API Agent {
         AgentConfig m_config;
         std::unique_ptr<AgentWorker> m_worker;
         std::shared_ptr<ContextEngine> m_contextEngine; // Store context engine
-        std::vector<std::string> m_toolNames; // Agent owns the Master Tool List
+        std::shared_ptr<SkillEngine> m_skillEngine;     // Store skill engine
+        std::vector<std::string> m_toolNames;           // Agent owns the Master Tool List
 };

@@ -2,6 +2,7 @@
 #include "agent_worker.h"
 #include "resource_manager.h"
 #include "context_engine/context_engine.h"
+#include "skills/skill_engine.h"
 #include <iostream>
 #include <algorithm>
 
@@ -10,10 +11,19 @@ Agent::Agent(AgentConfig config) : m_config(std::move(config)) {
     m_contextEngine = std::make_shared<ContextEngine>(m_config.contextConfig);
     m_contextEngine->Initialize();
 
-    // 2. Create Worker and pass ContextEngine to it
+    // 2. Initialize Skill Engine if directory is configured
+    if (!m_config.skillDirectory.empty()) {
+        m_skillEngine = std::make_shared<SkillEngine>(m_config.skillDirectory);
+        m_skillEngine->Load(true); // Load from disk
+    }
+
+    // 3. Create Worker and inject engines
     m_worker = CreateAgentWorker(this->m_config);
     if (m_worker) {
-        m_worker->SetContextEngine(m_contextEngine); // Inject context engine into worker
+        m_worker->SetContextEngine(m_contextEngine);
+        if (m_skillEngine) {
+            m_worker->SetSkillEngine(m_skillEngine);
+        }
     }
 }
 

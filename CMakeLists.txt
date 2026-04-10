@@ -65,6 +65,7 @@ endif()
 add_library(agent_framework SHARED
     src/core/agent.cpp
     src/core/agent_worker.cpp
+    src/skills/skill_engine.cpp
     src/context_engine/context_engine.cpp
     src/context_engine/md_storage.cpp
     src/context_engine/db_storage.cpp

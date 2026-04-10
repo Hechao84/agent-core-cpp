@@ -3,11 +3,10 @@
 #include "model.h"
 #include "tools/tool_selector.h"
 #include "context_engine/context_engine.h"
+#include "skills/skill_engine.h"
 #include <iostream>
 #include <algorithm>
 #include <sstream>
-
-// Re-implementing everything from scratch to bypass file locks on agent_worker.cpp
 
 AgentWorker::AgentWorker(AgentConfig config) : m_config(std::move(config)) {
     m_toolSelector = std::make_unique<ToolSelector>();
@@ -29,6 +28,10 @@ void AgentWorker::AddTools(const std::vector<std::string>& toolNames) {
 
 void AgentWorker::SetContextEngine(std::shared_ptr<ContextEngine> engine) {
     m_contextEngine = engine;
+}
+
+void AgentWorker::SetSkillEngine(std::shared_ptr<SkillEngine> engine) {
+    m_skillEngine = engine;
 }
 
 void AgentWorker::CallModelStream(const std::string& prompt, const std::vector<std::pair<std::string, std::string>>& messages,
@@ -56,7 +59,18 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
         size_t pos = 0;
         while ((pos = prompt.find(from, pos)) != std::string::npos) { prompt.replace(pos, from.length(), to); pos += to.length(); }
     };
-    replaceAll("{query}", query); replaceAll("{context}", context);
+    
+    // 1. Hot-reload skills to pick up file system changes
+    if (m_skillEngine) {
+        m_skillEngine->Load(true); 
+        replaceAll("{skills}", m_skillEngine->GetFormattedInstructions());
+    } else {
+        replaceAll("{skills}", "");
+    }
+
+    // 2. Replace standard placeholders
+    replaceAll("{query}", query); 
+    replaceAll("{context}", context);
     replaceAll("{tools}", GetToolSchemaForQuery(query));
     return prompt;
 }
