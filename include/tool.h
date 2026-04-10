@@ -4,6 +4,7 @@
 #include <functional>
 #include <unordered_map>
 #include <memory>
+#include "agent_export.h"
 
 struct ToolParam {
     std::string name;
@@ -12,7 +13,7 @@ struct ToolParam {
     bool required{false};
 };
 
-class Tool {
+class AGENT_API Tool {
     public:
         Tool(std::string name, std::string description, std::vector<ToolParam> params);
         virtual ~Tool() = default;

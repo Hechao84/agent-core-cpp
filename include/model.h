@@ -16,7 +16,7 @@ struct ModelResponse {
     std::string finishReason;
 };
 
-class Model {
+class AGENT_API Model {
     public:
         Model(ModelConfig config);
         virtual ~Model() = default;

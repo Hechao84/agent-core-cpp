@@ -4,35 +4,15 @@ project(jiuwen-lite LANGUAGES CXX VERSION 0.1.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Target definition
-add_executable(jiuwen-lite
-    src/core/agent.cpp
-    src/core/agent_worker.cpp
-    src/context_engine/context_engine.cpp
-    src/context_engine/md_storage.cpp
-    src/workers/agent_worker_factory.cpp
-    src/workers/react_worker.cpp
-    src/workers/plan_execute_worker.cpp
-    src/workers/workflow_worker.cpp
-    src/resource_manager/resource_manager.cpp
-    src/tools/tool.cpp
-    src/tools/tool_selector.cpp
-    src/tools/mcp_tool.cpp
-    src/models/model.cpp
-    src/models/openai_model.cpp
-    src/models/anthropic_model.cpp
-    src/main.cpp
-)
-
-# Include directories (Scoped)
-target_include_directories(jiuwen-lite PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
+# Fix MSVC PDB locking issue
+if(MSVC)
+    add_compile_options(/FS)
+endif()
 
 # Dependencies
-# 1. nlohmann/json (FetchContent)
 include(FetchContent)
+
+# 1. nlohmann/json
 FetchContent_Declare(
     json
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
@@ -43,7 +23,7 @@ if(NOT json_POPULATED)
     add_subdirectory(${json_SOURCE_DIR} ${json_BINARY_DIR} EXCLUDE_FROM_ALL)
 endif()
 
-# 2. curl (FetchContent or System)
+# 2. curl
 option(USE_LOCAL_CURL "Use local curl source from src/3rd-party" OFF)
 
 if(USE_LOCAL_CURL)
@@ -77,14 +57,48 @@ else()
     endif()
 endif()
 
-# Link libraries
-target_link_libraries(jiuwen-lite PRIVATE 
+# Define Shared Library (agent_framework)
+add_library(agent_framework SHARED
+    src/core/agent.cpp
+    src/core/agent_worker.cpp
+    src/context_engine/context_engine.cpp
+    src/context_engine/md_storage.cpp
+    src/workers/agent_worker_factory.cpp
+    src/workers/react_worker.cpp
+    src/workers/plan_execute_worker.cpp
+    src/workers/workflow_worker.cpp
+    src/resource_manager/resource_manager.cpp
+    src/tools/tool.cpp
+    src/tools/tool_selector.cpp
+    src/tools/mcp_tool.cpp
+    src/models/model.cpp
+    src/models/openai_model.cpp
+    src/models/anthropic_model.cpp
+)
+
+target_include_directories(agent_framework PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_compile_definitions(agent_framework PRIVATE BUILDING_AGENT_FRAMEWORK)
+
+target_link_libraries(agent_framework PRIVATE 
     ${CURL_LIB}
     nlohmann_json::nlohmann_json
 )
 
-# Install rules for future integration (Agent Framework)
-install(TARGETS jiuwen-lite
+# Define Executable (jiuwen-lite)
+add_executable(jiuwen-lite src/main.cpp)
+
+target_include_directories(jiuwen-lite PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(jiuwen-lite PRIVATE agent_framework)
+
+# Install rules
+install(TARGETS agent_framework jiuwen-lite
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
     RUNTIME DESTINATION bin

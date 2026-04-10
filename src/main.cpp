@@ -1,7 +1,6 @@
 #include <iostream>
 #include "agent.h"
 #include "resource_manager.h"
-#include "tools/mcp_tool.h"
 
 class WeatherTool : public Tool {
     public:

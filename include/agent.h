@@ -7,7 +7,7 @@
 
 class AgentWorker;
 
-class Agent {
+class AGENT_API Agent {
     public:
         Agent(AgentConfig config);
         ~Agent();
