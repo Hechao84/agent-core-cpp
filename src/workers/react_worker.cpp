@@ -1,4 +1,5 @@
 #include "react_worker.h"
+#include "context_engine/context_engine.h"
 #include <iostream>
 #include <algorithm>
 
@@ -31,13 +32,33 @@ std::string ReactAgentWorker::ParseActionInput(const std::string& response) {
 
 void ReactAgentWorker::ReactLoop(const std::string& query, std::function<void(const std::string&)> callback) {
     std::string scratchpad;
+
+    // 1. Get Prior Context (History) from ContextEngine
+    std::string priorContext;
+    std::vector<std::pair<std::string, std::string>> msgHistory;
+    if (m_contextEngine) {
+        priorContext = m_contextEngine->GetContextAsString();
+        auto history = m_contextEngine->GetContextWindow();
+        for (const auto& m : history) {
+            msgHistory.push_back({m.role, m.content});
+        }
+    }
+
     for (int iteration = 0; iteration < m_config.maxIterations && !m_cancelled.load(); ++iteration) {
-        std::string prompt = BuildPrompt("react_system", query, scratchpad);
+        // Combine prior conversation context with current react-loop scratchpad
+        std::string combinedContext;
+        if (!priorContext.empty()) combinedContext += priorContext + "\n";
+        if (!scratchpad.empty()) combinedContext += scratchpad + "\n";
+
+        std::string prompt = BuildPrompt("react_system", query, combinedContext);
         callback("[STATUS] Thinking... (Iteration " + std::to_string(iteration + 1) + ")");
         std::string fullResponse;
-        CallModelStream(prompt, {}, 
+        
+        // 2. Pass Message History to CallModelStream (Fix for API error)
+        CallModelStream(prompt, msgHistory, 
             [&callback, &fullResponse](const std::string& chunk) { fullResponse += chunk; callback("[STREAM] " + chunk); },
             [&callback, &fullResponse](const std::string& complete) { if (!complete.empty()) callback("[RESPONSE] " + complete); });
+            
         if (m_cancelled.load()) { callback("[STATUS] Cancelled"); return; }
         std::string thought = ParseThought(fullResponse);
         std::string action = ParseAction(fullResponse);

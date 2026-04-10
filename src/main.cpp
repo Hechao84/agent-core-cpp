@@ -3,6 +3,56 @@
 #include "agent.h"
 #include "resource_manager.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+// Helper function to convert local encoding (GBK/ACP) to UTF-8 (Input)
+std::string LocalToUTF8(const std::string& str) {
+#ifdef _WIN32
+    try {
+        int wlen = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0);
+        if (wlen <= 0) return str;
+        std::wstring wstr(wlen, 0);
+        MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, &wstr[0], wlen);
+        
+        int len = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, NULL, 0, NULL, NULL);
+        if (len <= 0) return str;
+        std::string result(len, 0);
+        WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &result[0], len, NULL, NULL);
+        if (!result.empty()) result.pop_back(); // Remove null terminator
+        return result;
+    } catch (...) {
+        return str;
+    }
+#else
+    return str;
+#endif
+}
+
+// Helper function to convert UTF-8 to local encoding (GBK/ACP) (Output)
+std::string UTF8ToLocal(const std::string& str) {
+#ifdef _WIN32
+    try {
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, NULL, 0);
+        if (wlen <= 0) return str;
+        std::wstring wstr(wlen, 0);
+        MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &wstr[0], wlen);
+        
+        int len = WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, NULL, 0, NULL, NULL);
+        if (len <= 0) return str;
+        std::string result(len, 0);
+        WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, &result[0], len, NULL, NULL);
+        if (!result.empty()) result.pop_back(); // Remove null terminator
+        return result;
+    } catch (...) {
+        return str;
+    }
+#else
+    return str;
+#endif
+}
+
 class WeatherTool : public Tool {
     public:
         WeatherTool() : Tool("weather", "Get weather information for a city", 
@@ -24,8 +74,12 @@ int main() {
     config.name = "Demo Agent";
     config.mode = AgentWorkMode::REACT;
     config.maxIterations = 5;
-    
-    // 配置模型参数
+
+    // 1. Context Config: Enable SQLite persistence
+    config.contextConfig.sessionId = "session_01";
+    config.contextConfig.storageType = ContextConfig::StorageType::DATABASE;
+
+    // 2. Model Config
     config.modelConfig.baseUrl = "<your base url>";
     config.modelConfig.apiKey = "<your api key>";
     config.modelConfig.modelName = "<your model name>";
@@ -42,13 +96,22 @@ int main() {
         std::cout << "> " << std::flush;
         std::getline(std::cin, query);
         
-        if (query == "/exit" || query.empty()) {
+        if (query == "/exit") {
             break;
         }
         
+        if (query.empty()) {
+            continue;
+        }
+        
+        // Convert input to UTF-8
+        query = LocalToUTF8(query);
+        
         std::cout << "Processing...\n";
         agent.Invoke(query, [](const std::string& resp) {
-            std::cout << resp << std::endl;
+            // Convert response from UTF-8 to Local (GBK) for display on Windows
+            std::string outStr = UTF8ToLocal(resp);
+            std::cout << outStr << std::endl; // Use println as resp might not have newline
         });
         std::cout << "\n";
     }

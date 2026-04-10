@@ -26,6 +26,15 @@ enum class AgentWorkMode {
     WORKFLOW,
 };
 
+// Context Engine Configuration
+struct ContextConfig {
+    int maxContextTokens{4096};
+    std::string sessionId;
+    std::string storagePath; // For DB: path to file, For File: directory path
+    enum class StorageType { MEMORY_ONLY, MARKDOWN_FILE, DATABASE };
+    StorageType storageType{StorageType::DATABASE}; // Default to DB (SQLite) for persistence
+};
+
 struct AgentConfig {
     std::string id;
     std::string name;
@@ -34,6 +43,7 @@ struct AgentConfig {
     AgentWorkMode mode;
     ModelConfig modelConfig;
     std::unordered_map<std::string, std::string> promptTemplates;
+    ContextConfig contextConfig; // <-- Add Context Configuration
     std::string skillDirectory;
     int maxIterations{10};
 };

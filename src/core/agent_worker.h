@@ -7,6 +7,8 @@
 #include "types.h"
 #include "tools/tool_selector.h"
 
+class ContextEngine; // Forward declaration
+
 class AgentWorker {
     public:
         AgentWorker(AgentConfig config);
@@ -14,11 +16,13 @@ class AgentWorker {
         virtual void Invoke(const std::string& query, std::function<void(const std::string&)> callback) = 0;
         virtual void Cancel();
         void AddTools(const std::vector<std::string>& toolNames);
+        void SetContextEngine(std::shared_ptr<ContextEngine> engine);
     protected:
         AgentConfig m_config;
         std::atomic<bool> m_cancelled{false};
         std::vector<std::string> m_toolNames;
         std::unique_ptr<ToolSelector> m_toolSelector;
+        std::shared_ptr<ContextEngine> m_contextEngine;
         
         void CallModelStream(const std::string& prompt, const std::vector<std::pair<std::string, std::string>>& messages,
                              std::function<void(const std::string&)> onChunk, std::function<void(const std::string&)> onComplete);
