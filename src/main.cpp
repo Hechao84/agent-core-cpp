@@ -1,4 +1,5 @@
 #include <iostream>
+#include <string>
 #include "agent.h"
 #include "resource_manager.h"
 
@@ -13,6 +14,7 @@ class WeatherTool : public Tool {
 
 int main() {
     std::cout << "Agent Framework Demo\n====================\n" << std::flush;
+    std::cout << "Enter '/exit' to quit.\n" << std::flush;
     
     auto& rm = ResourceManager::GetInstance();
     rm.RegisterTool("weather", []() { return std::make_unique<WeatherTool>(); });
@@ -35,10 +37,21 @@ int main() {
     Agent agent(config);
     agent.AddTools({"weather"});
     
-    std::cout << "\nQuery: What's the weather in Beijing?\n";
-    agent.Invoke("What's the weather in Beijing?", [](const std::string& resp) {
-        std::cout << resp << std::endl;
-    });
+    std::string query;
+    while (true) {
+        std::cout << "> " << std::flush;
+        std::getline(std::cin, query);
+        
+        if (query == "/exit" || query.empty()) {
+            break;
+        }
+        
+        std::cout << "Processing...\n";
+        agent.Invoke(query, [](const std::string& resp) {
+            std::cout << resp << std::endl;
+        });
+        std::cout << "\n";
+    }
     
     return 0;
 }
