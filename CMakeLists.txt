@@ -4,13 +4,20 @@ project(jiuwen-lite LANGUAGES CXX VERSION 0.1.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Fix MSVC PDB locking issue (Use /Z7 to embed debug info in .obj instead of separate .pdb)
+# Platform-specific Compiler Flags
 if(MSVC)
     string(APPEND CMAKE_CXX_FLAGS " /FS")
-    string(APPEND CMAKE_C_FLAGS " /FS")
-    # Fallback/Alternative to /FS is using /Z7
     string(REPLACE "/Zi" "/Z7" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
-    string(REPLACE "/Zi" "/Z7" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wall -Wextra -fPIC) # -fPIC is required for shared libraries on Linux/Android/OH
+endif()
+
+# std::filesystem compatibility for older GCC (<9)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
+    find_library(STDCXXFS_LIB stdc++fs QUIET)
+    if(STDCXXFS_LIB)
+        list(APPEND PLATFORM_LIBS ${STDCXXFS_LIB})
+    endif()
 endif()
 
 # Dependencies
@@ -53,9 +60,19 @@ else()
             GIT_TAG curl-8_7_1
         )
         set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build curl as static lib" FORCE)
-        set(CURL_USE_SCHANNEL ON CACHE BOOL "Use Windows native SSL" FORCE)
+        
+        # Platform-specific SSL backend for curl
+        if(WIN32)
+            set(CURL_USE_SCHANNEL ON CACHE BOOL "Use Windows native SSL" FORCE)
+            set(CURL_USE_OPENSSL OFF CACHE BOOL "Use OpenSSL" FORCE)
+        else()
+            set(CURL_USE_SCHANNEL OFF CACHE BOOL "Use Schannel" FORCE)
+            set(CURL_USE_OPENSSL ON CACHE BOOL "Use OpenSSL" FORCE)
+        endif()
+        
         set(CURL_ZLIB OFF CACHE BOOL "Disable ZLIB" FORCE)
         set(HTTP_ONLY ON CACHE BOOL "Build HTTP only" FORCE)
+        set(CURL_DISABLE_TESTS ON CACHE BOOL "Disable curl tests for cross-compilation" FORCE)
         FetchContent_MakeAvailable(curl)
         set(CURL_LIB libcurl)
     endif()
@@ -121,6 +138,7 @@ endif()
 target_link_libraries(agent_framework PRIVATE 
     ${CURL_LIB}
     ${SQLITE_LIB}
+    ${PLATFORM_LIBS}
     nlohmann_json::nlohmann_json
 )
 
