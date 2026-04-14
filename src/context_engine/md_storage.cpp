@@ -6,7 +6,8 @@
 
 namespace fs = std::filesystem;
 
-MarkdownStorage::MarkdownStorage(const std::string& path, const std::string& sessionId) {
+MarkdownStorage::MarkdownStorage(const std::string& path, const std::string& sessionId)
+{
     fs::path dir(path);
     if (!fs::exists(dir)) {
         fs::create_directories(dir);
@@ -14,18 +15,21 @@ MarkdownStorage::MarkdownStorage(const std::string& path, const std::string& ses
     filePath_ = (dir / (sessionId + ".md")).string();
 }
 
-bool MarkdownStorage::SaveMessage(const Message& msg) {
+bool MarkdownStorage::SaveMessage(const Message& msg)
+{
     try {
         std::ofstream file(filePath_, std::ios::app);
         if (!file.is_open()) return false;
         file << FormatMessage(msg);
         return true;
-    } catch (...) {
+    } catch (...)
+    {
         return false;
     }
 }
 
-bool MarkdownStorage::LoadHistory(std::vector<Message>& outMessages) {
+bool MarkdownStorage::LoadHistory(std::vector<Message>& outMessages)
+{
     if (!fs::exists(filePath_)) return true; // Empty is okay
     try {
         std::ifstream file(filePath_);
@@ -44,13 +48,15 @@ bool MarkdownStorage::LoadHistory(std::vector<Message>& outMessages) {
             if (nextPos == std::string::npos) break;
             pos = nextPos;
         }
-    } catch (...) {
+    } catch (...)
+    {
         return false;
     }
     return true;
 }
 
-void MarkdownStorage::Clear() {
+void MarkdownStorage::Clear()
+{
     try {
         if (fs::exists(filePath_)) {
             fs::remove(filePath_);
@@ -58,11 +64,13 @@ void MarkdownStorage::Clear() {
     } catch (...) {}
 }
 
-std::string MarkdownStorage::FormatMessage(const Message& msg) const {
+std::string MarkdownStorage::FormatMessage(const Message& msg) const
+{
     return "\n## " + msg.role + "\n\n" + msg.content + "\n";
 }
 
-Message MarkdownStorage::ParseMessageBlock(const std::string& block) const {
+Message MarkdownStorage::ParseMessageBlock(const std::string& block) const
+{
     Message msg;
     size_t start = block.find("## ");
     if (start == std::string::npos) return msg;

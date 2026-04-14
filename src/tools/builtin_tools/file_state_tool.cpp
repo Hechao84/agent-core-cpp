@@ -7,7 +7,8 @@
 
 namespace fs = std::filesystem;
 
-static std::string ParseStringField(const std::string& json, const std::string& key) {
+static std::string ParseStringField(const std::string& json, const std::string& key)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return "";
@@ -25,7 +26,8 @@ static std::string ParseStringField(const std::string& json, const std::string& 
     return json.substr(valStart + 1, valEnd - valStart - 1);
 }
 
-static int ParseIntField(const std::string& json, const std::string& key, int defaultVal) {
+static int ParseIntField(const std::string& json, const std::string& key, int defaultVal)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return defaultVal;
@@ -47,7 +49,8 @@ FileStateTool::FileStateTool()
 
 void FileStateTool::SetStateFile(const std::string& path) { stateFile_ = path; }
 
-std::string FileStateTool::Invoke(const std::string& input) {
+std::string FileStateTool::Invoke(const std::string& input)
+{
     std::string action = ParseStringField(input, "action");
     std::string filePath = ParseStringField(input, "path");
     int offset = ParseIntField(input, "offset", 1);
@@ -121,7 +124,8 @@ std::string FileStateTool::Invoke(const std::string& input) {
     return "Error: Unknown action '" + action + "'. Use: check, record_read, record_write, or clear";
 }
 
-void FileStateTool::LoadState() {
+void FileStateTool::LoadState()
+{
     stateMap_.clear();
     if (!fs::exists(stateFile_)) return;
 
@@ -141,15 +145,20 @@ void FileStateTool::LoadState() {
             }
             currentPath = line.substr(5);
             current = FileState();
-        } else if (line.substr(0, 7) == "mtime: ") {
+        } else if (line.substr(0, 7) == "mtime: ")
+        {
             current.lastMtime = std::stoll(line.substr(7));
-        } else if (line.substr(0, 11) == "read_time: ") {
+        } else if (line.substr(0, 11) == "read_time: ")
+        {
             current.lastReadTime = std::stoll(line.substr(11));
-        } else if (line.substr(0, 12) == "write_time: ") {
+        } else if (line.substr(0, 12) == "write_time: ")
+        {
             current.lastWriteTime = std::stoll(line.substr(12));
-        } else if (line.substr(0, 8) == "offset: ") {
+        } else if (line.substr(0, 8) == "offset: ")
+        {
             current.lastReadOffset = std::stoi(line.substr(8));
-        } else if (line.substr(0, 7) == "limit: ") {
+        } else if (line.substr(0, 7) == "limit: ")
+        {
             current.lastReadLimit = std::stoi(line.substr(7));
         }
     }
@@ -159,7 +168,8 @@ void FileStateTool::LoadState() {
     file.close();
 }
 
-void FileStateTool::SaveState() {
+void FileStateTool::SaveState()
+{
     if (stateFile_.empty()) return;
     fs::path statePath(stateFile_);
     fs::path parentDir = statePath.parent_path();

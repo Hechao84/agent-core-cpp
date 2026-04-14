@@ -3,14 +3,16 @@
 #include <string>
 #include <iostream>
 
-static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+{
     ((std::string*)userp)->append((char*)contents, size * nmemb);
     return size * nmemb;
 }
 
 WebFetcherTool::WebFetcherTool() : Tool("web_fetcher", "Fetches the content of a given URL", {{"url", "The URL to fetch", "string", true}}) {}
 
-std::string WebFetcherTool::FetchUrl(const std::string& url) {
+std::string WebFetcherTool::FetchUrl(const std::string& url)
+{
     CURL* curl = curl_easy_init();
     if (!curl) return "Error: Failed to initialize curl";
 
@@ -32,7 +34,8 @@ std::string WebFetcherTool::FetchUrl(const std::string& url) {
     return readBuffer;
 }
 
-std::string WebFetcherTool::Invoke(const std::string& input) {
+std::string WebFetcherTool::Invoke(const std::string& input)
+{
     // input is expected to be just the URL or JSON with "url" key
     std::string url = input;
     

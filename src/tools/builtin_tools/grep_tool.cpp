@@ -16,7 +16,8 @@ static const std::set<std::string> kIgnoreDirs = {
     "dist", "build", ".tox", ".mypy_cache", ".pytest_cache"
 };
 
-static std::string ParseStringField(const std::string& json, const std::string& key) {
+static std::string ParseStringField(const std::string& json, const std::string& key)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return "";
@@ -34,7 +35,8 @@ static std::string ParseStringField(const std::string& json, const std::string& 
     return json.substr(valStart + 1, valEnd - valStart - 1);
 }
 
-static int ParseIntField(const std::string& json, const std::string& key, int defaultVal) {
+static int ParseIntField(const std::string& json, const std::string& key, int defaultVal)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return defaultVal;
@@ -45,14 +47,16 @@ static int ParseIntField(const std::string& json, const std::string& key, int de
     try { return std::stoi(json.substr(valStart)); } catch (...) { return defaultVal; }
 }
 
-static bool ParseBoolField(const std::string& json, const std::string& key, bool defaultVal) {
+static bool ParseBoolField(const std::string& json, const std::string& key, bool defaultVal)
+{
     std::string val = ParseStringField(json, key);
     if (val == "true") return true;
     if (val == "false") return false;
     return defaultVal;
 }
 
-static bool IsBinary(const std::string& content) {
+static bool IsBinary(const std::string& content)
+{
     size_t sampleLen = std::min(content.length(), size_t(4096));
     if (sampleLen == 0) return false;
     int nonText = 0;
@@ -64,7 +68,8 @@ static bool IsBinary(const std::string& content) {
     return (static_cast<double>(nonText) / sampleLen) > 0.2;
 }
 
-static bool GlobFilter(const std::string& fileName, const std::string& pattern) {
+static bool GlobFilter(const std::string& fileName, const std::string& pattern)
+{
     if (pattern.empty()) return true;
     // Simple glob match for *.ext patterns
     if (pattern.size() >= 2 && pattern[0] == '*' && pattern[1] == '.') {
@@ -92,7 +97,8 @@ GrepTool::GrepTool()
           {"context_before", "Lines of context before match", "integer", false},
           {"context_after", "Lines of context after match", "integer", false}}) {}
 
-std::string GrepTool::Invoke(const std::string& input) {
+std::string GrepTool::Invoke(const std::string& input)
+{
     std::string pattern = ParseStringField(input, "pattern");
     if (pattern.empty()) {
         return "Error: 'pattern' parameter is required";
@@ -122,7 +128,8 @@ std::string GrepTool::Invoke(const std::string& input) {
     std::regex re;
     try {
         re = std::regex(pattern, flags);
-    } catch (const std::regex_error& e) {
+    } catch (const std::regex_error& e)
+    {
         return "Error: invalid regex pattern: " + std::string(e.what());
     }
 
@@ -143,7 +150,8 @@ std::string GrepTool::Invoke(const std::string& input) {
                            headLimit, contextBefore, contextAfter, matchingFiles, blocks,
                            counts, fileMtimes, resultChars, truncated, skippedBinary, skippedLarge);
             }
-        } else if (fs::is_directory(target)) {
+        } else if (fs::is_directory(target))
+        {
             for (const auto& entry : fs::recursive_directory_iterator(target)) {
                 bool skip = false;
                 for (const auto& part : entry.path()) {
@@ -161,7 +169,8 @@ std::string GrepTool::Invoke(const std::string& input) {
                 if (truncated) break;
             }
         }
-    } catch (const std::exception& e) {
+    } catch (const std::exception& e)
+    {
         return "Error searching files: " + std::string(e.what());
     }
 
@@ -174,7 +183,8 @@ std::string GrepTool::Invoke(const std::string& input) {
             if (i > 0) oss << "\n";
             oss << matchingFiles[i];
         }
-    } else if (outputMode == "count") {
+    } else if (outputMode == "count")
+    {
         if (counts.empty()) {
             return "No matches found for pattern '" + pattern + "' in " + searchPath;
         }

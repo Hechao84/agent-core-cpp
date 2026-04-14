@@ -17,51 +17,61 @@ public:
 class TestModel : public Model {
 public:
     TestModel(ModelConfig config) : Model(std::move(config)) {}
-    std::string Format(const std::string& systemPrompt, const std::vector<Message>& messages) override {
+    std::string Format(const std::string& systemPrompt, const std::vector<Message>& messages) override
+    {
         return "formatted:" + systemPrompt;
     }
-    std::string Invoke(const std::string& formattedInput, std::function<void(const std::string&)> onChunk) override {
+    std::string Invoke(const std::string& formattedInput, std::function<void(const std::string&)> onChunk) override
+    {
         if (onChunk) onChunk("chunk");
         return "model_response";
     }
-    ModelResponse ParseResponse(const std::string& rawResponse) override {
+    ModelResponse ParseResponse(const std::string& rawResponse) override
+    {
         return {rawResponse, true, "stop"};
     }
 };
 
-TEST(resource_manager, Singleton) {
+TEST(resource_manager, Singleton)
+{
     auto& rm1 = ResourceManager::GetInstance();
     auto& rm2 = ResourceManager::GetInstance();
     TestRunner::AssertTrue(&rm1 == &rm2, "Should be the same singleton instance");
 }
 
-TEST(resource_manager, RegisterAndHasTool) {
+TEST(resource_manager, RegisterAndHasTool)
+{
     auto& rm = ResourceManager::GetInstance();
     rm.RegisterTool("my_test_tool", []() { return std::make_unique<TestTool>(); });
     TestRunner::AssertTrue(rm.HasTool("my_test_tool"));
 }
 
-TEST(resource_manager, CreateTool) {
+TEST(resource_manager, CreateTool)
+{
     auto& rm = ResourceManager::GetInstance();
     auto tool = rm.CreateTool("my_test_tool");
     TestRunner::AssertTrue(tool != nullptr);
     TestRunner::AssertEq(tool->GetName(), std::string("test_tool"));
 }
 
-TEST(resource_manager, CreateToolMissingThrows) {
+TEST(resource_manager, CreateToolMissingThrows)
+{
     auto& rm = ResourceManager::GetInstance();
     bool threw = false;
     try {
         rm.CreateTool("nonexistent_tool_xyz");
-    } catch (const std::runtime_error&) {
+    } catch (const std::runtime_error&)
+    {
         threw = true;
     }
     TestRunner::AssertTrue(threw, "Should throw for non-existent tool");
 }
 
-TEST(resource_manager, RegisterAndCreateModel) {
+TEST(resource_manager, RegisterAndCreateModel)
+{
     auto& rm = ResourceManager::GetInstance();
-    rm.RegisterModel(ModelFormatType::DEEPSEEK, [](const ModelConfig& cfg) {
+    rm.RegisterModel(ModelFormatType::DEEPSEEK, [](const ModelConfig& cfg)
+    {
         return std::make_unique<TestModel>(cfg);
     });
     TestRunner::AssertTrue(rm.HasModel(ModelFormatType::DEEPSEEK));
@@ -71,7 +81,8 @@ TEST(resource_manager, RegisterAndCreateModel) {
     TestRunner::AssertTrue(model != nullptr);
 }
 
-TEST(resource_manager, CreateModelMissingThrows) {
+TEST(resource_manager, CreateModelMissingThrows)
+{
     auto& rm = ResourceManager::GetInstance();
     // OPENAI is built-in, so it should NOT throw
     ModelConfig cfg;
@@ -80,7 +91,8 @@ TEST(resource_manager, CreateModelMissingThrows) {
     TestRunner::AssertTrue(model != nullptr, "Built-in OPENAI model should create successfully");
 }
 
-TEST(resource_manager, GetAvailableTools) {
+TEST(resource_manager, GetAvailableTools)
+{
     auto& rm = ResourceManager::GetInstance();
     auto tools = rm.GetAvailableTools();
     TestRunner::AssertTrue(tools.size() > 0, "Should have registered tools");
@@ -90,7 +102,8 @@ TEST(resource_manager, GetAvailableTools) {
     TestRunner::AssertTrue(found, "my_test_tool should be in available tools");
 }
 
-TEST(resource_manager, MCPFunctionsDontCrash) {
+TEST(resource_manager, MCPFunctionsDontCrash)
+{
     auto& rm = ResourceManager::GetInstance();
     auto servers = rm.GetAvailableMCPServers();
     TestRunner::AssertTrue(rm.HasMCPServer("nonexistent") == false);

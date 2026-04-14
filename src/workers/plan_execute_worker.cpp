@@ -5,7 +5,8 @@
 
 PlanAndExecuteAgentWorker::PlanAndExecuteAgentWorker(AgentConfig config) : AgentWorker(std::move(config)) {}
 
-std::vector<std::string> PlanAndExecuteAgentWorker::GeneratePlan(const std::string& query, std::function<void(const std::string&)> callback) {
+std::vector<std::string> PlanAndExecuteAgentWorker::GeneratePlan(const std::string& query, std::function<void(const std::string&)> callback)
+{
     std::string prompt = BuildPrompt("plan_system", query, "");
     callback("[STATUS] Generating plan...");
     std::string fullResponse;
@@ -30,7 +31,8 @@ std::vector<std::string> PlanAndExecuteAgentWorker::GeneratePlan(const std::stri
     return steps;
 }
 
-std::string PlanAndExecuteAgentWorker::ExecuteStep(const std::string& step, const std::string& context, std::function<void(const std::string&)> callback) {
+std::string PlanAndExecuteAgentWorker::ExecuteStep(const std::string& step, const std::string& context, std::function<void(const std::string&)> callback)
+{
     std::string prompt = BuildPrompt("execute_system", step, context);
     callback("[STATUS] Executing step: " + step);
     std::string fullResponse;
@@ -40,7 +42,8 @@ std::string PlanAndExecuteAgentWorker::ExecuteStep(const std::string& step, cons
     return fullResponse;
 }
 
-std::string PlanAndExecuteAgentWorker::SynthesizeResult(const std::string& query, const std::string& context, std::function<void(const std::string&)> callback) {
+std::string PlanAndExecuteAgentWorker::SynthesizeResult(const std::string& query, const std::string& context, std::function<void(const std::string&)> callback)
+{
     std::string prompt = BuildPrompt("synthesize_system", query, context);
     callback("[STATUS] Synthesizing final result...");
     std::string fullResponse;
@@ -50,7 +53,8 @@ std::string PlanAndExecuteAgentWorker::SynthesizeResult(const std::string& query
     return fullResponse;
 }
 
-void PlanAndExecuteAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback) {
+void PlanAndExecuteAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
+{
     cancelled_.store(false);
     std::vector<std::string> plan = GeneratePlan(query, callback);
     if (cancelled_.load() || plan.empty()) { callback("[STATUS] Cancelled or empty plan"); return; }

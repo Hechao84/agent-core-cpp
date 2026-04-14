@@ -8,7 +8,8 @@
 #endif
 
 // Helper function to convert local encoding (GBK/ACP) to UTF-8 (Input)
-std::string LocalToUTF8(const std::string& str) {
+std::string LocalToUTF8(const std::string& str)
+{
 #ifdef _WIN32
     try {
         int wlen = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0);
@@ -22,7 +23,8 @@ std::string LocalToUTF8(const std::string& str) {
         WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &result[0], len, NULL, NULL);
         if (!result.empty()) result.pop_back(); // Remove null terminator
         return result;
-    } catch (...) {
+    } catch (...)
+    {
         return str;
     }
 #else
@@ -31,7 +33,8 @@ std::string LocalToUTF8(const std::string& str) {
 }
 
 // Helper function to convert UTF-8 to local encoding (GBK/ACP) (Output)
-std::string UTF8ToLocal(const std::string& str) {
+std::string UTF8ToLocal(const std::string& str)
+{
 #ifdef _WIN32
     try {
         int wlen = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, NULL, 0);
@@ -45,7 +48,8 @@ std::string UTF8ToLocal(const std::string& str) {
         WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, &result[0], len, NULL, NULL);
         if (!result.empty()) result.pop_back(); // Remove null terminator
         return result;
-    } catch (...) {
+    } catch (...)
+    {
         return str;
     }
 #else
@@ -57,12 +61,14 @@ class WeatherTool : public Tool {
     public:
         WeatherTool() : Tool("weather", "Get weather information for a city", 
             {{"city", "The city name", "string", true}}) {}
-        std::string Invoke(const std::string& input) override {
+        std::string Invoke(const std::string& input) override
+        {
             return "Weather in " + input + ": Sunny, 25°C";
         }
 };
 
-int main() {
+int main()
+{
     std::cout << "Agent Framework Demo\n====================\n" << std::flush;
     std::cout << "Enter '/exit' to quit.\n" << std::flush;
     
@@ -120,7 +126,8 @@ int main() {
         std::cout << "Processing...\n";
         
         bool is_streaming = false; // Track streaming state
-        agent.Invoke(query, [&](const std::string& resp) {
+        agent.Invoke(query, [&](const std::string& resp)
+        {
             std::string s = resp;
 
             // 1. Remove stream tags [STREAM] and [STREAM] 

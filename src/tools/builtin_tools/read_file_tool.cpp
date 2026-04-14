@@ -9,7 +9,8 @@ namespace fs = std::filesystem;
 static const int kMaxChars = 128000;
 static const int kDefaultLimit = 2000;
 
-static std::string ParseStringField(const std::string& json, const std::string& key) {
+static std::string ParseStringField(const std::string& json, const std::string& key)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return "";
@@ -31,7 +32,8 @@ static std::string ParseStringField(const std::string& json, const std::string& 
     return json.substr(valStart + 1, valEnd - valStart - 1);
 }
 
-static int ParseIntField(const std::string& json, const std::string& key, int defaultVal) {
+static int ParseIntField(const std::string& json, const std::string& key, int defaultVal)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return defaultVal;
@@ -41,7 +43,8 @@ static int ParseIntField(const std::string& json, const std::string& key, int de
     if (valStart == std::string::npos) return defaultVal;
     try {
         return std::stoi(json.substr(valStart));
-    } catch (...) {
+    } catch (...)
+    {
         return defaultVal;
     }
 }
@@ -55,7 +58,8 @@ ReadFileTool::ReadFileTool()
           {"offset", "1-based line number to start from", "integer", false},
           {"limit", "Maximum lines to read (default 2000)", "integer", false}}) {}
 
-std::string ReadFileTool::Invoke(const std::string& input) {
+std::string ReadFileTool::Invoke(const std::string& input)
+{
     std::string filePath = ParseStringField(input, "path");
     if (filePath.empty()) {
         return "Error: 'path' parameter is required";

@@ -4,7 +4,8 @@
 
 namespace fs = std::filesystem;
 
-static std::string ParseStringField(const std::string& json, const std::string& key) {
+static std::string ParseStringField(const std::string& json, const std::string& key)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return "";
@@ -31,7 +32,8 @@ WriteFileTool::WriteFileTool()
          {{"path", "The file path to write to", "string", true},
           {"content", "The content to write", "string", true}}) {}
 
-std::string WriteFileTool::Invoke(const std::string& input) {
+std::string WriteFileTool::Invoke(const std::string& input)
+{
     std::string filePath = ParseStringField(input, "path");
     if (filePath.empty()) {
         return "Error: 'path' parameter is required";
@@ -79,7 +81,8 @@ std::string WriteFileTool::Invoke(const std::string& input) {
         file.close();
         return "Successfully wrote " + std::to_string(content.length()) +
                " characters to " + filePath;
-    } catch (const std::exception& e) {
+    } catch (const std::exception& e)
+    {
         return "Error writing file: " + std::string(e.what());
     }
 }

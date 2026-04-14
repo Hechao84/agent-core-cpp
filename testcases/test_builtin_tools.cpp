@@ -8,7 +8,8 @@
 
 // Helper function to convert local encoding to UTF-8 (Input for Agent)
 // Crucial for Windows console Chinese input support
-std::string LocalToUTF8(const std::string& str) {
+std::string LocalToUTF8(const std::string& str)
+{
 #ifdef _WIN32
     int wlen = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0);
     if (wlen <= 0) return str;
@@ -24,14 +25,16 @@ std::string LocalToUTF8(const std::string& str) {
     return str;
 }
 
-void RunTestQuery(Agent& agent, const std::string& query) {
+void RunTestQuery(Agent& agent, const std::string& query)
+{
     std::cout << "\n========================================\n"
               << "[TEST] Query: " << query << "\n"
               << "========================================" << std::endl;
               
     std::string utf8Query = LocalToUTF8(query);
 
-    agent.Invoke(utf8Query, [](const std::string& resp) {
+    agent.Invoke(utf8Query, [](const std::string& resp)
+    {
         bool isStream = (resp.find("[STREAM]") == 0);
         if (isStream) {
             std::string content = resp;
@@ -45,7 +48,8 @@ void RunTestQuery(Agent& agent, const std::string& query) {
     std::cout << "\n" << std::endl;
 }
 
-int main() {
+int main()
+{
     std::cout << "=== Running Testcases for Builtin Tools & Skills ===\n" << std::flush;
     std::cout << "[INFO] Checking Skills directory: ./my_skills\n" << std::flush;
 

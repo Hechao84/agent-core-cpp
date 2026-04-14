@@ -5,7 +5,8 @@
 
 namespace fs = std::filesystem;
 
-static std::string ParseStringField(const std::string& json, const std::string& key) {
+static std::string ParseStringField(const std::string& json, const std::string& key)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return "";
@@ -23,7 +24,8 @@ static std::string ParseStringField(const std::string& json, const std::string& 
     return json.substr(valStart + 1, valEnd - valStart - 1);
 }
 
-static int ParseIntField(const std::string& json, const std::string& key, int defaultVal) {
+static int ParseIntField(const std::string& json, const std::string& key, int defaultVal)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return defaultVal;
@@ -46,7 +48,8 @@ NotebookEditTool::NotebookEditTool()
           {"cell_type", "Cell type: code or markdown", "string", false},
           {"edit_mode", "Mode: replace, insert, or delete", "string", false}}) {}
 
-std::string NotebookEditTool::Invoke(const std::string& input) {
+std::string NotebookEditTool::Invoke(const std::string& input)
+{
     std::string filePath = ParseStringField(input, "path");
     if (filePath.empty()) {
         return "Error: 'path' parameter is required";
@@ -164,7 +167,8 @@ std::string NotebookEditTool::Invoke(const std::string& input) {
     return "Successfully edited cell " + std::to_string(cellIndex) + " in " + filePath;
 }
 
-std::string NotebookEditTool::EscapeJson(const std::string& input) {
+std::string NotebookEditTool::EscapeJson(const std::string& input)
+{
     std::string result;
     for (char c : input) {
         if (c == '"') result += "\\\"";
@@ -177,7 +181,8 @@ std::string NotebookEditTool::EscapeJson(const std::string& input) {
     return result;
 }
 
-std::string NotebookEditTool::CreateCell(const std::string& cellType, const std::string& source) {
+std::string NotebookEditTool::CreateCell(const std::string& cellType, const std::string& source)
+{
     std::string escaped = EscapeJson(source);
     if (cellType == "code") {
         return "    {\n"
@@ -196,7 +201,8 @@ std::string NotebookEditTool::CreateCell(const std::string& cellType, const std:
     }
 }
 
-std::string NotebookEditTool::CreateEmptyNotebook(const std::string& cellType, const std::string& source) {
+std::string NotebookEditTool::CreateEmptyNotebook(const std::string& cellType, const std::string& source)
+{
     return "{\n"
            " \"nbformat\": 4,\n"
            " \"nbformat_minor\": 5,\n"
@@ -209,7 +215,8 @@ std::string NotebookEditTool::CreateEmptyNotebook(const std::string& cellType, c
            "}";
 }
 
-void NotebookEditTool::ExtractCells(const std::string& content, std::vector<std::string>& cells) {
+void NotebookEditTool::ExtractCells(const std::string& content, std::vector<std::string>& cells)
+{
     size_t cellsStart = content.find("\"cells\"");
     if (cellsStart == std::string::npos) return;
     size_t arrayStart = content.find('[', cellsStart);
@@ -225,22 +232,26 @@ void NotebookEditTool::ExtractCells(const std::string& content, std::vector<std:
         if (c == '{') {
             if (depth == 1) cellStart = pos;
             cellDepth++;
-        } else if (c == '}') {
+        } else if (c == '}')
+        {
             cellDepth--;
             if (cellDepth == 0 && cellStart != std::string::npos) {
                 cells.push_back(content.substr(cellStart, pos - cellStart + 1));
                 cellStart = std::string::npos;
             }
-        } else if (c == '[') {
+        } else if (c == '[')
+        {
             depth++;
-        } else if (c == ']') {
+        } else if (c == ']')
+        {
             depth--;
         }
         pos++;
     }
 }
 
-void NotebookEditTool::WriteNotebook(const std::string& filePath, const std::vector<std::string>& cells, const std::string& originalContent) {
+void NotebookEditTool::WriteNotebook(const std::string& filePath, const std::vector<std::string>& cells, const std::string& originalContent)
+{
     size_t cellsStart = originalContent.find("\"cells\"");
     size_t arrayStart = originalContent.find('[', cellsStart);
     if (arrayStart == std::string::npos) return;

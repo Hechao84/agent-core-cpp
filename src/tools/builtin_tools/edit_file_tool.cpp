@@ -6,7 +6,8 @@
 
 namespace fs = std::filesystem;
 
-static std::string ParseStringField(const std::string& json, const std::string& key) {
+static std::string ParseStringField(const std::string& json, const std::string& key)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return "";
@@ -37,7 +38,8 @@ static std::string ParseStringField(const std::string& json, const std::string& 
     return result;
 }
 
-static bool ParseBoolField(const std::string& json, const std::string& key, bool defaultVal) {
+static bool ParseBoolField(const std::string& json, const std::string& key, bool defaultVal)
+{
     std::string val = ParseStringField(json, key);
     if (val == "true") return true;
     if (val == "false") return false;
@@ -54,7 +56,8 @@ EditFileTool::EditFileTool()
           {"new_text", "The new text to replace with", "string", true},
           {"replace_all", "Replace all occurrences (default false)", "boolean", false}}) {}
 
-std::string EditFileTool::Invoke(const std::string& input) {
+std::string EditFileTool::Invoke(const std::string& input)
+{
     std::string filePath = ParseStringField(input, "path");
     if (filePath.empty()) {
         return "Error: 'path' parameter is required";

@@ -8,7 +8,8 @@ std::string Tool::GetName() const { return name_; }
 std::string Tool::GetDescription() const { return description_; }
 std::vector<ToolParam> Tool::GetParams() const { return params_; }
 
-std::string Tool::GetSchema() const {
+std::string Tool::GetSchema() const
+{
     std::ostringstream oss;
     oss << "Tool: " << name_ << "\n";
     oss << "Description: " << description_ << "\n";

@@ -21,17 +21,20 @@
 #include <algorithm>
 #include <stdexcept>
 
-ResourceManager& ResourceManager::GetInstance() {
+ResourceManager& ResourceManager::GetInstance()
+{
     static ResourceManager instance;
     return instance;
 }
 
-ResourceManager::ResourceManager() {
+ResourceManager::ResourceManager()
+{
     RegisterBuiltinTools();
     RegisterBuiltinModels();
 }
 
-void ResourceManager::RegisterBuiltinTools() {
+void ResourceManager::RegisterBuiltinTools()
+{
     RegisterTool("time_info", []() { return std::make_unique<TimeInfoTool>(); });
     RegisterTool("web_search", []() { return std::make_unique<WebSearchTool>(); });
     RegisterTool("web_fetcher", []() { return std::make_unique<WebFetcherTool>(); });
@@ -46,50 +49,59 @@ void ResourceManager::RegisterBuiltinTools() {
     RegisterTool("file_state", []() { return std::make_unique<FileStateTool>(); });
 }
 
-void ResourceManager::RegisterBuiltinModels() {
+void ResourceManager::RegisterBuiltinModels()
+{
     RegisterModel(ModelFormatType::OPENAI, [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
     RegisterModel(ModelFormatType::ANTHROPIC, [](const ModelConfig& cfg) { return std::make_unique<AnthropicModel>(cfg); });
     RegisterModel(ModelFormatType::DEEPSEEK, [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
     RegisterModel(ModelFormatType::DASHSCOPE, [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
 }
 
-void ResourceManager::RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory) {
+void ResourceManager::RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory)
+{
     toolFactories_[name] = std::move(factory);
 }
 
-void ResourceManager::RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory) {
+void ResourceManager::RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory)
+{
     modelFactories_[type] = std::move(factory);
 }
 
-void ResourceManager::RegisterMCPServer(const std::string& name, std::shared_ptr<MCPServer> server) {
+void ResourceManager::RegisterMCPServer(const std::string& name, std::shared_ptr<MCPServer> server)
+{
     mcpServers_[name] = std::move(server);
 }
 
-std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name) {
+std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
+{
     auto it = toolFactories_.find(name);
     if (it != toolFactories_.end()) return it->second();
     throw std::runtime_error("Tool not found: " + name);
 }
 
-std::unique_ptr<Model> ResourceManager::CreateModel(const ModelConfig& config) {
+std::unique_ptr<Model> ResourceManager::CreateModel(const ModelConfig& config)
+{
     auto it = modelFactories_.find(config.formatType);
     if (it != modelFactories_.end()) return it->second(config);
     throw std::runtime_error("Model format not registered");
 }
 
-std::shared_ptr<MCPServer> ResourceManager::GetMCPServer(const std::string& name) {
+std::shared_ptr<MCPServer> ResourceManager::GetMCPServer(const std::string& name)
+{
     auto it = mcpServers_.find(name);
     if (it != mcpServers_.end()) return it->second;
     return nullptr;
 }
 
-std::vector<std::string> ResourceManager::GetAvailableTools() const {
+std::vector<std::string> ResourceManager::GetAvailableTools() const
+{
     std::vector<std::string> names;
     for (const auto& p : toolFactories_) names.push_back(p.first);
     return names;
 }
 
-std::vector<std::string> ResourceManager::GetAvailableModels() const {
+std::vector<std::string> ResourceManager::GetAvailableModels() const
+{
     std::vector<std::string> names;
     std::unordered_map<ModelFormatType, std::string> typeMap = {
         {ModelFormatType::OPENAI, "openai"}, {ModelFormatType::ANTHROPIC, "anthropic"},
@@ -101,7 +113,8 @@ std::vector<std::string> ResourceManager::GetAvailableModels() const {
     return names;
 }
 
-std::vector<std::string> ResourceManager::GetAvailableMCPServers() const {
+std::vector<std::string> ResourceManager::GetAvailableMCPServers() const
+{
     std::vector<std::string> names;
     for (const auto& p : mcpServers_) names.push_back(p.first);
     return names;

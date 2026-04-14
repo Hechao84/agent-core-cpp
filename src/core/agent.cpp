@@ -6,7 +6,8 @@
 #include <iostream>
 #include <algorithm>
 
-Agent::Agent(AgentConfig config) : config_(std::move(config)) {
+Agent::Agent(AgentConfig config) : config_(std::move(config))
+{
     // 1. Initialize Context Engine based on config
     contextEngine_ = std::make_shared<ContextEngine>(config_.contextConfig);
     contextEngine_->Initialize();
@@ -29,7 +30,8 @@ Agent::Agent(AgentConfig config) : config_(std::move(config)) {
 
 Agent::~Agent() = default;
 
-void Agent::Invoke(const std::string& query, std::function<void(const std::string&)> callback) {
+void Agent::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
+{
     if (!worker_ || !contextEngine_) {
         callback("Error: Agent not initialized");
         return;
@@ -40,7 +42,8 @@ void Agent::Invoke(const std::string& query, std::function<void(const std::strin
 
     // 2. Intercept response to save it to Context
     std::string accumulatedResponse;
-    auto wrappedCallback = [this, &accumulatedResponse, callback](const std::string& chunk) {
+    auto wrappedCallback = [this, &accumulatedResponse, callback](const std::string& chunk)
+    {
         accumulatedResponse += chunk;
         callback(chunk);
     };
@@ -53,13 +56,15 @@ void Agent::Invoke(const std::string& query, std::function<void(const std::strin
     contextEngine_->AddMessage({"assistant", accumulatedResponse});
 }
 
-void Agent::Cancel() {
+void Agent::Cancel()
+{
     if (worker_) {
         worker_->Cancel();
     }
 }
 
-void Agent::AddTools(const std::vector<std::string>& toolNames) {
+void Agent::AddTools(const std::vector<std::string>& toolNames)
+{
     // 1. Agent updates its Master List (Source of Truth)
     for (const auto& name : toolNames) {
         bool exists = std::find(toolNames_.begin(), toolNames_.end(), name) != toolNames_.end();
@@ -74,6 +79,7 @@ void Agent::AddTools(const std::vector<std::string>& toolNames) {
     }
 }
 
-std::vector<std::string> Agent::GetRegisteredTools() const {
+std::vector<std::string> Agent::GetRegisteredTools() const
+{
     return toolNames_;
 }

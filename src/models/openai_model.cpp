@@ -13,7 +13,8 @@ struct StreamContext {
     std::string buffer;
 };
 
-static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+{
     size_t totalSize = size * nmemb;
     auto* ctx = static_cast<StreamContext*>(userp);
     ctx->buffer.append(static_cast<char*>(contents), totalSize);
@@ -49,7 +50,8 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* use
                         break;
                     }
                 }
-            } catch (const std::exception& e) {
+            } catch (const std::exception& e)
+            {
                 std::cerr << "[OpenAI] JSON Parse Error: " << e.what() << std::endl;
             }
         }
@@ -57,7 +59,8 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* use
     return totalSize;
 }
 
-std::string OpenAIModel::Format(const std::string& systemPrompt, const std::vector<Message>& messages) {
+std::string OpenAIModel::Format(const std::string& systemPrompt, const std::vector<Message>& messages)
+{
     json payload;
     payload["model"] = config_.modelName;
     payload["stream"] = true;
@@ -74,7 +77,8 @@ std::string OpenAIModel::Format(const std::string& systemPrompt, const std::vect
     return payload.dump();
 }
 
-std::string OpenAIModel::Invoke(const std::string& formattedInput, std::function<void(const std::string&)> onChunk) {
+std::string OpenAIModel::Invoke(const std::string& formattedInput, std::function<void(const std::string&)> onChunk)
+{
     CURL* curl = curl_easy_init();
     if (!curl) return "Error: CURL init failed";
 
@@ -103,6 +107,7 @@ std::string OpenAIModel::Invoke(const std::string& formattedInput, std::function
     return result;
 }
 
-ModelResponse OpenAIModel::ParseResponse(const std::string& rawResponse) {
+ModelResponse OpenAIModel::ParseResponse(const std::string& rawResponse)
+{
     return {rawResponse, true, "stop"};
 }

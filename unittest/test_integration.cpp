@@ -17,7 +17,8 @@ namespace fs = std::filesystem;
 // Integration: Tool Registration & Execution
 // ============================================
 
-TEST(integration, RegisterAndExecuteBuiltinTools) {
+TEST(integration, RegisterAndExecuteBuiltinTools)
+{
     auto& rm = ResourceManager::GetInstance();
 
     // Verify each tool is registered and can be created
@@ -36,13 +37,15 @@ TEST(integration, RegisterAndExecuteBuiltinTools) {
     }
 }
 
-TEST(integration, TimeInfoToolExecute) {
+TEST(integration, TimeInfoToolExecute)
+{
     TimeInfoTool tool;
     std::string result = tool.Invoke("");
     TestRunner::AssertTrue(result.find("-") != std::string::npos || result.find("/") != std::string::npos, "Should contain date");
 }
 
-TEST(integration, WriteThenReadFile) {
+TEST(integration, WriteThenReadFile)
+{
     std::string testDir = "test_tmp_integration";
     if (fs::exists(testDir)) fs::remove_all(testDir);
     fs::create_directories(testDir);
@@ -58,7 +61,8 @@ TEST(integration, WriteThenReadFile) {
     fs::remove_all(testDir);
 }
 
-TEST(integration, ListDirWithFiles) {
+TEST(integration, ListDirWithFiles)
+{
     std::string testDir = "test_tmp_integration_ls";
     if (fs::exists(testDir)) fs::remove_all(testDir);
     fs::create_directories(testDir);
@@ -77,7 +81,8 @@ TEST(integration, ListDirWithFiles) {
 // Integration: Context Persistence
 // ============================================
 
-TEST(integration, ContextEngineMemoryRoundTrip) {
+TEST(integration, ContextEngineMemoryRoundTrip)
+{
     ContextConfig config;
     config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
     config.maxContextTokens = 10000;
@@ -105,7 +110,8 @@ TEST(integration, ContextEngineMemoryRoundTrip) {
 // Integration: Tool Schema Generation
 // ============================================
 
-TEST(integration, ToolSchemaIsPopulated) {
+TEST(integration, ToolSchemaIsPopulated)
+{
     ReadFileTool tool;
     std::string schema = tool.GetSchema();
     TestRunner::AssertContains(schema, "Tool: read_file");
@@ -117,7 +123,8 @@ TEST(integration, ToolSchemaIsPopulated) {
 // Integration: Agent Creation
 // ============================================
 
-TEST(integration, AgentCreateAndCancel) {
+TEST(integration, AgentCreateAndCancel)
+{
     AgentConfig config;
     config.id = "test_agent";
     config.mode = AgentWorkMode::PLAN_AND_EXECUTE; // Use P&E to avoid model calls

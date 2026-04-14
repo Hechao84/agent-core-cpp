@@ -5,7 +5,8 @@
 
 WorkflowAgentWorker::WorkflowAgentWorker(AgentConfig config) : AgentWorker(std::move(config)) {}
 
-std::vector<WorkflowNode> WorkflowAgentWorker::ParseWorkflowConfig() {
+std::vector<WorkflowNode> WorkflowAgentWorker::ParseWorkflowConfig()
+{
     // TODO: Load from config when workflowSteps is added back
     std::vector<WorkflowNode> nodes;
     WorkflowNode defaultNode;
@@ -15,7 +16,8 @@ std::vector<WorkflowNode> WorkflowAgentWorker::ParseWorkflowConfig() {
     return nodes;
 }
 
-std::string WorkflowAgentWorker::ExecuteNode(const WorkflowNode& node, const std::string& input, std::function<void(const std::string&)> callback) {
+std::string WorkflowAgentWorker::ExecuteNode(const WorkflowNode& node, const std::string& input, std::function<void(const std::string&)> callback)
+{
     std::string promptTemplate = node.promptTemplate;
     size_t pos = promptTemplate.find("{query}");
     while (pos != std::string::npos) { promptTemplate.replace(pos, 7, input); pos = promptTemplate.find("{query}"); }
@@ -29,7 +31,8 @@ std::string WorkflowAgentWorker::ExecuteNode(const WorkflowNode& node, const std
     return fullResponse;
 }
 
-void WorkflowAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback) {
+void WorkflowAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
+{
     cancelled_.store(false);
     std::vector<WorkflowNode> nodes = ParseWorkflowConfig();
     if (nodes.empty()) { callback("[ERROR] No workflow nodes"); return; }

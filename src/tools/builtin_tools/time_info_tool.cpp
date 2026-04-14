@@ -4,7 +4,8 @@
 
 TimeInfoTool::TimeInfoTool() : Tool("time_info", "Get the current date and time", {}) {}
 
-std::string TimeInfoTool::Invoke(const std::string& /*input*/) {
+std::string TimeInfoTool::Invoke(const std::string& /*input*/)
+{
     std::time_t now = std::time(nullptr);
     char buf[100];
     std::tm *t = std::localtime(&now);

@@ -11,7 +11,8 @@
 namespace fs = std::filesystem;
 
 // TimeInfoTool Tests
-TEST(time_info_tool, ReturnsTime) {
+TEST(time_info_tool, ReturnsTime)
+{
     TimeInfoTool tool;
     std::string result = tool.Invoke("");
     // Should contain year, month, day pattern like "YYYY-MM-DD"
@@ -21,7 +22,8 @@ TEST(time_info_tool, ReturnsTime) {
     TestRunner::AssertContains(result, ":");
 }
 
-TEST(time_info_tool, IgnoresInput) {
+TEST(time_info_tool, IgnoresInput)
+{
     TimeInfoTool tool;
     std::string r1 = tool.Invoke("");
     std::string r2 = tool.Invoke("anything at all");
@@ -34,42 +36,48 @@ TEST(time_info_tool, IgnoresInput) {
 }
 
 // ExecTool Tests - only test safety guard (platform-independent logic)
-TEST(exec_tool, MissingCommand) {
+TEST(exec_tool, MissingCommand)
+{
     ExecTool tool;
     std::string result = tool.Invoke("{\"timeout\":10}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "command");
 }
 
-TEST(exec_tool, BlocksRmRf) {
+TEST(exec_tool, BlocksRmRf)
+{
     ExecTool tool;
     std::string result = tool.Invoke("{\"command\":\"rm -rf /important\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "blocked");
 }
 
-TEST(exec_tool, BlocksFormat) {
+TEST(exec_tool, BlocksFormat)
+{
     ExecTool tool;
     std::string result = tool.Invoke("{\"command\":\"format C:\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "blocked");
 }
 
-TEST(exec_tool, BlocksShutdown) {
+TEST(exec_tool, BlocksShutdown)
+{
     ExecTool tool;
     std::string result = tool.Invoke("{\"command\":\"shutdown /r\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "blocked");
 }
 
-TEST(exec_tool, BlocksDiskpart) {
+TEST(exec_tool, BlocksDiskpart)
+{
     ExecTool tool;
     std::string result = tool.Invoke("{\"command\":\"diskpart clean disk\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "blocked");
 }
 
-TEST(exec_tool, AllowsSafeCommands) {
+TEST(exec_tool, AllowsSafeCommands)
+{
     ExecTool tool;
     // echo is a safe cross-platform command on both Win and Linux
     std::string result = tool.Invoke("{\"command\":\"echo hello\",\"timeout\":10}");
@@ -80,7 +88,8 @@ TEST(exec_tool, AllowsSafeCommands) {
 // FileStateTool Tests
 static std::string GetStateDir() { return "test_tmp_filestate"; }
 
-TEST(file_state_tool, ClearAction) {
+TEST(file_state_tool, ClearAction)
+{
     std::string stateDir = GetStateDir() + "/state1.dat";
     if (fs::exists(stateDir)) fs::remove(stateDir);
     FileStateTool tool;
@@ -89,14 +98,16 @@ TEST(file_state_tool, ClearAction) {
     TestRunner::AssertContains(result, "Cleared all file state");
 }
 
-TEST(file_state_tool, UnknownAction) {
+TEST(file_state_tool, UnknownAction)
+{
     FileStateTool tool;
     std::string result = tool.Invoke("{\"action\":\"unknown\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "Unknown action");
 }
 
-TEST(file_state_tool, RecordReadMissingFile) {
+TEST(file_state_tool, RecordReadMissingFile)
+{
     FileStateTool tool;
     std::string result = tool.Invoke("{\"action\":\"record_read\",\"path\":\"nonexistent_file_12345.txt\"}");
     TestRunner::AssertContains(result, "Error");
@@ -106,35 +117,40 @@ TEST(file_state_tool, RecordReadMissingFile) {
 // NotebookEditTool Tests
 static std::string GetNbDir() { return "test_tmp_notebook"; }
 
-TEST(notebook_edit_tool, MissingPath) {
+TEST(notebook_edit_tool, MissingPath)
+{
     NotebookEditTool tool;
     std::string result = tool.Invoke("{\"cell_index\":0,\"new_source\":\"test\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "path");
 }
 
-TEST(notebook_edit_tool, WrongExtension) {
+TEST(notebook_edit_tool, WrongExtension)
+{
     NotebookEditTool tool;
     std::string result = tool.Invoke("{\"path\":\"test.txt\",\"cell_index\":0}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, ".ipynb");
 }
 
-TEST(notebook_edit_tool, InvalidEditMode) {
+TEST(notebook_edit_tool, InvalidEditMode)
+{
     NotebookEditTool tool;
     std::string result = tool.Invoke("{\"path\":\"test.ipynb\",\"cell_index\":0,\"edit_mode\":\"invalid\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "Invalid edit_mode");
 }
 
-TEST(notebook_edit_tool, InvalidCellType) {
+TEST(notebook_edit_tool, InvalidCellType)
+{
     NotebookEditTool tool;
     std::string result = tool.Invoke("{\"path\":\"test.ipynb\",\"cell_index\":0,\"cell_type\":\"html\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "Invalid cell_type");
 }
 
-TEST(notebook_edit_tool, CreateNewNotebook) {
+TEST(notebook_edit_tool, CreateNewNotebook)
+{
     if (fs::exists(GetNbDir())) fs::remove_all(GetNbDir());
     fs::create_directories(GetNbDir());
     std::string path = GetNbDir() + "/new.ipynb";
@@ -149,7 +165,8 @@ TEST(notebook_edit_tool, CreateNewNotebook) {
     if (fs::exists(GetNbDir())) fs::remove_all(GetNbDir());
 }
 
-TEST(notebook_edit_tool, DeleteCell) {
+TEST(notebook_edit_tool, DeleteCell)
+{
     if (fs::exists(GetNbDir())) fs::remove_all(GetNbDir());
     fs::create_directories(GetNbDir());
     std::string path = GetNbDir() + "/del.ipynb";

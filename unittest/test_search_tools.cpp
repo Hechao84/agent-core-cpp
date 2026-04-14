@@ -10,7 +10,8 @@ namespace fs = std::filesystem;
 
 static std::string GetTestDir() { return "test_tmp_listdir"; }
 
-static void SetupTestDir() {
+static void SetupTestDir()
+{
     if (fs::exists(GetTestDir())) fs::remove_all(GetTestDir());
     fs::create_directories(GetTestDir() + "/sub1");
     fs::create_directories(GetTestDir() + "/sub2");
@@ -22,33 +23,38 @@ static void SetupTestDir() {
     std::ofstream(GetTestDir() + "/.git/config") << "x";
 }
 
-static void CleanupTestDir() {
+static void CleanupTestDir()
+{
     if (fs::exists(GetTestDir())) fs::remove_all(GetTestDir());
 }
 
 // ListDirTool Tests
-TEST(list_dir_tool, MissingPath) {
+TEST(list_dir_tool, MissingPath)
+{
     ListDirTool tool;
     std::string result = tool.Invoke("{\"recursive\":false}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "path");
 }
 
-TEST(list_dir_tool, PathNotFound) {
+TEST(list_dir_tool, PathNotFound)
+{
     ListDirTool tool;
     std::string result = tool.Invoke("{\"path\":\"nonexistent_dir_12345\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "not found");
 }
 
-TEST(list_dir_tool, NotADir) {
+TEST(list_dir_tool, NotADir)
+{
     ListDirTool tool;
     std::string result = tool.Invoke("{\"path\":\"CMakeLists.txt\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "Not a directory");
 }
 
-TEST(list_dir_tool, ListsDir) {
+TEST(list_dir_tool, ListsDir)
+{
     SetupTestDir();
     ListDirTool tool;
     std::string result = tool.Invoke("{\"path\":\"test_tmp_listdir\"}");
@@ -61,7 +67,8 @@ TEST(list_dir_tool, ListsDir) {
     CleanupTestDir();
 }
 
-TEST(list_dir_tool, Recursive) {
+TEST(list_dir_tool, Recursive)
+{
     SetupTestDir();
     ListDirTool tool;
     std::string result = tool.Invoke("{\"path\":\"test_tmp_listdir\",\"recursive\":true}");
@@ -72,7 +79,8 @@ TEST(list_dir_tool, Recursive) {
     CleanupTestDir();
 }
 
-TEST(list_dir_tool, MaxEntries) {
+TEST(list_dir_tool, MaxEntries)
+{
     SetupTestDir();
     ListDirTool tool;
     std::string result = tool.Invoke("{\"path\":\"test_tmp_listdir\",\"recursive\":true,\"max_entries\":2}");
@@ -82,14 +90,16 @@ TEST(list_dir_tool, MaxEntries) {
 }
 
 // GlobTool Tests
-TEST(glob_tool, MissingPattern) {
+TEST(glob_tool, MissingPattern)
+{
     GlobTool tool;
     std::string result = tool.Invoke("{\"path\":\".\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "pattern");
 }
 
-TEST(glob_tool, MatchesFiles) {
+TEST(glob_tool, MatchesFiles)
+{
     SetupTestDir();
     GlobTool tool;
     std::string result = tool.Invoke("{\"path\":\"test_tmp_listdir\",\"pattern\":\"*.cpp\"}");
@@ -98,7 +108,8 @@ TEST(glob_tool, MatchesFiles) {
     CleanupTestDir();
 }
 
-TEST(glob_tool, MatchesRecursivePattern) {
+TEST(glob_tool, MatchesRecursivePattern)
+{
     SetupTestDir();
     GlobTool tool;
     std::string result = tool.Invoke("{\"path\":\"test_tmp_listdir\",\"pattern\":\"**/*.py\"}");
@@ -106,7 +117,8 @@ TEST(glob_tool, MatchesRecursivePattern) {
     CleanupTestDir();
 }
 
-TEST(glob_tool, NoMatch) {
+TEST(glob_tool, NoMatch)
+{
     SetupTestDir();
     GlobTool tool;
     std::string result = tool.Invoke("{\"path\":\"test_tmp_listdir\",\"pattern\":\"*.xyz\"}");
@@ -115,14 +127,16 @@ TEST(glob_tool, NoMatch) {
 }
 
 // GrepTool Tests
-TEST(grep_tool, MissingPattern) {
+TEST(grep_tool, MissingPattern)
+{
     GrepTool tool;
     std::string result = tool.Invoke("{\"path\":\".\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "pattern");
 }
 
-TEST(grep_tool, InvalidRegex) {
+TEST(grep_tool, InvalidRegex)
+{
     SetupTestDir();
     GrepTool tool;
     std::string result = tool.Invoke("{\"path\":\"test_tmp_listdir\",\"pattern\":\"[invalid\"}");
@@ -131,7 +145,8 @@ TEST(grep_tool, InvalidRegex) {
     CleanupTestDir();
 }
 
-TEST(grep_tool, FilesWithMatches) {
+TEST(grep_tool, FilesWithMatches)
+{
     SetupTestDir();
     GrepTool tool;
     std::string result = tool.Invoke("{\"path\":\"test_tmp_listdir\",\"pattern\":\"b\",\"output_mode\":\"files_with_matches\"}");
@@ -140,7 +155,8 @@ TEST(grep_tool, FilesWithMatches) {
     CleanupTestDir();
 }
 
-TEST(grep_tool, ContentMode) {
+TEST(grep_tool, ContentMode)
+{
     SetupTestDir();
     GrepTool tool;
     std::string result = tool.Invoke("{\"path\":\"test_tmp_listdir\",\"pattern\":\"b\",\"output_mode\":\"content\"}");
@@ -148,7 +164,8 @@ TEST(grep_tool, ContentMode) {
     CleanupTestDir();
 }
 
-TEST(grep_tool, CountMode) {
+TEST(grep_tool, CountMode)
+{
     SetupTestDir();
     GrepTool tool;
     std::string result = tool.Invoke("{\"path\":\"test_tmp_listdir\",\"pattern\":\"b\",\"output_mode\":\"count\"}");
@@ -156,7 +173,8 @@ TEST(grep_tool, CountMode) {
     CleanupTestDir();
 }
 
-TEST(grep_tool, NoMatches) {
+TEST(grep_tool, NoMatches)
+{
     SetupTestDir();
     GrepTool tool;
     std::string result = tool.Invoke("{\"path\":\"test_tmp_listdir\",\"pattern\":\"zzzznotfound\"}");

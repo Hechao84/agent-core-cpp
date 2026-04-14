@@ -14,7 +14,8 @@ static const std::set<std::string> kIgnoreDirs = {
 };
 static const int kDefaultMax = 200;
 
-static std::string ParseStringField(const std::string& json, const std::string& key) {
+static std::string ParseStringField(const std::string& json, const std::string& key)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return "";
@@ -34,7 +35,8 @@ static std::string ParseStringField(const std::string& json, const std::string& 
     return json.substr(valStart + 1, valEnd - valStart - 1);
 }
 
-static bool ParseBoolField(const std::string& json, const std::string& key, bool defaultVal) {
+static bool ParseBoolField(const std::string& json, const std::string& key, bool defaultVal)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return defaultVal;
@@ -47,7 +49,8 @@ static bool ParseBoolField(const std::string& json, const std::string& key, bool
     return defaultVal;
 }
 
-static int ParseIntField(const std::string& json, const std::string& key, int defaultVal) {
+static int ParseIntField(const std::string& json, const std::string& key, int defaultVal)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return defaultVal;
@@ -67,7 +70,8 @@ ListDirTool::ListDirTool()
           {"recursive", "Recursively list all files", "boolean", false},
           {"max_entries", "Maximum entries to return", "integer", false}}) {}
 
-std::string ListDirTool::Invoke(const std::string& input) {
+std::string ListDirTool::Invoke(const std::string& input)
+{
     std::string dirPath = ParseStringField(input, "path");
     if (dirPath.empty()) {
         return "Error: 'path' parameter is required";

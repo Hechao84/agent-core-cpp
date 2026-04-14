@@ -3,7 +3,8 @@
 #include <string>
 #include <vector>
 
-TEST(tool_selector, AddToPool) {
+TEST(tool_selector, AddToPool)
+{
     ToolSelector selector;
     selector.AddToolToPool("tool_a");
     selector.AddToolToPool("tool_b");
@@ -11,7 +12,8 @@ TEST(tool_selector, AddToPool) {
     TestRunner::AssertEq(pool.size(), size_t(2));
 }
 
-TEST(tool_selector, NoDuplicates) {
+TEST(tool_selector, NoDuplicates)
+{
     ToolSelector selector;
     selector.AddToolToPool("tool_a");
     selector.AddToolToPool("tool_a");
@@ -20,7 +22,8 @@ TEST(tool_selector, NoDuplicates) {
     TestRunner::AssertEq(pool.size(), size_t(1));
 }
 
-TEST(tool_selector, RemoveFromPool) {
+TEST(tool_selector, RemoveFromPool)
+{
     ToolSelector selector;
     selector.AddToolToPool("tool_a");
     selector.AddToolToPool("tool_b");
@@ -30,7 +33,8 @@ TEST(tool_selector, RemoveFromPool) {
     TestRunner::AssertEq(pool[0], std::string("tool_b"));
 }
 
-TEST(tool_selector, RemoveNonexistent) {
+TEST(tool_selector, RemoveNonexistent)
+{
     ToolSelector selector;
     selector.AddToolToPool("tool_a");
     selector.RemoveToolFromPool("nonexistent"); // Should not crash
@@ -38,7 +42,8 @@ TEST(tool_selector, RemoveNonexistent) {
     TestRunner::AssertEq(pool.size(), size_t(1));
 }
 
-TEST(tool_selector, SelectTopTools) {
+TEST(tool_selector, SelectTopTools)
+{
     ToolSelector selector;
     std::vector<std::string> available = {"read_file", "write_file", "shell"};
     auto top = selector.SelectTopTools("read a file", available, 2);
@@ -46,14 +51,16 @@ TEST(tool_selector, SelectTopTools) {
     TestRunner::AssertTrue(top.size() <= 2, "Should return at most 2 tools");
 }
 
-TEST(tool_selector, SelectToolReturnsEmpty) {
+TEST(tool_selector, SelectToolReturnsEmpty)
+{
     ToolSelector selector;
     std::vector<std::string> empty;
     std::string result = selector.SelectTool("query", empty);
     TestRunner::AssertTrue(result.empty(), "Should return empty string for no tools");
 }
 
-TEST(tool_selector, RankTools) {
+TEST(tool_selector, RankTools)
+{
     ToolSelector selector;
     std::vector<std::string> available = {"tool_a", "tool_b", "tool_c"};
     auto results = selector.RankTools("query", available);
@@ -62,7 +69,8 @@ TEST(tool_selector, RankTools) {
     TestRunner::AssertTrue(results[0].score > 0, "Score should be positive");
 }
 
-TEST(tool_selector, SetSearchConfig) {
+TEST(tool_selector, SetSearchConfig)
+{
     ToolSelector selector;
     SearchConfig config;
     config.keywordWeight = 0.8;

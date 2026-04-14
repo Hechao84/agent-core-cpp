@@ -31,7 +31,8 @@ std::vector<TestResult> all_results;
 
 void RunAndCheck(const std::string& category, const std::string& name,
                  const std::string& input, const std::string& expected_kw,
-                 std::function<std::string()> fn) {
+                 std::function<std::string()> fn)
+                 {
     try {
         std::string actual = fn();
         bool pass = actual.find(expected_kw) != std::string::npos;
@@ -41,7 +42,8 @@ void RunAndCheck(const std::string& category, const std::string& name,
             std::cout << "    Expected to find: '" << expected_kw << "'\n";
             std::cout << "    Got: '" << actual.substr(0, 200) << "'\n";
         }
-    } catch (const std::exception& e) {
+    } catch (const std::exception& e)
+    {
         all_results.push_back({category, name, input, expected_kw, e.what(), false});
         std::cout << "  [FAIL] " << name << " -> exception: " << e.what() << "\n";
     }
@@ -49,7 +51,8 @@ void RunAndCheck(const std::string& category, const std::string& name,
 
 void RunAndCheckEq(const std::string& category, const std::string& name,
                    const std::string& input, const std::string& expected_exact,
-                   std::function<std::string()> fn) {
+                   std::function<std::string()> fn)
+                   {
     try {
         std::string actual = fn();
         bool pass = actual == expected_exact;
@@ -59,20 +62,23 @@ void RunAndCheckEq(const std::string& category, const std::string& name,
             std::cout << "    Expected: '" << expected_exact << "'\n";
             std::cout << "    Got:      '" << actual.substr(0, 200) << "'\n";
         }
-    } catch (const std::exception& e) {
+    } catch (const std::exception& e)
+    {
         all_results.push_back({category, name, input, expected_exact, e.what(), false});
         std::cout << "  [FAIL] " << name << " -> exception: " << e.what() << "\n";
     }
 }
 
-void TestTimeInfo() {
+void TestTimeInfo()
+{
     std::cout << "\n[1] TimeInfoTool\n";
     TimeInfoTool tool;
     RunAndCheck("time_info", "Returns_time", "", "-",
         [&tool]() { return tool.Invoke(""); });
 }
 
-void TestReadWriteFiles() {
+void TestReadWriteFiles()
+{
     std::cout << "\n[2] Read/Write File Tools\n";
     std::string td = "test_tmp_func";
     if (fs::exists(td)) fs::remove_all(td);
@@ -110,7 +116,8 @@ void TestReadWriteFiles() {
     fs::remove_all(td);
 }
 
-void TestEditFile() {
+void TestEditFile()
+{
     std::cout << "\n[3] EditFileTool\n";
     std::string td = "test_tmp_edit";
     if (fs::exists(td)) fs::remove_all(td);
@@ -136,7 +143,8 @@ void TestEditFile() {
     fs::remove_all(td);
 }
 
-void TestListDir() {
+void TestListDir()
+{
     std::cout << "\n[4] ListDirTool\n";
     std::string td = "test_tmp_ls";
     if (fs::exists(td)) fs::remove_all(td);
@@ -160,7 +168,8 @@ void TestListDir() {
     fs::remove_all(td);
 }
 
-void TestGlob() {
+void TestGlob()
+{
     std::cout << "\n[5] GlobTool\n";
     std::string td = "test_tmp_glob";
     if (fs::exists(td)) fs::remove_all(td);
@@ -184,7 +193,8 @@ void TestGlob() {
     fs::remove_all(td);
 }
 
-void TestGrep() {
+void TestGrep()
+{
     std::cout << "\n[6] GrepTool\n";
     std::string td = "test_tmp_grep";
     if (fs::exists(td)) fs::remove_all(td);
@@ -207,7 +217,8 @@ void TestGrep() {
     fs::remove_all(td);
 }
 
-void TestExec() {
+void TestExec()
+{
     std::cout << "\n[7] ExecTool\n";
     ExecTool tool;
 
@@ -222,7 +233,8 @@ void TestExec() {
         [&tool]() { return tool.Invoke("{\"command\":\"echo test_exec\",\"timeout\":10}"); });
 }
 
-void TestFileState() {
+void TestFileState()
+{
     std::cout << "\n[8] FileStateTool\n";
     FileStateTool tool;
 
@@ -237,7 +249,8 @@ void TestFileState() {
         [&tool]() { return tool.Invoke("{\"action\":\"unknown_action\"}"); });
 }
 
-void TestNotebookEdit() {
+void TestNotebookEdit()
+{
     std::cout << "\n[9] NotebookEditTool\n";
     std::string td = "test_tmp_nb";
     if (fs::exists(td)) fs::remove_all(td);
@@ -258,7 +271,8 @@ void TestNotebookEdit() {
     fs::remove_all(td);
 }
 
-void TestResourceManager() {
+void TestResourceManager()
+{
     std::cout << "\n[10] ResourceManager\n";
     auto& rm = ResourceManager::GetInstance();
 
@@ -271,7 +285,8 @@ void TestResourceManager() {
     }
 }
 
-void GenerateReport() {
+void GenerateReport()
+{
     int total = static_cast<int>(all_results.size());
     int passed = 0;
     for (const auto& r : all_results) if (r.passed) passed++;
@@ -305,7 +320,8 @@ void GenerateReport() {
     std::cout << "Total: " << total << " | Passed: " << passed << " | Failed: " << (total - passed) << "\n";
 }
 
-int main() {
+int main()
+{
     std::cout << "========================================\n";
     std::cout << "     Jiuwen-Lite Functional Tests\n";
     std::cout << "========================================\n";

@@ -3,14 +3,16 @@
 #include <string>
 #include <iostream>
 
-static size_t SearchWriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+static size_t SearchWriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+{
     ((std::string*)userp)->append((char*)contents, size * nmemb);
     return size * nmemb;
 }
 
 WebSearchTool::WebSearchTool() : Tool("web_search", "Search the web for information", {{"query", "The search query", "string", true}}) {}
 
-std::string WebSearchTool::Search(const std::string& query) {
+std::string WebSearchTool::Search(const std::string& query)
+{
     CURL* curl = curl_easy_init();
     if (!curl) return "Error: Failed to initialize curl";
 
@@ -56,7 +58,8 @@ std::string WebSearchTool::Search(const std::string& query) {
     return result;
 }
 
-std::string WebSearchTool::Invoke(const std::string& input) {
+std::string WebSearchTool::Invoke(const std::string& input)
+{
     std::string query = input;
     size_t pos = input.find("\"query\"");
     if (pos != std::string::npos) {

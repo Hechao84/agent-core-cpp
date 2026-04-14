@@ -18,23 +18,27 @@ public:
         bool passed;
     };
 
-    static TestRunner& Instance() {
+    static TestRunner& Instance()
+    {
         static TestRunner instance;
         return instance;
     }
 
     void AddTest(const std::string& suite, const std::string& name,
-                 std::function<void()> test_fn) {
+                 std::function<void()> test_fn)
+                 {
         try {
             test_fn();
             results_.push_back({suite, name, "", "", "", true});
-        } catch (const std::exception& e) {
+        } catch (const std::exception& e)
+        {
             results_.push_back({suite, name, "", "", e.what(), false});
         }
     }
 
     template<typename T, typename U>
-    static void AssertEq(const T& actual, const U& expected, const std::string& msg = "") {
+    static void AssertEq(const T& actual, const U& expected, const std::string& msg = "")
+    {
         if (actual != expected) {
             std::ostringstream oss;
             oss << "Assertion failed";
@@ -45,19 +49,22 @@ public:
         }
     }
 
-    static void AssertTrue(bool condition, const std::string& msg = "") {
+    static void AssertTrue(bool condition, const std::string& msg = "")
+    {
         if (!condition) {
             throw std::runtime_error(std::string("Assertion failed: ") + (msg.empty() ? "expected true" : msg));
         }
     }
 
-    static void AssertFalse(bool condition, const std::string& msg = "") {
+    static void AssertFalse(bool condition, const std::string& msg = "")
+    {
         if (condition) {
             throw std::runtime_error(std::string("Assertion failed: ") + (msg.empty() ? "expected false" : msg));
         }
     }
 
-    static void AssertContains(const std::string& haystack, const std::string& needle, const std::string& msg = "") {
+    static void AssertContains(const std::string& haystack, const std::string& needle, const std::string& msg = "")
+    {
         if (haystack.find(needle) == std::string::npos) {
             std::ostringstream oss;
             oss << "Assertion failed: '" << needle << "' not found in result";
@@ -67,14 +74,16 @@ public:
         }
     }
 
-    static void AssertStartsWith(const std::string& text, const std::string& prefix, const std::string& msg = "") {
+    static void AssertStartsWith(const std::string& text, const std::string& prefix, const std::string& msg = "")
+    {
         if (text.rfind(prefix, 0) != 0) {
             throw std::runtime_error(std::string("Assertion failed: '") + text.substr(0, 50) +
                 "...' does not start with '" + prefix + "'" + (msg.empty() ? "" : " (") + msg + ")");
         }
     }
 
-    void PrintReport() const {
+    void PrintReport() const
+    {
         int total = static_cast<int>(results_.size());
         int passed = 0;
         std::string currentSuite;
@@ -103,7 +112,8 @@ public:
     }
 
     int GetTotal() const { return static_cast<int>(results_.size()); }
-    int GetPassed() const {
+    int GetPassed() const
+    {
         int c = 0;
         for (const auto& r : results_) if (r.passed) c++;
         return c;
@@ -127,7 +137,8 @@ private:
     static void test_##suite##_##name()
 
 // Run all registered tests and return exit code
-inline int RunAllTests() {
+inline int RunAllTests()
+{
     TestRunner::Instance().PrintReport();
     return TestRunner::Instance().GetFailed() > 0 ? 1 : 0;
 }

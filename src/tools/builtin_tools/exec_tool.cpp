@@ -10,7 +10,8 @@
 #include <sstream>
 #include <regex>
 
-static std::string ParseStringField(const std::string& json, const std::string& key) {
+static std::string ParseStringField(const std::string& json, const std::string& key)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return "";
@@ -28,7 +29,8 @@ static std::string ParseStringField(const std::string& json, const std::string& 
     return json.substr(valStart + 1, valEnd - valStart - 1);
 }
 
-static int ParseIntField(const std::string& json, const std::string& key, int defaultVal) {
+static int ParseIntField(const std::string& json, const std::string& key, int defaultVal)
+{
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
     if (keyPos == std::string::npos) return defaultVal;
@@ -49,7 +51,8 @@ ExecTool::ExecTool()
           {"working_dir", "Optional working directory", "string", false},
           {"timeout", "Timeout in seconds (default 60, max 600)", "integer", false}}) {}
 
-std::string ExecTool::Invoke(const std::string& input) {
+std::string ExecTool::Invoke(const std::string& input)
+{
     // Extract command from JSON
     std::string command = ParseStringField(input, "command");
     if (command.empty()) {
@@ -73,7 +76,8 @@ std::string ExecTool::Invoke(const std::string& input) {
 #endif
 }
 
-std::string ExecTool::GuardCommand(const std::string& command) {
+std::string ExecTool::GuardCommand(const std::string& command)
+{
     std::string lowerCmd = command;
     std::transform(lowerCmd.begin(), lowerCmd.end(), lowerCmd.begin(), ::tolower);
 
@@ -100,7 +104,8 @@ std::string ExecTool::GuardCommand(const std::string& command) {
 }
 
 #ifdef _WIN32
-std::string ExecTool::ExecuteWindows(const std::string& command, const std::string& workingDir) {
+std::string ExecTool::ExecuteWindows(const std::string& command, const std::string& workingDir)
+{
     // Build command with cd prefix if working_dir is specified
     std::string fullCmd = command;
     std::string tempDir;
@@ -167,14 +172,16 @@ std::string ExecTool::ExecuteWindows(const std::string& command, const std::stri
     return TruncateOutput(oss.str());
 }
 
-std::string ExecTool::ReadFileContent(const std::string& filePath) {
+std::string ExecTool::ReadFileContent(const std::string& filePath)
+{
     std::ifstream file(filePath, std::ios::binary);
     if (!file.is_open()) return "";
     std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     return content;
 }
 #else
-std::string ExecTool::ExecutePosix(const std::string& command, const std::string& workingDir, int timeoutSec) {
+std::string ExecTool::ExecutePosix(const std::string& command, const std::string& workingDir, int timeoutSec)
+{
     std::string fullCmd = command;
     if (!workingDir.empty()) {
         fullCmd = "cd " + workingDir + " && " + command;
@@ -206,7 +213,8 @@ std::string ExecTool::ExecutePosix(const std::string& command, const std::string
 }
 #endif
 
-std::string ExecTool::TruncateOutput(const std::string& output) {
+std::string ExecTool::TruncateOutput(const std::string& output)
+{
     static const int kMaxOutput = 10000;
     if (static_cast<int>(output.length()) <= kMaxOutput) return output;
 

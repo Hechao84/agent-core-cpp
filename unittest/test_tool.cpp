@@ -7,22 +7,26 @@ class DummyTool : public Tool {
 public:
     DummyTool() : Tool("dummy", "A dummy tool for testing",
         {{"input", "Input text", "string", true}, {"count", "Repeat count", "integer", false}}) {}
-    std::string Invoke(const std::string& input) override {
+    std::string Invoke(const std::string& input) override
+    {
         return "echo: " + input;
     }
 };
 
-TEST(tool, ConstructorStoresName) {
+TEST(tool, ConstructorStoresName)
+{
     DummyTool tool;
     TestRunner::AssertEq(tool.GetName(), std::string("dummy"));
 }
 
-TEST(tool, ConstructorStoresDescription) {
+TEST(tool, ConstructorStoresDescription)
+{
     DummyTool tool;
     TestRunner::AssertEq(tool.GetDescription(), std::string("A dummy tool for testing"));
 }
 
-TEST(tool, ConstructorStoresParams) {
+TEST(tool, ConstructorStoresParams)
+{
     DummyTool tool;
     auto params = tool.GetParams();
     TestRunner::AssertEq(params.size(), size_t(2));
@@ -33,7 +37,8 @@ TEST(tool, ConstructorStoresParams) {
     TestRunner::AssertEq(params[1].required, false);
 }
 
-TEST(tool, GetSchema) {
+TEST(tool, GetSchema)
+{
     DummyTool tool;
     std::string schema = tool.GetSchema();
     TestRunner::AssertContains(schema, "Tool: dummy");
@@ -42,13 +47,15 @@ TEST(tool, GetSchema) {
     TestRunner::AssertContains(schema, "- count (integer): Repeat count");
 }
 
-TEST(tool, Invoke) {
+TEST(tool, Invoke)
+{
     DummyTool tool;
     std::string result = tool.Invoke("hello");
     TestRunner::AssertEq(result, std::string("echo: hello"));
 }
 
-TEST(tool, EmptyParamsTool) {
+TEST(tool, EmptyParamsTool)
+{
     class NoParamTool : public Tool {
     public:
         NoParamTool() : Tool("noparams", "No params", {}) {}

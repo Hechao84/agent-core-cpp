@@ -8,7 +8,8 @@
 // ConfigNode Tests
 // ========================================
 
-TEST(types, SetAndGetInt) {
+TEST(types, SetAndGetInt)
+{
     ConfigNode node;
     node.Set("count", 42);
     const int* val = node.GetPtr<int>("count");
@@ -16,7 +17,8 @@ TEST(types, SetAndGetInt) {
     TestRunner::AssertEq(*val, 42);
 }
 
-TEST(types, SetAndGetFloat) {
+TEST(types, SetAndGetFloat)
+{
     ConfigNode node;
     node.Set("temperature", 0.7f);
     const float* val = node.GetPtr<float>("temperature");
@@ -24,7 +26,8 @@ TEST(types, SetAndGetFloat) {
     TestRunner::AssertEq(*val, 0.7f);
 }
 
-TEST(types, SetAndGetBool) {
+TEST(types, SetAndGetBool)
+{
     ConfigNode node;
     node.Set("stream", true);
     const bool* val = node.GetPtr<bool>("stream");
@@ -32,7 +35,8 @@ TEST(types, SetAndGetBool) {
     TestRunner::AssertEq(*val, true);
 }
 
-TEST(types, SetAndGetString) {
+TEST(types, SetAndGetString)
+{
     ConfigNode node;
     node.Set("name", std::string("test_model"));
     const std::string* val = node.GetPtr<std::string>("name");
@@ -40,7 +44,8 @@ TEST(types, SetAndGetString) {
     TestRunner::AssertEq(*val, std::string("test_model"));
 }
 
-TEST(types, SetAndGetVector) {
+TEST(types, SetAndGetVector)
+{
     ConfigNode node;
     node.Set("tags", std::vector<std::string>{"ai", "ml", "nlp"});
     const std::vector<std::string>* val = node.GetPtr<std::vector<std::string>>("tags");
@@ -49,7 +54,8 @@ TEST(types, SetAndGetVector) {
     TestRunner::AssertEq((*val)[0], std::string("ai"));
 }
 
-TEST(types, GetValueWithDefault) {
+TEST(types, GetValueWithDefault)
+{
     ConfigNode node;
     int val = node.GetValue<int>("missing", 999);
     TestRunner::AssertEq(val, 999);
@@ -57,20 +63,23 @@ TEST(types, GetValueWithDefault) {
     TestRunner::AssertEq(node.GetValue<int>("existing", 0), 42);
 }
 
-TEST(types, GetPtrReturnsNullForMissingKey) {
+TEST(types, GetPtrReturnsNullForMissingKey)
+{
     ConfigNode node;
     const int* val = node.GetPtr<int>("nonexistent");
     TestRunner::AssertTrue(val == nullptr);
 }
 
-TEST(types, GetPtrReturnsNullForTypeMismatch) {
+TEST(types, GetPtrReturnsNullForTypeMismatch)
+{
     ConfigNode node;
     node.Set("name", std::string("test"));
     const int* val = node.GetPtr<int>("name");
     TestRunner::AssertTrue(val == nullptr, "Should return nullptr for type mismatch");
 }
 
-TEST(types, SetNestedTwoLevel) {
+TEST(types, SetNestedTwoLevel)
+{
     ConfigNode node;
     node.SetNested("model.temperature", 0.5f);
     auto subNode = node.GetPtr<std::shared_ptr<ConfigNode>>("model");
@@ -80,7 +89,8 @@ TEST(types, SetNestedTwoLevel) {
     TestRunner::AssertEq(*val, 0.5f);
 }
 
-TEST(types, SetNestedThreeLevel) {
+TEST(types, SetNestedThreeLevel)
+{
     ConfigNode node;
     node.SetNested("model.params.temperature", 0.7f);
     auto modelNode = node.GetPtr<std::shared_ptr<ConfigNode>>("model");
@@ -92,7 +102,8 @@ TEST(types, SetNestedThreeLevel) {
     TestRunner::AssertEq(*val, 0.7f);
 }
 
-TEST(types, SetNestedOverwrites) {
+TEST(types, SetNestedOverwrites)
+{
     ConfigNode node;
     node.SetNested("model.temperature", 0.5f);
     node.SetNested("model.temperature", 0.8f);
@@ -101,14 +112,16 @@ TEST(types, SetNestedOverwrites) {
     TestRunner::AssertEq(*val, 0.8f);
 }
 
-TEST(types, ModelConfigDefaults) {
+TEST(types, ModelConfigDefaults)
+{
     ModelConfig cfg;
     TestRunner::AssertTrue(cfg.formatType == ModelFormatType::OPENAI);
     TestRunner::AssertTrue(cfg.baseUrl.empty());
     TestRunner::AssertTrue(cfg.apiKey.empty());
 }
 
-TEST(types, ContextConfigDefaults) {
+TEST(types, ContextConfigDefaults)
+{
     ContextConfig cfg;
     TestRunner::AssertEq(cfg.maxContextTokens, 4096);
     TestRunner::AssertTrue(cfg.storageType == ContextConfig::StorageType::MARKDOWN_FILE);

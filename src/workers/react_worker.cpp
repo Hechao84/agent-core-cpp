@@ -4,7 +4,8 @@
 #include <algorithm>
 
 // Extract JSON string starting from brace position, handling nested braces and strings
-static std::string ExtractJson(const std::string& text, size_t startPos) {
+static std::string ExtractJson(const std::string& text, size_t startPos)
+{
     if (startPos >= text.length()) return "";
     if (text[startPos] != '{') return "";
 
@@ -27,7 +28,8 @@ static std::string ExtractJson(const std::string& text, size_t startPos) {
 // Parse tool call from model response. Handles both:
 // 1. JSON format: {"name": "weather", "arguments": {"city": "Beijing"}}
 // 2. ReAct format: Action: weather\nAction Input: {"city": "Beijing"}
-static std::string ParseAction(const std::string& response, std::string& actionInput) {
+static std::string ParseAction(const std::string& response, std::string& actionInput)
+{
     actionInput = "{}";
 
     // Strategy 1: Try to find JSON with "name" and "arguments" fields
@@ -48,7 +50,8 @@ static std::string ParseAction(const std::string& response, std::string& actionI
                         // Validate: name should be short, not contain spaces or braces
                         if (!name.empty() && name.length() < 50 &&
                             name.find('{') == std::string::npos &&
-                            name.find('}') == std::string::npos) {
+                            name.find('}') == std::string::npos)
+                            {
                             // Extract "arguments" value (object or string)
                             size_t argsKey = jsonStr.find("\"arguments\"");
                             if (argsKey != std::string::npos) {
@@ -60,7 +63,8 @@ static std::string ParseAction(const std::string& response, std::string& actionI
                                         if (!argsObj.empty()) {
                                             actionInput = argsObj;
                                         }
-                                    } else if (jsonStr[aValStart] == '"') {
+                                    } else if (jsonStr[aValStart] == '"')
+                                    {
                                         size_t aEnd = jsonStr.find('"', aValStart + 1);
                                         if (aEnd != std::string::npos) {
                                             actionInput = "\"" + jsonStr.substr(aValStart + 1, aEnd - aValStart - 1) + "\"";
@@ -135,7 +139,8 @@ static std::string ParseAction(const std::string& response, std::string& actionI
 
 ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(config)) {}
 
-void ReactAgentWorker::ReactLoop(const std::string& query, std::function<void(const std::string&)> callback) {
+void ReactAgentWorker::ReactLoop(const std::string& query, std::function<void(const std::string&)> callback)
+{
     std::string scratchpad;
 
     std::vector<std::pair<std::string, std::string>> msgHistory;
@@ -154,7 +159,8 @@ void ReactAgentWorker::ReactLoop(const std::string& query, std::function<void(co
         msgHistory.push_back({"user", query});
 
         CallModelStream(prompt, msgHistory,
-            [&callback, &fullResponse](const std::string& chunk) {
+            [&callback, &fullResponse](const std::string& chunk)
+            {
                 fullResponse += chunk;
                 if (!chunk.empty()) callback("[STREAM] " + chunk);
             },
@@ -189,7 +195,8 @@ void ReactAgentWorker::ReactLoop(const std::string& query, std::function<void(co
     }
 }
 
-void ReactAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback) {
+void ReactAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
+{
     cancelled_.store(false);
     ReactLoop(query, std::move(callback));
 }

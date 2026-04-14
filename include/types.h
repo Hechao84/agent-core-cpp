@@ -25,12 +25,14 @@ struct ConfigNode {
     std::map<std::string, ConfigValue> fields_;
 
     // Set a value (overwrites if exists)
-    void Set(const std::string& key, ConfigValue value) {
+    void Set(const std::string& key, ConfigValue value)
+    {
         fields_[key] = std::move(value);
     }
 
     // Set a value using dot-notation path (e.g., "model.temperature") to support hierarchy
-    void SetNested(const std::string& path, ConfigValue value) {
+    void SetNested(const std::string& path, ConfigValue value)
+    {
         size_t pos = path.find('.');
         if (pos == std::string::npos) {
             fields_[path] = std::move(value);
@@ -59,7 +61,8 @@ struct ConfigNode {
 
     // Get pointer to value (returns nullptr if not found or type mismatch)
     template <typename T>
-    const T* GetPtr(const std::string& key) const {
+    const T* GetPtr(const std::string& key) const
+    {
         auto it = fields_.find(key);
         if (it != fields_.end()) {
             return std::get_if<T>(&(it->second));
@@ -69,7 +72,8 @@ struct ConfigNode {
 
     // Convenience getter with default value
     template <typename T>
-    T GetValue(const std::string& key, T defaultVal) const {
+    T GetValue(const std::string& key, T defaultVal) const
+    {
         if (const T* val = GetPtr<T>(key)) {
             return *val;
         }

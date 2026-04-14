@@ -8,11 +8,13 @@ namespace fs = std::filesystem;
 
 SkillEngine::SkillEngine(const std::string& rootDir) : rootDir_(rootDir) {}
 
-void SkillEngine::SetRootDir(const std::string& rootDir) {
+void SkillEngine::SetRootDir(const std::string& rootDir)
+{
     rootDir_ = rootDir;
 }
 
-bool SkillEngine::Load(bool forceReload) {
+bool SkillEngine::Load(bool forceReload)
+{
     if (rootDir_.empty()) return false;
     if (!fs::exists(rootDir_) || !fs::is_directory(rootDir_)) {
         std::cerr << "SkillEngine: Root directory '" << rootDir_ << "' not found." << std::endl;
@@ -48,7 +50,8 @@ bool SkillEngine::Load(bool forceReload) {
     return true;
 }
 
-Skill SkillEngine::ParseSkillDir(const std::string& dirPath, const std::string& folderName) const {
+Skill SkillEngine::ParseSkillDir(const std::string& dirPath, const std::string& folderName) const
+{
     Skill skill;
     skill.id = folderName;
     skill.name = folderName; // Default name
@@ -88,7 +91,8 @@ Skill SkillEngine::ParseSkillDir(const std::string& dirPath, const std::string& 
                 skill.name.erase(0, skill.name.find_first_not_of(" \t\r\n"));
                 skill.name.erase(skill.name.find_last_not_of(" \t\r\n") + 1);
             }
-        } catch (const std::exception& e) {
+        } catch (const std::exception& e)
+        {
             std::cerr << "Failed to read skill file: " << e.what() << std::endl;
         }
     } else {
@@ -98,7 +102,8 @@ Skill SkillEngine::ParseSkillDir(const std::string& dirPath, const std::string& 
     return skill;
 }
 
-std::string SkillEngine::GetFormattedInstructions() const {
+std::string SkillEngine::GetFormattedInstructions() const
+{
     if (skills_.empty()) return "";
 
     std::string result;
@@ -117,7 +122,8 @@ std::string SkillEngine::GetFormattedInstructions() const {
     return result;
 }
 
-std::vector<std::string> SkillEngine::GetSkillIds() const {
+std::vector<std::string> SkillEngine::GetSkillIds() const
+{
     std::vector<std::string> ids;
     ids.reserve(skills_.size());
     for (const auto& [id, _] : skills_) {

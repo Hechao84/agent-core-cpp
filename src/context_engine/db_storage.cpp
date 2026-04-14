@@ -4,7 +4,8 @@
 #include <sstream>
 
 DbStorage::DbStorage(const std::string& path, const std::string& sessionId)
-    : sessionId_(sessionId) {
+    : sessionId_(sessionId)
+    {
     if (sqlite3_open(path.c_str(), &db_) != SQLITE_OK) {
         PrintError("Failed to open database");
         db_ = nullptr;
@@ -13,11 +14,13 @@ DbStorage::DbStorage(const std::string& path, const std::string& sessionId)
     }
 }
 
-DbStorage::~DbStorage() {
+DbStorage::~DbStorage()
+{
     if (db_) sqlite3_close(db_);
 }
 
-bool DbStorage::SaveMessage(const Message& msg) {
+bool DbStorage::SaveMessage(const Message& msg)
+{
     if (!db_) return false;
     const char* sql = "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;
@@ -37,7 +40,8 @@ bool DbStorage::SaveMessage(const Message& msg) {
     return false;
 }
 
-bool DbStorage::LoadHistory(std::vector<Message>& outMessages) {
+bool DbStorage::LoadHistory(std::vector<Message>& outMessages)
+{
     if (!db_) return false;
     const char* sql = "SELECT role, content FROM messages WHERE session_id = ? ORDER BY rowid;";
     sqlite3_stmt* stmt;
@@ -62,7 +66,8 @@ bool DbStorage::LoadHistory(std::vector<Message>& outMessages) {
     return false;
 }
 
-void DbStorage::Clear() {
+void DbStorage::Clear()
+{
     if (!db_) return;
     const char* sql = "DELETE FROM messages WHERE session_id = ?;";
     sqlite3_stmt* stmt;
@@ -73,7 +78,8 @@ void DbStorage::Clear() {
     }
 }
 
-bool DbStorage::CreateTable() {
+bool DbStorage::CreateTable()
+{
     const char* sql = "CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, role TEXT, content TEXT);";
     char* errMsg = nullptr;
     int rc = sqlite3_exec(db_, sql, nullptr, 0, &errMsg);
@@ -85,6 +91,7 @@ bool DbStorage::CreateTable() {
     return true;
 }
 
-void DbStorage::PrintError(const char* msg) {
+void DbStorage::PrintError(const char* msg)
+{
     std::cerr << "DbStorage: " << msg << " - " << (db_ ? sqlite3_errmsg(db_) : "No DB") << std::endl;
 }

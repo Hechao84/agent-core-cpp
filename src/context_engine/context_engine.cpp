@@ -10,7 +10,8 @@ ContextEngine::ContextEngine(const ContextConfig& config) : config_(config) {}
 
 ContextEngine::~ContextEngine() = default;
 
-bool ContextEngine::Initialize() {
+bool ContextEngine::Initialize()
+{
     switch (config_.storageType) {
         case ContextConfig::StorageType::MARKDOWN_FILE:
             storage_ = std::make_unique<MarkdownStorage>(config_.storagePath, config_.sessionId);
@@ -32,14 +33,16 @@ bool ContextEngine::Initialize() {
     return true;
 }
 
-void ContextEngine::AddMessage(const Message& message) {
+void ContextEngine::AddMessage(const Message& message)
+{
     memoryBuffer_.push_back(message);
     if (storage_) {
         storage_->SaveMessage(message);
     }
 }
 
-std::vector<Message> ContextEngine::GetContextWindow() const {
+std::vector<Message> ContextEngine::GetContextWindow() const
+{
     if (memoryBuffer_.empty()) return {};
     std::vector<Message> window;
     int currentTokens = 0;
@@ -54,7 +57,8 @@ std::vector<Message> ContextEngine::GetContextWindow() const {
     return window;
 }
 
-std::string ContextEngine::GetContextAsString() const {
+std::string ContextEngine::GetContextAsString() const
+{
     auto messages = GetContextWindow();
     if (messages.empty()) return "";
     std::ostringstream oss;
@@ -64,18 +68,21 @@ std::string ContextEngine::GetContextAsString() const {
     return oss.str();
 }
 
-std::vector<Message> ContextEngine::GetAllMessages() const {
+std::vector<Message> ContextEngine::GetAllMessages() const
+{
     return memoryBuffer_;
 }
 
-void ContextEngine::Clear() {
+void ContextEngine::Clear()
+{
     memoryBuffer_.clear();
     if (storage_) {
         storage_->Clear();
     }
 }
 
-int ContextEngine::GetTokenCount() const {
+int ContextEngine::GetTokenCount() const
+{
     int total = 0;
     for (const auto& msg : memoryBuffer_) {
         total += EstimateTokens(msg.content) + EstimateTokens(msg.role);
@@ -83,10 +90,12 @@ int ContextEngine::GetTokenCount() const {
     return total;
 }
 
-std::string ContextEngine::GetSessionId() const {
+std::string ContextEngine::GetSessionId() const
+{
     return config_.sessionId;
 }
 
-int ContextEngine::EstimateTokens(const std::string& text) {
+int ContextEngine::EstimateTokens(const std::string& text)
+{
     return static_cast<int>(text.length()) / 4;
 }

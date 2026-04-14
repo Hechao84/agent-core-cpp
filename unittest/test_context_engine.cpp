@@ -16,12 +16,14 @@ public:
     bool clearCalled_ = false;
     bool loadReturn_ = true;
 
-    bool SaveMessage(const Message& msg) override {
+    bool SaveMessage(const Message& msg) override
+    {
         savedMessages_.push_back(msg);
         return true;
     }
 
-    bool LoadHistory(std::vector<Message>& outMessages) override {
+    bool LoadHistory(std::vector<Message>& outMessages) override
+    {
         outMessages = savedMessages_;
         return loadReturn_;
     }
@@ -29,7 +31,8 @@ public:
     void Clear() override { clearCalled_ = true; savedMessages_.clear(); }
 };
 
-TEST(context_engine, MemoryOnlyInit) {
+TEST(context_engine, MemoryOnlyInit)
+{
     ContextConfig config;
     config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
     config.sessionId = "test_mem";
@@ -39,7 +42,8 @@ TEST(context_engine, MemoryOnlyInit) {
     TestRunner::AssertEq(engine.GetSessionId(), std::string("test_mem"));
 }
 
-TEST(context_engine, AddAndRetrieveMessage) {
+TEST(context_engine, AddAndRetrieveMessage)
+{
     ContextConfig config;
     config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
     config.maxContextTokens = 10000;
@@ -54,7 +58,8 @@ TEST(context_engine, AddAndRetrieveMessage) {
     TestRunner::AssertEq(messages[1].role, std::string("assistant"));
 }
 
-TEST(context_engine, Clear) {
+TEST(context_engine, Clear)
+{
     ContextConfig config;
     config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
     ContextEngine engine(config);
@@ -66,7 +71,8 @@ TEST(context_engine, Clear) {
     TestRunner::AssertEq(messages.size(), size_t(0));
 }
 
-TEST(context_engine, TokenBoundedWindow) {
+TEST(context_engine, TokenBoundedWindow)
+{
     ContextConfig config;
     config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
     config.maxContextTokens = 20; // ~80 chars (EstimateTokens = len/4)
@@ -79,7 +85,8 @@ TEST(context_engine, TokenBoundedWindow) {
     TestRunner::AssertTrue(messages.size() >= 1);
 }
 
-TEST(context_engine, GetContextAsString) {
+TEST(context_engine, GetContextAsString)
+{
     ContextConfig config;
     config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
     config.maxContextTokens = 10000;
@@ -90,7 +97,8 @@ TEST(context_engine, GetContextAsString) {
     TestRunner::AssertContains(ctx, "user: Hello");
 }
 
-TEST(context_engine, GetAllMessages) {
+TEST(context_engine, GetAllMessages)
+{
     ContextConfig config;
     config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
     ContextEngine engine(config);
@@ -102,7 +110,8 @@ TEST(context_engine, GetAllMessages) {
     TestRunner::AssertEq(all.size(), size_t(3));
 }
 
-TEST(context_engine, MockStorageIntegration) {
+TEST(context_engine, MockStorageIntegration)
+{
     ContextConfig config;
     config.sessionId = "mock_test";
     config.storageType = ContextConfig::StorageType::MEMORY_ONLY; // We'll manually inject storage
@@ -115,7 +124,8 @@ TEST(context_engine, MockStorageIntegration) {
 }
 
 // MarkdownStorage Tests
-TEST(markdown_storage, SaveAndLoad) {
+TEST(markdown_storage, SaveAndLoad)
+{
     std::string testDir = "test_tmp_md_storage";
     if (fs::exists(testDir)) fs::remove_all(testDir);
     fs::create_directories(testDir);
@@ -134,7 +144,8 @@ TEST(markdown_storage, SaveAndLoad) {
     fs::remove_all(testDir);
 }
 
-TEST(markdown_storage, MultiLineContent) {
+TEST(markdown_storage, MultiLineContent)
+{
     std::string testDir = "test_tmp_md_multiline";
     if (fs::exists(testDir)) fs::remove_all(testDir);
     fs::create_directories(testDir);
@@ -150,7 +161,8 @@ TEST(markdown_storage, MultiLineContent) {
     fs::remove_all(testDir);
 }
 
-TEST(markdown_storage, Clear) {
+TEST(markdown_storage, Clear)
+{
     std::string testDir = "test_tmp_md_clear";
     if (fs::exists(testDir)) fs::remove_all(testDir);
     fs::create_directories(testDir);
@@ -166,7 +178,8 @@ TEST(markdown_storage, Clear) {
     fs::remove_all(testDir);
 }
 
-TEST(markdown_storage, NonExistentFile) {
+TEST(markdown_storage, NonExistentFile)
+{
     std::string testDir = "test_tmp_md_nofile";
     if (fs::exists(testDir)) fs::remove_all(testDir);
     fs::create_directories(testDir);
