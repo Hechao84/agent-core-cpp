@@ -3,6 +3,8 @@
 #include "agent.h"
 #include "resource_manager.h"
 
+#include <nlohmann/json.hpp>
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -70,11 +72,40 @@ class WeatherTool : public Tool {
 int main()
 {
     std::cout << "Agent Framework Demo\n====================\n" << std::flush;
-    std::cout << "Enter '/exit' to quit.\n" << std::flush;
     
     auto& rm = ResourceManager::GetInstance();
-    rm.RegisterTool("weather", []() { return std::make_unique<WeatherTool>(); });
     
+    // Register a local weather tool for demonstration
+    rm.RegisterTool("weather", []() { return std::make_unique<WeatherTool>(); });
+
+    // --- MCP Server Verification: Amap MCP Server ---
+    std::cout << "\nInitializing Amap MCP Server...\n" << std::flush;
+    try
+    {
+        nlohmann::json amapConfig;
+        amapConfig["command"] = "npx";
+        amapConfig["args"] = nlohmann::json::array({
+            "-y", "@amap/amap-maps-mcp-server"
+        });
+        amapConfig["env"] = {
+            {"AMAP_MAPS_API_KEY", "<your amap api key>"}
+        };
+        
+        rm.RegisterMCPServer("amap", amapConfig);
+        
+        std::cout << "[SUCCESS] Amap MCP server connected. Available tools:\n" << std::flush;
+        auto mcpTools = rm.GetAvailableTools();
+        for (const auto& toolName : mcpTools)
+        {
+            std::cout << "  - " << toolName << "\n" << std::flush;
+        }
+    }
+    catch (const std::exception& e)
+    {
+        std::cout << "[WARN] MCP Server initialization failed: " << e.what() << "\n" << std::flush;
+    }
+    // ------------------------------------------------
+
     AgentConfig config;
     config.id = "demo-agent";
     config.name = "Demo Agent";
@@ -105,8 +136,10 @@ int main()
         "You are a reasoning agent. You must reply in the same language as the user's query.\nSkills:\n{skills}\nTools:\n{tools}\nQuestion: {query}\n{context}";
     
     Agent agent(config);
+    // Add local weather tool and let the agent discover MCP tools via RM automatically
     agent.AddTools({"weather"});
     
+    std::cout << "\nEnter '/exit' to quit.\n" << std::flush;
     std::string query;
     while (true) {
         std::cout << "> " << std::flush;

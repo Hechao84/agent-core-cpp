@@ -67,17 +67,54 @@ void ResourceManager::RegisterModel(ModelFormatType type, std::function<std::uni
     modelFactories_[type] = std::move(factory);
 }
 
-void ResourceManager::RegisterMCPServer(const std::string& name, std::shared_ptr<MCPServer> server)
+void ResourceManager::RegisterMCPServer(const std::string& name, nlohmann::json config)
 {
-    mcpServers_[name] = std::move(server);
-}
+    MCPEndpointConfig endpointCfg;
 
-void ResourceManager::AddMCPServer(const std::string& name, MCPEndpointConfig config)
-{
-    auto server = std::make_shared<MCPServer>(name, config);
+    // Parse transport type (default to STDIO if command is provided, else HTTP if url is provided)
+    if (config.contains("url"))
+    {
+        endpointCfg.transportType = MCPTransportType::HTTP;
+        endpointCfg.url = config["url"].get<std::string>();
+
+        if (config.contains("headers") && config["headers"].is_object())
+        {
+            for (auto& [k, v] : config["headers"].items())
+            {
+                if (v.is_string()) endpointCfg.headers[k] = v.get<std::string>();
+            }
+        }
+    }
+    else if (config.contains("command"))
+    {
+        endpointCfg.transportType = MCPTransportType::STDIO;
+        endpointCfg.command = config["command"].get<std::string>();
+
+        if (config.contains("args") && config["args"].is_array())
+        {
+            for (const auto& arg : config["args"])
+            {
+                if (arg.is_string()) endpointCfg.args.push_back(arg.get<std::string>());
+            }
+        }
+
+        if (config.contains("env") && config["env"].is_object())
+        {
+            for (auto& [k, v] : config["env"].items())
+            {
+                if (v.is_string()) endpointCfg.env[k] = v.get<std::string>();
+            }
+        }
+    }
+    else
+    {
+        throw std::runtime_error("Invalid MCP server config: missing 'url' (HTTP) or 'command' (Stdio)");
+    }
+
+    auto server = std::make_shared<MCPServer>(name, endpointCfg);
     mcpServers_[name] = server;
 
-    // Connect the server, which initializes the SDK and registers tools
+    // Connect immediately to initialize handshake and discover tools
     server->Connect();
 }
 

@@ -178,6 +178,7 @@ if(TARGET mcp)
     target_link_libraries(agent_framework PRIVATE mcp pthread dl)
     target_include_directories(agent_framework PRIVATE 
         ${agent_protocol_SOURCE_DIR}/MCP/cpp-sdk/include
+        ${CURL_INCLUDE_DIR}
     )
 endif()
 
@@ -195,7 +196,7 @@ target_include_directories(jiuwen-lite PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-target_link_libraries(jiuwen-lite PRIVATE agent_framework)
+target_link_libraries(jiuwen-lite PRIVATE agent_framework nlohmann_json::nlohmann_json)
 
 # Define Testcase Executable
 add_executable(test_builtin_tools testcases/test_builtin_tools.cpp)
@@ -203,7 +204,7 @@ target_include_directories(test_builtin_tools PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/tools/builtin_tools
 )
-target_link_libraries(test_builtin_tools PRIVATE agent_framework)
+target_link_libraries(test_builtin_tools PRIVATE agent_framework nlohmann_json::nlohmann_json)
 
 # Unit Tests (src/unittest/)
 add_executable(unittest
@@ -224,7 +225,7 @@ target_include_directories(unittest PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/unittest
 )
-target_link_libraries(unittest PRIVATE agent_framework)
+target_link_libraries(unittest PRIVATE agent_framework nlohmann_json::nlohmann_json)
 
 # Functional Tests (testcases/)
 add_executable(test_functional_tools testcases/test_functional_tools.cpp)
@@ -232,7 +233,7 @@ target_include_directories(test_functional_tools PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/tools/builtin_tools
 )
-target_link_libraries(test_functional_tools PRIVATE agent_framework)
+target_link_libraries(test_functional_tools PRIVATE agent_framework nlohmann_json::nlohmann_json)
 
 # Install rules
 install(TARGETS agent_framework jiuwen-lite
