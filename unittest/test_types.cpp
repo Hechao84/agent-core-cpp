@@ -111,6 +111,6 @@ TEST(types, ModelConfigDefaults) {
 TEST(types, ContextConfigDefaults) {
     ContextConfig cfg;
     TestRunner::AssertEq(cfg.maxContextTokens, 4096);
-    TestRunner::AssertTrue(cfg.storageType == ContextConfig::StorageType::DATABASE);
+    TestRunner::AssertTrue(cfg.storageType == ContextConfig::StorageType::MARKDOWN_FILE);
     TestRunner::AssertTrue(cfg.sessionId.empty());
 }

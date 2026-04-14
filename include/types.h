@@ -107,7 +107,7 @@ struct ContextConfig {
     std::string sessionId;
     std::string storagePath; // For DB: path to file, For File: directory path
     enum class StorageType { MEMORY_ONLY, MARKDOWN_FILE, DATABASE };
-    StorageType storageType{StorageType::DATABASE}; // Default to DB (SQLite) for persistence
+    StorageType storageType{StorageType::MARKDOWN_FILE}; // Default to Markdown file for persistence
 };
 
 struct AgentConfig {

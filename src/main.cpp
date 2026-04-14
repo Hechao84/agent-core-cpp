@@ -75,9 +75,10 @@ int main() {
     config.mode = AgentWorkMode::REACT;
     config.maxIterations = 5;
 
-    // 1. Context Config: Enable SQLite persistence
+    // 1. Context Config: Use Markdown file storage
     config.contextConfig.sessionId = "session_01";
-    config.contextConfig.storageType = ContextConfig::StorageType::DATABASE;
+    config.contextConfig.storageType = ContextConfig::StorageType::MARKDOWN_FILE;
+    config.contextConfig.storagePath = "./data/context";
     
     // 2. Skill Config: Enable Skills from directory
     config.skillDirectory = "./my_skills"; // Relative path for demo purposes
