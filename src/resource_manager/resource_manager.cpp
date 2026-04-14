@@ -72,6 +72,15 @@ void ResourceManager::RegisterMCPServer(const std::string& name, std::shared_ptr
     mcpServers_[name] = std::move(server);
 }
 
+void ResourceManager::AddMCPServer(const std::string& name, MCPEndpointConfig config)
+{
+    auto server = std::make_shared<MCPServer>(name, config);
+    mcpServers_[name] = server;
+
+    // Connect the server, which initializes the SDK and registers tools
+    server->Connect();
+}
+
 std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
 {
     auto it = toolFactories_.find(name);

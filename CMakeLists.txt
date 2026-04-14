@@ -23,18 +23,7 @@ endif()
 # Dependencies
 include(FetchContent)
 
-# 1. nlohmann/json
-FetchContent_Declare(
-    json
-    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-)
-FetchContent_GetProperties(json)
-if(NOT json_POPULATED)
-    FetchContent_Populate(json)
-    add_subdirectory(${json_SOURCE_DIR} ${json_BINARY_DIR} EXCLUDE_FROM_ALL)
-endif()
-
-# 2. curl
+# 1. curl
 option(USE_LOCAL_CURL "Use local curl source from src/3rd-party" OFF)
 
 if(USE_LOCAL_CURL)
@@ -76,6 +65,44 @@ else()
         FetchContent_MakeAvailable(curl)
         set(CURL_LIB libcurl)
     endif()
+endif()
+
+# 2. MCP SDK (Model Context Protocol Client) - Must be before agent_framework to provide json
+FetchContent_Declare(
+    agent_protocol
+    GIT_REPOSITORY https://github.com/openJiuwen-ai/agent-protocol.git
+    GIT_TAG        main
+)
+FetchContent_GetProperties(agent_protocol)
+if(NOT agent_protocol_POPULATED)
+    message(STATUS "Fetching OpenJiuwen Agent Protocol (MCP SDK)...")
+    FetchContent_Populate(agent_protocol)
+    
+    set(MCP_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+    set(MCP_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(MCP_ENABLE_COVERAGE OFF CACHE BOOL "" FORCE)
+
+    # Make SDK's find_package calls use our already resolved dependencies
+    set(CURL_FOUND TRUE)
+    set(CURL_LIBRARY ${CURL_LIB})
+    set(CURL_INCLUDE_DIR ${curl_BINARY_DIR}/include)
+
+    # Find OpenSSL for the SDK
+    find_package(OpenSSL REQUIRED)
+
+    add_subdirectory(${agent_protocol_SOURCE_DIR}/MCP/cpp-sdk ${agent_protocol_BINARY_DIR}/MCP_cpp_build)
+    
+    # Fix SDK's hardcoded CMAKE_SOURCE_DIR which points to our root project
+    if(TARGET mcp)
+        target_include_directories(mcp PUBLIC 
+            ${agent_protocol_SOURCE_DIR}/MCP/cpp-sdk/include
+        )
+        target_include_directories(mcp PRIVATE
+            ${agent_protocol_BINARY_DIR}/MCP_cpp_build/include
+        )
+    endif()
+
+    message(STATUS "MCP SDK integrated")
 endif()
 
 # Define Shared Library (agent_framework)
@@ -145,6 +172,13 @@ else()
         endif()
         set(SQLITE_LIB sqlite3)
     endif()
+endif()
+
+if(TARGET mcp)
+    target_link_libraries(agent_framework PRIVATE mcp pthread dl)
+    target_include_directories(agent_framework PRIVATE 
+        ${agent_protocol_SOURCE_DIR}/MCP/cpp-sdk/include
+    )
 endif()
 
 target_link_libraries(agent_framework PRIVATE 

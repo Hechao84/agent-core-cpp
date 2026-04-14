@@ -30,3 +30,4 @@ build-linux/
 
 # Test reports
 TEST_REPORT.md
+third_party/
