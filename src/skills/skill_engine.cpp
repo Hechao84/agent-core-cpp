@@ -6,16 +6,16 @@
 
 namespace fs = std::filesystem;
 
-SkillEngine::SkillEngine(const std::string& rootDir) : m_rootDir(rootDir) {}
+SkillEngine::SkillEngine(const std::string& rootDir) : rootDir_(rootDir) {}
 
 void SkillEngine::SetRootDir(const std::string& rootDir) {
-    m_rootDir = rootDir;
+    rootDir_ = rootDir;
 }
 
 bool SkillEngine::Load(bool forceReload) {
-    if (m_rootDir.empty()) return false;
-    if (!fs::exists(m_rootDir) || !fs::is_directory(m_rootDir)) {
-        std::cerr << "SkillEngine: Root directory '" << m_rootDir << "' not found." << std::endl;
+    if (rootDir_.empty()) return false;
+    if (!fs::exists(rootDir_) || !fs::is_directory(rootDir_)) {
+        std::cerr << "SkillEngine: Root directory '" << rootDir_ << "' not found." << std::endl;
         return false;
     }
 
@@ -23,8 +23,9 @@ bool SkillEngine::Load(bool forceReload) {
         // Optimization: Skip reloading if the directory hasn't been modified recently.
         // This provides a "Hot Update" mechanism without a full watcher service.
         try {
-            auto lastWrite = fs::last_write_time(m_rootDir);
-            // Simple heuristic: if we have skills loaded, maybe skip? 
+            auto lastWrite = fs::last_write_time(rootDir_);
+            (void)lastWrite;
+            // Simple heuristic: if we have skills loaded, maybe skip?
             // But to be truly "Hot", checking mtime is good.
             // For C++17 filesystem, comparing file_time_type is sufficient.
             // However, simply reloading is safer and fast enough for this architecture.
@@ -32,18 +33,18 @@ bool SkillEngine::Load(bool forceReload) {
     }
 
     // Re-scan and Reload
-    m_skills.clear();
-    
-    for (const auto& entry : fs::directory_iterator(m_rootDir)) {
+    skills_.clear();
+
+    for (const auto& entry : fs::directory_iterator(rootDir_)) {
         if (entry.is_directory()) {
             std::string folderName = entry.path().filename().string();
             Skill skill = ParseSkillDir(entry.path().string(), folderName);
             if (!skill.id.empty()) {
-                m_skills[skill.id] = skill;
+                skills_[skill.id] = skill;
             }
         }
     }
-    
+
     return true;
 }
 
@@ -69,7 +70,7 @@ Skill SkillEngine::ParseSkillDir(const std::string& dirPath, const std::string& 
             std::stringstream buffer;
             buffer << file.rdbuf();
             skill.instructions = buffer.str();
-            
+
             // Attempt to extract Name and Description from Markdown
             // Simple regex-like parsing for headers
             size_t pos = skill.instructions.find("# ");
@@ -98,28 +99,28 @@ Skill SkillEngine::ParseSkillDir(const std::string& dirPath, const std::string& 
 }
 
 std::string SkillEngine::GetFormattedInstructions() const {
-    if (m_skills.empty()) return "";
-    
+    if (skills_.empty()) return "";
+
     std::string result;
     result = "### Available Skills\n";
-    
+
     // Append summary
-    for (const auto& [id, skill] : m_skills) {
+    for (const auto& [id, skill] : skills_) {
         result += "**" + skill.name + "**: " + skill.instructions.substr(0, 100) + "...\n";
     }
-    
+
     result += "\n---\n\n### Detailed Skill Instructions\n";
-    for (const auto& [id, skill] : m_skills) {
+    for (const auto& [id, skill] : skills_) {
         result += skill.instructions + "\n\n---\n\n";
     }
-    
+
     return result;
 }
 
 std::vector<std::string> SkillEngine::GetSkillIds() const {
     std::vector<std::string> ids;
-    ids.reserve(m_skills.size());
-    for (const auto& [id, _] : m_skills) {
+    ids.reserve(skills_.size());
+    for (const auto& [id, _] : skills_) {
         ids.push_back(id);
     }
     return ids;

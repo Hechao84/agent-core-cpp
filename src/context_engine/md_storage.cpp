@@ -11,12 +11,12 @@ MarkdownStorage::MarkdownStorage(const std::string& path, const std::string& ses
     if (!fs::exists(dir)) {
         fs::create_directories(dir);
     }
-    m_filePath = (dir / (sessionId + ".md")).string();
+    filePath_ = (dir / (sessionId + ".md")).string();
 }
 
 bool MarkdownStorage::SaveMessage(const Message& msg) {
     try {
-        std::ofstream file(m_filePath, std::ios::app);
+        std::ofstream file(filePath_, std::ios::app);
         if (!file.is_open()) return false;
         file << FormatMessage(msg);
         return true;
@@ -26,9 +26,9 @@ bool MarkdownStorage::SaveMessage(const Message& msg) {
 }
 
 bool MarkdownStorage::LoadHistory(std::vector<Message>& outMessages) {
-    if (!fs::exists(m_filePath)) return true; // Empty is okay
+    if (!fs::exists(filePath_)) return true; // Empty is okay
     try {
-        std::ifstream file(m_filePath);
+        std::ifstream file(filePath_);
         std::stringstream buffer;
         buffer << file.rdbuf();
         std::string content = buffer.str();
@@ -52,8 +52,8 @@ bool MarkdownStorage::LoadHistory(std::vector<Message>& outMessages) {
 
 void MarkdownStorage::Clear() {
     try {
-        if (fs::exists(m_filePath)) {
-            fs::remove(m_filePath);
+        if (fs::exists(filePath_)) {
+            fs::remove(filePath_);
         }
     } catch (...) {}
 }
@@ -68,7 +68,7 @@ Message MarkdownStorage::ParseMessageBlock(const std::string& block) const {
     if (start == std::string::npos) return msg;
     size_t nl = block.find('\n', start);
     if (nl == std::string::npos) return msg;
-    
+
     msg.role = block.substr(start + 3, nl - start - 3);
     size_t contentStart = block.find_first_not_of("\r\n ", nl);
     if (contentStart != std::string::npos) {

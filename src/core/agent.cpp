@@ -6,23 +6,23 @@
 #include <iostream>
 #include <algorithm>
 
-Agent::Agent(AgentConfig config) : m_config(std::move(config)) {
+Agent::Agent(AgentConfig config) : config_(std::move(config)) {
     // 1. Initialize Context Engine based on config
-    m_contextEngine = std::make_shared<ContextEngine>(m_config.contextConfig);
-    m_contextEngine->Initialize();
+    contextEngine_ = std::make_shared<ContextEngine>(config_.contextConfig);
+    contextEngine_->Initialize();
 
     // 2. Initialize Skill Engine if directory is configured
-    if (!m_config.skillDirectory.empty()) {
-        m_skillEngine = std::make_shared<SkillEngine>(m_config.skillDirectory);
-        m_skillEngine->Load(true); // Load from disk
+    if (!config_.skillDirectory.empty()) {
+        skillEngine_ = std::make_shared<SkillEngine>(config_.skillDirectory);
+        skillEngine_->Load(true); // Load from disk
     }
 
     // 3. Create Worker and inject engines
-    m_worker = CreateAgentWorker(this->m_config);
-    if (m_worker) {
-        m_worker->SetContextEngine(m_contextEngine);
-        if (m_skillEngine) {
-            m_worker->SetSkillEngine(m_skillEngine);
+    worker_ = CreateAgentWorker(this->config_);
+    if (worker_) {
+        worker_->SetContextEngine(contextEngine_);
+        if (skillEngine_) {
+            worker_->SetSkillEngine(skillEngine_);
         }
     }
 }
@@ -30,13 +30,13 @@ Agent::Agent(AgentConfig config) : m_config(std::move(config)) {
 Agent::~Agent() = default;
 
 void Agent::Invoke(const std::string& query, std::function<void(const std::string&)> callback) {
-    if (!m_worker || !m_contextEngine) {
+    if (!worker_ || !contextEngine_) {
         callback("Error: Agent not initialized");
         return;
     }
 
     // 1. Save User Query to Context BEFORE invoking
-    m_contextEngine->AddMessage({"user", query});
+    contextEngine_->AddMessage({"user", query});
 
     // 2. Intercept response to save it to Context
     std::string accumulatedResponse;
@@ -45,35 +45,35 @@ void Agent::Invoke(const std::string& query, std::function<void(const std::strin
         callback(chunk);
     };
 
-    m_worker->Invoke(query, wrappedCallback);
+    worker_->Invoke(query, wrappedCallback);
 
     // 3. Save Assistant Response to Context AFTER invoking
-    // We only save if we got something meaningful (not just error messages if possible, 
+    // We only save if we got something meaningful (not just error messages if possible,
     // but for simplicity we save whatever the model returned)
-    m_contextEngine->AddMessage({"assistant", accumulatedResponse});
+    contextEngine_->AddMessage({"assistant", accumulatedResponse});
 }
 
 void Agent::Cancel() {
-    if (m_worker) {
-        m_worker->Cancel();
+    if (worker_) {
+        worker_->Cancel();
     }
 }
 
 void Agent::AddTools(const std::vector<std::string>& toolNames) {
     // 1. Agent updates its Master List (Source of Truth)
     for (const auto& name : toolNames) {
-        bool exists = std::find(m_toolNames.begin(), m_toolNames.end(), name) != m_toolNames.end();
+        bool exists = std::find(toolNames_.begin(), toolNames_.end(), name) != toolNames_.end();
         if (!exists) {
-            m_toolNames.push_back(name);
+            toolNames_.push_back(name);
         }
     }
-    
+
     // 2. Agent forwards tools to Worker (Consumer)
-    if (m_worker) {
-        m_worker->AddTools(toolNames);
+    if (worker_) {
+        worker_->AddTools(toolNames);
     }
 }
 
 std::vector<std::string> Agent::GetRegisteredTools() const {
-    return m_toolNames;
+    return toolNames_;
 }

@@ -22,37 +22,37 @@ using ConfigValue = std::variant<
 
 // ConfigNode: Represents a branch or leaf map in the configuration tree
 struct ConfigNode {
-    std::map<std::string, ConfigValue> fields;
+    std::map<std::string, ConfigValue> fields_;
 
     // Set a value (overwrites if exists)
     void Set(const std::string& key, ConfigValue value) {
-        fields[key] = std::move(value);
+        fields_[key] = std::move(value);
     }
 
     // Set a value using dot-notation path (e.g., "model.temperature") to support hierarchy
     void SetNested(const std::string& path, ConfigValue value) {
         size_t pos = path.find('.');
         if (pos == std::string::npos) {
-            fields[path] = std::move(value);
+            fields_[path] = std::move(value);
         } else {
             std::string key = path.substr(0, pos);
             std::string rest = path.substr(pos + 1);
-            
+
             std::shared_ptr<ConfigNode> node;
-            auto it = fields.find(key);
-            if (it != fields.end()) {
+            auto it = fields_.find(key);
+            if (it != fields_.end()) {
                 // Try to cast existing value to Node
                 if (auto p = std::get_if<std::shared_ptr<ConfigNode>>(&it->second)) {
                     node = *p;
                 }
             }
-            
+
             // Create node if not exists
             if (!node) {
                 node = std::make_shared<ConfigNode>();
-                fields[key] = node;
+                fields_[key] = node;
             }
-            
+
             node->SetNested(rest, std::move(value));
         }
     }
@@ -60,8 +60,8 @@ struct ConfigNode {
     // Get pointer to value (returns nullptr if not found or type mismatch)
     template <typename T>
     const T* GetPtr(const std::string& key) const {
-        auto it = fields.find(key);
-        if (it != fields.end()) {
+        auto it = fields_.find(key);
+        if (it != fields_.end()) {
             return std::get_if<T>(&(it->second));
         }
         return nullptr;
@@ -89,10 +89,10 @@ struct ModelConfig {
     std::string apiKey;
     std::string modelName;
     ModelFormatType formatType{ModelFormatType::OPENAI};
-    
+
     // Extended parameters supporting hierarchy (e.g., "model.temperature")
     // Uses std::variant instead of std::any for type safety.
-    ConfigNode extraParams; 
+    ConfigNode extraParams;
 };
 
 enum class AgentWorkMode {

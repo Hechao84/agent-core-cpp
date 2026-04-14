@@ -7,6 +7,7 @@ opencode.json
 *.vcxproj
 *.vcxproj.filters
 *.sln
+# CMake generated files
 *.cmake
 CMakeCache.txt
 CMakeFiles/
@@ -14,3 +15,14 @@ CMakeFiles/
 # 3rd party libraries (fetched via CMake FetchContent)
 src/3rd-party/*
 !src/3rd-party/README.md
+
+# Sensitive data and local settings
+opencode.json
+*.db
+.local_settings/
+
+# Distribution
+dist/
+
+# Temporary projects/copy
+temp_nanobot/

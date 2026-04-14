@@ -30,21 +30,21 @@ std::string WorkflowAgentWorker::ExecuteNode(const WorkflowNode& node, const std
 }
 
 void WorkflowAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback) {
-    m_cancelled.store(false);
+    cancelled_.store(false);
     std::vector<WorkflowNode> nodes = ParseWorkflowConfig();
     if (nodes.empty()) { callback("[ERROR] No workflow nodes"); return; }
     std::string currentInput = query;
     std::queue<std::string> nodeQueue;
     nodeQueue.push(nodes[0].name);
-    while (!nodeQueue.empty() && !m_cancelled.load()) {
+    while (!nodeQueue.empty() && !cancelled_.load()) {
         std::string currentNodeName = nodeQueue.front();
         nodeQueue.pop();
         auto it = std::find_if(nodes.begin(), nodes.end(), [&currentNodeName](const WorkflowNode& n) { return n.name == currentNodeName; });
         if (it == nodes.end()) { callback("[ERROR] Node not found: " + currentNodeName); continue; }
         currentInput = ExecuteNode(*it, currentInput, callback);
-        if (m_cancelled.load()) { callback("[STATUS] Cancelled"); return; }
+        if (cancelled_.load()) { callback("[STATUS] Cancelled"); return; }
         for (const auto& nextNode : it->nextNodes) nodeQueue.push(nextNode);
     }
-    if (m_cancelled.load()) callback("[STATUS] Cancelled");
+    if (cancelled_.load()) callback("[STATUS] Cancelled");
     else callback("[FINAL] " + currentInput);
 }

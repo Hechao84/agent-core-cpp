@@ -15,9 +15,9 @@ public:
     void Clear() override;
 
 private:
-    sqlite3* m_db = nullptr;
-    std::string m_sessionId;
-    
+    sqlite3* db_ = nullptr;
+    std::string sessionId_;
+
     bool CreateTable();
     void PrintError(const char* msg);
 };

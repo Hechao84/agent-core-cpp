@@ -3,79 +3,193 @@
 #include <iostream>
 #include <algorithm>
 
+// Extract JSON string starting from brace position, handling nested braces and strings
+static std::string ExtractJson(const std::string& text, size_t startPos) {
+    if (startPos >= text.length()) return "";
+    if (text[startPos] != '{') return "";
+
+    int depth = 0;
+    bool inString = false;
+    for (size_t i = startPos; i < text.length(); ++i) {
+        if (text[i] == '\\') { i++; continue; }
+        if (text[i] == '"') inString = !inString;
+        if (!inString) {
+            if (text[i] == '{') depth++;
+            else if (text[i] == '}') {
+                depth--;
+                if (depth == 0) return text.substr(startPos, i - startPos + 1);
+            }
+        }
+    }
+    return "";
+}
+
+// Parse tool call from model response. Handles both:
+// 1. JSON format: {"name": "weather", "arguments": {"city": "Beijing"}}
+// 2. ReAct format: Action: weather\nAction Input: {"city": "Beijing"}
+static std::string ParseAction(const std::string& response, std::string& actionInput) {
+    actionInput = "{}";
+
+    // Strategy 1: Try to find JSON with "name" and "arguments" fields
+    size_t jsonStart = response.find('{');
+    if (jsonStart != std::string::npos) {
+        std::string jsonStr = ExtractJson(response, jsonStart);
+        if (!jsonStr.empty()) {
+            // Extract "name" value
+            size_t nameKey = jsonStr.find("\"name\"");
+            if (nameKey != std::string::npos) {
+                size_t colon = jsonStr.find(':', nameKey + 6);
+                size_t valStart = jsonStr.find_first_not_of(" \t\"", colon + 1);
+                if (valStart != std::string::npos) {
+                    char q = jsonStr[valStart];
+                    size_t valEnd = jsonStr.find(q, valStart + 1);
+                    if (valEnd != std::string::npos) {
+                        std::string name = jsonStr.substr(valStart + 1, valEnd - valStart - 1);
+                        // Validate: name should be short, not contain spaces or braces
+                        if (!name.empty() && name.length() < 50 &&
+                            name.find('{') == std::string::npos &&
+                            name.find('}') == std::string::npos) {
+                            // Extract "arguments" value (object or string)
+                            size_t argsKey = jsonStr.find("\"arguments\"");
+                            if (argsKey != std::string::npos) {
+                                size_t aColon = jsonStr.find(':', argsKey + 11);
+                                size_t aValStart = jsonStr.find_first_not_of(" \t", aColon + 1);
+                                if (aValStart != std::string::npos && aValStart < jsonStr.length()) {
+                                    if (jsonStr[aValStart] == '{') {
+                                        std::string argsObj = ExtractJson(jsonStr, aValStart);
+                                        if (!argsObj.empty()) {
+                                            actionInput = argsObj;
+                                        }
+                                    } else if (jsonStr[aValStart] == '"') {
+                                        size_t aEnd = jsonStr.find('"', aValStart + 1);
+                                        if (aEnd != std::string::npos) {
+                                            actionInput = "\"" + jsonStr.substr(aValStart + 1, aEnd - aValStart - 1) + "\"";
+                                        }
+                                    }
+                                }
+                            }
+                            return name;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Strategy 2: Classic ReAct format
+    size_t actPos = response.find("Action:");
+    if (actPos != std::string::npos) {
+        size_t end = response.find('\n', actPos);
+        std::string actLine = response.substr(actPos + 7, end - actPos - 7);
+
+        // Trim whitespace
+        size_t f = actLine.find_first_not_of(" \t\r\n");
+        if (f != std::string::npos) actLine.erase(0, f);
+        size_t l = actLine.find_last_not_of(" \t\r\n");
+        if (l != std::string::npos) actLine.erase(l + 1);
+
+        // If Action line itself is a JSON, recurse
+        if (!actLine.empty() && actLine.front() == '{') {
+            size_t end2 = response.find('\n', end != std::string::npos ? end : actPos);
+            std::string multiLine = response.substr(actPos);
+            return ParseAction(multiLine, actionInput);
+        }
+
+        std::string name = actLine;
+        // Remove leading braces if present
+        if (!name.empty() && name.front() == '{') {
+            size_t braceEnd = name.find('}');
+            if (braceEnd != std::string::npos) name.erase(0, braceEnd + 1);
+        }
+        // Remove trailing braces
+        if (!name.empty() && name.back() == '}') {
+            size_t braceStart = name.rfind('{');
+            if (braceStart != std::string::npos) name.erase(braceStart);
+        }
+        // Trim again
+        f = name.find_first_not_of(" \t\r\n");
+        if (f != std::string::npos) name.erase(0, f);
+        l = name.find_last_not_of(" \t\r\n");
+        if (l != std::string::npos) name.erase(l + 1);
+
+        // Extract Action Input
+        size_t inputPos = response.find("Action Input:");
+        if (inputPos != std::string::npos) {
+            size_t inputEnd = response.find('\n', inputPos);
+            std::string input = response.substr(inputPos + 13, inputEnd - inputPos - 13);
+            f = input.find_first_not_of(" \t\r\n");
+            if (f != std::string::npos) input.erase(0, f);
+            l = input.find_last_not_of(" \t\r\n");
+            if (l != std::string::npos) input.erase(l + 1);
+            if (!input.empty()) {
+                if (input.front() == '{') actionInput = input;
+                else actionInput = "{\"input\": \"" + input + "\"}";
+            }
+        }
+
+        return name;
+    }
+
+    return "";
+}
+
 ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(config)) {}
-
-std::string ReactAgentWorker::ParseThought(const std::string& response) {
-    size_t start = response.find("Thought:");
-    if (start == std::string::npos) return "";
-    size_t end = response.find("\n", start);
-    if (end == std::string::npos) end = response.find("Action:", start);
-    if (end == std::string::npos) return response.substr(start + 8);
-    return response.substr(start + 8, end - start - 8);
-}
-
-std::string ReactAgentWorker::ParseAction(const std::string& response) {
-    size_t start = response.find("Action:");
-    if (start == std::string::npos) return "";
-    size_t end = response.find("\n", start);
-    if (end == std::string::npos) return response.substr(start + 7);
-    return response.substr(start + 7, end - start - 7);
-}
-
-std::string ReactAgentWorker::ParseActionInput(const std::string& response) {
-    size_t start = response.find("Action Input:");
-    if (start == std::string::npos) return "";
-    size_t end = response.find("\n", start);
-    if (end == std::string::npos) return response.substr(start + 13);
-    return response.substr(start + 13, end - start - 13);
-}
 
 void ReactAgentWorker::ReactLoop(const std::string& query, std::function<void(const std::string&)> callback) {
     std::string scratchpad;
 
-    // 1. Get Prior Context (History) from ContextEngine
-    std::string priorContext;
     std::vector<std::pair<std::string, std::string>> msgHistory;
-    if (m_contextEngine) {
-        priorContext = m_contextEngine->GetContextAsString();
-        auto history = m_contextEngine->GetContextWindow();
+    if (contextEngine_) {
+        auto history = contextEngine_->GetContextWindow();
         for (const auto& m : history) {
             msgHistory.push_back({m.role, m.content});
         }
     }
 
-    for (int iteration = 0; iteration < m_config.maxIterations && !m_cancelled.load(); ++iteration) {
-        // Combine prior conversation context with current react-loop scratchpad
-        std::string combinedContext;
-        if (!priorContext.empty()) combinedContext += priorContext + "\n";
-        if (!scratchpad.empty()) combinedContext += scratchpad + "\n";
+    for (int iteration = 0; iteration < config_.maxIterations && !cancelled_.load(); ++iteration) {
+        std::string prompt = BuildPrompt("react_system", query, scratchpad);
+        callback("\n[STATUS] Thinking... (Iteration " + std::to_string(iteration + 1) + ")\n");
 
-        std::string prompt = BuildPrompt("react_system", query, combinedContext);
-        callback("[STATUS] Thinking... (Iteration " + std::to_string(iteration + 1) + ")");
         std::string fullResponse;
-        
-        // 2. Pass Message History to CallModelStream (Fix for API error)
-        CallModelStream(prompt, msgHistory, 
-            [&callback, &fullResponse](const std::string& chunk) { fullResponse += chunk; callback("[STREAM] " + chunk); },
-            [&callback, &fullResponse](const std::string& complete) { if (!complete.empty()) callback("[RESPONSE] " + complete); });
-            
-        if (m_cancelled.load()) { callback("[STATUS] Cancelled"); return; }
-        std::string thought = ParseThought(fullResponse);
-        std::string action = ParseAction(fullResponse);
-        std::string actionInput = ParseActionInput(fullResponse);
-        if (!thought.empty()) callback("[THOUGHT] " + thought);
-        if (action.empty()) { callback("[FINAL] " + fullResponse); return; }
-        callback("[ACTION] " + action);
-        if (!actionInput.empty()) callback("[ACTION_INPUT] " + actionInput);
+        msgHistory.push_back({"user", query});
+
+        CallModelStream(prompt, msgHistory,
+            [&callback, &fullResponse](const std::string& chunk) {
+                fullResponse += chunk;
+                if (!chunk.empty()) callback("[STREAM] " + chunk);
+            },
+            [](const std::string& complete) { (void)complete; });
+
+        msgHistory.push_back({"assistant", fullResponse});
+
+        if (cancelled_.load()) { callback("\n[STATUS] Cancelled\n"); return; }
+
+        std::string actionInput;
+        std::string action = ParseAction(fullResponse, actionInput);
+
+        if (action.empty()) {
+            callback("\n[RESPONSE] " + fullResponse + "\n");
+            callback("\n[FINAL] " + fullResponse + "\n");
+            return;
+        }
+
+        callback("\n[TOOL_CALLS] {\"name\": \"" + action + "\", \"arguments\": " + actionInput + "}\n");
+        callback("\n[STATUS] Tool Called: " + action + "\n");
+
         std::string observation = ExecuteTool(action, actionInput);
-        callback("[OBSERVATION] " + observation);
-        scratchpad += "\nThought: " + thought + "\nAction: " + action + "\nAction Input: " + actionInput + "\nObservation: " + observation;
+        callback("\n[TOOL_RESPONSE]" + observation + "\n");
+
+        scratchpad += "\nThought: [Streamed]\nAction: " + action +
+                      "\nAction Input: " + actionInput +
+                      "\nObservation: " + observation + "\n";
     }
-    if (m_cancelled.load()) callback("[STATUS] Cancelled");
-    else callback("[STATUS] Max iterations reached");
+
+    if (!cancelled_.load()) {
+        callback("\n[STATUS] Max iterations reached\n");
+    }
 }
 
 void ReactAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback) {
-    m_cancelled.store(false);
+    cancelled_.store(false);
     ReactLoop(query, std::move(callback));
 }

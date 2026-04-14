@@ -2,19 +2,19 @@
 #include "resource_manager.h"
 #include <algorithm>
 
-ToolSelector::ToolSelector(SearchConfig config) : m_config(std::move(config)) {}
+ToolSelector::ToolSelector(SearchConfig config) : config_(std::move(config)) {}
 
 void ToolSelector::AddToolToPool(const std::string& toolName) {
-    if (std::find(m_toolPool.begin(), m_toolPool.end(), toolName) == m_toolPool.end()) {
-        m_toolPool.push_back(toolName);
+    if (std::find(toolPool_.begin(), toolPool_.end(), toolName) == toolPool_.end()) {
+        toolPool_.push_back(toolName);
     }
 }
 
 void ToolSelector::RemoveToolFromPool(const std::string& toolName) {
-    m_toolPool.erase(std::remove(m_toolPool.begin(), m_toolPool.end(), toolName), m_toolPool.end());
+    toolPool_.erase(std::remove(toolPool_.begin(), toolPool_.end(), toolName), toolPool_.end());
 }
 
-std::vector<std::string> ToolSelector::GetToolPool() const { return m_toolPool; }
+std::vector<std::string> ToolSelector::GetToolPool() const { return toolPool_; }
 
 std::string ToolSelector::SelectTool(const std::string& query, const std::vector<std::string>& availableTools) {
     auto results = SelectTopTools(query, availableTools, 1);
@@ -39,27 +39,27 @@ std::vector<ToolMatchResult> ToolSelector::RankTools(const std::string& query, c
     return ScoreTools(query, availableTools);
 }
 
-void ToolSelector::SetSearchConfig(const SearchConfig& config) { m_config = config; }
+void ToolSelector::SetSearchConfig(const SearchConfig& config) { config_ = config; }
 
 std::vector<ToolMatchResult> ToolSelector::ScoreTools(const std::string& query, const std::vector<std::string>& availableTools) {
     std::vector<ToolMatchResult> results;
     for (const auto& toolName : availableTools) {
         double keywordScore = CalculateKeywordScore(query, toolName, "Tool: " + toolName);
         double embeddingScore = CalculateEmbeddingScore(query, toolName);
-        double finalScore = (keywordScore * m_config.keywordWeight) + (embeddingScore * m_config.embeddingWeight);
+        double finalScore = (keywordScore * config_.keywordWeight) + (embeddingScore * config_.embeddingWeight);
         results.push_back({toolName, finalScore, "Combined score"});
     }
     return results;
 }
 
 double ToolSelector::CalculateKeywordScore(const std::string& query, const std::string& toolName, const std::string& toolDesc) {
-    // TODO: 实现 BM25 算法
+    // TODO: implement BM25 algorithm
     (void)query; (void)toolName; (void)toolDesc;
     return 1.0;
 }
 
 double ToolSelector::CalculateEmbeddingScore(const std::string& query, const std::string& toolName) {
-    // TODO: 实现基于 Embedding 的向量相似度计算
+    // TODO: implement embedding-based vector similarity calculation
     (void)query; (void)toolName;
     return 1.0;
 }

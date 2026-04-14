@@ -27,9 +27,9 @@ public:
     std::string GetSessionId() const;
 
 private:
-    ContextConfig m_config;
-    std::vector<Message> m_memoryBuffer;
-    std::unique_ptr<ContextStorageInterface> m_storage;
+    ContextConfig config_;
+    std::vector<Message> memoryBuffer_;
+    std::unique_ptr<ContextStorageInterface> storage_;
 
     static int EstimateTokens(const std::string& text);
 };

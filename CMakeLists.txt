@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(jiuwen-lite LANGUAGES CXX VERSION 0.1.0)
+project(jiuwen-lite LANGUAGES C CXX VERSION 0.1.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -94,6 +94,19 @@ add_library(agent_framework SHARED
     src/tools/tool.cpp
     src/tools/tool_selector.cpp
     src/tools/mcp_tool.cpp
+    src/tools/builtin_tools/time_info_tool.cpp
+    src/tools/builtin_tools/web_search_tool.cpp
+    src/tools/builtin_tools/web_fetch_tool.cpp
+    src/tools/builtin_tools/read_file_tool.cpp
+    src/tools/builtin_tools/write_file_tool.cpp
+    src/tools/builtin_tools/edit_file_tool.cpp
+    src/tools/builtin_tools/list_dir_tool.cpp
+    src/tools/builtin_tools/glob_tool.cpp
+    src/tools/builtin_tools/grep_tool.cpp
+    src/tools/builtin_tools/exec_tool.cpp
+    src/tools/builtin_tools/notebook_edit_tool.cpp
+    src/tools/builtin_tools/file_state_tool.cpp
+    src/tools/builtin_tools/register_builtin_tools.cpp
     src/models/model.cpp
     src/models/openai_model.cpp
     src/models/anthropic_model.cpp
@@ -150,6 +163,43 @@ target_include_directories(jiuwen-lite PRIVATE
 )
 
 target_link_libraries(jiuwen-lite PRIVATE agent_framework)
+
+# Define Testcase Executable
+add_executable(test_builtin_tools testcases/test_builtin_tools.cpp)
+target_include_directories(test_builtin_tools PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/tools/builtin_tools
+)
+target_link_libraries(test_builtin_tools PRIVATE agent_framework)
+
+# Unit Tests (src/unittest/)
+add_executable(unittest
+    unittest/main.cpp
+    unittest/test_types.cpp
+    unittest/test_tool.cpp
+    unittest/test_file_tools.cpp
+    unittest/test_search_tools.cpp
+    unittest/test_misc_tools.cpp
+    unittest/test_tool_selector.cpp
+    unittest/test_context_engine.cpp
+    unittest/test_resource_manager.cpp
+    unittest/test_agent_factory.cpp
+    unittest/test_integration.cpp
+)
+target_include_directories(unittest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/unittest
+)
+target_link_libraries(unittest PRIVATE agent_framework)
+
+# Functional Tests (testcases/)
+add_executable(test_functional_tools testcases/test_functional_tools.cpp)
+target_include_directories(test_functional_tools PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/tools/builtin_tools
+)
+target_link_libraries(test_functional_tools PRIVATE agent_framework)
 
 # Install rules
 install(TARGETS agent_framework jiuwen-lite

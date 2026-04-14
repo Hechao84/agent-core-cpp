@@ -117,11 +117,49 @@ int main() {
         query = LocalToUTF8(query);
         
         std::cout << "Processing...\n";
-        agent.Invoke(query, [](const std::string& resp) {
-            // Convert response from UTF-8 to Local (GBK) for display on Windows
-            std::string outStr = UTF8ToLocal(resp);
-            std::cout << outStr << std::endl; // Use println as resp might not have newline
+        
+        bool is_streaming = false; // Track streaming state
+        agent.Invoke(query, [&](const std::string& resp) {
+            std::string s = resp;
+
+            // 1. Remove stream tags [STREAM] and [STREAM] 
+            std::vector<std::string> streamTags = {"[STREAM] ", "[STREAM]"};
+            bool foundStream = false;
+            for (const auto& st : streamTags) {
+                size_t p = s.find(st);
+                if (p != std::string::npos) foundStream = true;
+                while (p != std::string::npos) {
+                    s.erase(p, st.length());
+                    p = s.find(st, p);
+                }
+            }
+            if (foundStream) is_streaming = true;
+
+            // 2. Insert newlines for control tags ([STATUS], [TOOL_CALLS], etc.)
+            std::vector<std::string> controlTags = {
+                "[STATUS]", "[THOUGHT]", "[ACTION]", "[TOOL_CALLS]", 
+                "[TOOL_RESPONSE]", "[RESPONSE]", "[FINAL]", "[ERROR]"
+            };
+
+            for (const auto& tag : controlTags) {
+                size_t pos = s.find(tag);
+                while (pos != std::string::npos) {
+                    is_streaming = false; // Control tag ends stream
+                    // Insert newline before tag if not at start and not preceded by newline
+                    if (pos > 0 && s[pos-1] != '\n') {
+                        s.insert(pos, "\n");
+                        pos += tag.length() + 1; // Skip inserted newline and tag
+                    } else {
+                        pos += tag.length(); // Skip tag
+                    }
+                    pos = s.find(tag, pos);
+                }
+            }
+
+            // 3. 输出
+            std::cout << UTF8ToLocal(s) << std::flush;
         });
+        // Ensure the prompt appears on a new line
         std::cout << "\n";
     }
     

@@ -18,13 +18,13 @@ struct ModelResponse {
 };
 
 class AGENT_API Model {
-    public:
-        Model(ModelConfig config);
-        virtual ~Model() = default;
-        virtual std::string Format(const std::string& systemPrompt, const std::vector<Message>& messages) = 0;
-        virtual std::string Invoke(const std::string& formattedInput, std::function<void(const std::string&)> onChunk) = 0;
-        virtual ModelResponse ParseResponse(const std::string& rawResponse) = 0;
-        ModelConfig GetConfig() const;
-    protected:
-        ModelConfig m_config;
+public:
+    Model(ModelConfig config);
+    virtual ~Model() = default;
+    virtual std::string Format(const std::string& systemPrompt, const std::vector<Message>& messages) = 0;
+    virtual std::string Invoke(const std::string& formattedInput, std::function<void(const std::string&)> onChunk) = 0;
+    virtual ModelResponse ParseResponse(const std::string& rawResponse) = 0;
+    ModelConfig GetConfig() const;
+protected:
+    ModelConfig config_;
 };

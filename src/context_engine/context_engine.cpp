@@ -6,46 +6,46 @@
 #include <iostream>
 #include <sstream>
 
-ContextEngine::ContextEngine(const ContextConfig& config) : m_config(config) {}
+ContextEngine::ContextEngine(const ContextConfig& config) : config_(config) {}
 
 ContextEngine::~ContextEngine() = default;
 
 bool ContextEngine::Initialize() {
-    switch (m_config.storageType) {
+    switch (config_.storageType) {
         case ContextConfig::StorageType::MARKDOWN_FILE:
-            m_storage = std::make_unique<MarkdownStorage>(m_config.storagePath, m_config.sessionId);
+            storage_ = std::make_unique<MarkdownStorage>(config_.storagePath, config_.sessionId);
             break;
         case ContextConfig::StorageType::DATABASE: {
-            std::string dbPath = m_config.storagePath.empty() ? "agent_context.db" : m_config.storagePath;
-            m_storage = std::make_unique<DbStorage>(dbPath, m_config.sessionId);
+            std::string dbPath = config_.storagePath.empty() ? "agent_context.db" : config_.storagePath;
+            storage_ = std::make_unique<DbStorage>(dbPath, config_.sessionId);
             break;
         }
         case ContextConfig::StorageType::MEMORY_ONLY:
         default:
-            m_storage = nullptr;
+            storage_ = nullptr;
             break;
     }
 
-    if (m_storage) {
-        return m_storage->LoadHistory(m_memoryBuffer);
+    if (storage_) {
+        return storage_->LoadHistory(memoryBuffer_);
     }
     return true;
 }
 
 void ContextEngine::AddMessage(const Message& message) {
-    m_memoryBuffer.push_back(message);
-    if (m_storage) {
-        m_storage->SaveMessage(message);
+    memoryBuffer_.push_back(message);
+    if (storage_) {
+        storage_->SaveMessage(message);
     }
 }
 
 std::vector<Message> ContextEngine::GetContextWindow() const {
-    if (m_memoryBuffer.empty()) return {};
+    if (memoryBuffer_.empty()) return {};
     std::vector<Message> window;
     int currentTokens = 0;
-    for (auto it = m_memoryBuffer.rbegin(); it != m_memoryBuffer.rend(); ++it) {
+    for (auto it = memoryBuffer_.rbegin(); it != memoryBuffer_.rend(); ++it) {
         int msgTokens = EstimateTokens(it->content) + EstimateTokens(it->role);
-        if (!window.empty() && (currentTokens + msgTokens > m_config.maxContextTokens)) {
+        if (!window.empty() && (currentTokens + msgTokens > config_.maxContextTokens)) {
             break;
         }
         window.insert(window.begin(), *it);
@@ -65,26 +65,26 @@ std::string ContextEngine::GetContextAsString() const {
 }
 
 std::vector<Message> ContextEngine::GetAllMessages() const {
-    return m_memoryBuffer;
+    return memoryBuffer_;
 }
 
 void ContextEngine::Clear() {
-    m_memoryBuffer.clear();
-    if (m_storage) {
-        m_storage->Clear();
+    memoryBuffer_.clear();
+    if (storage_) {
+        storage_->Clear();
     }
 }
 
 int ContextEngine::GetTokenCount() const {
     int total = 0;
-    for (const auto& msg : m_memoryBuffer) {
+    for (const auto& msg : memoryBuffer_) {
         total += EstimateTokens(msg.content) + EstimateTokens(msg.role);
     }
     return total;
 }
 
 std::string ContextEngine::GetSessionId() const {
-    return m_config.sessionId;
+    return config_.sessionId;
 }
 
 int ContextEngine::EstimateTokens(const std::string& text) {

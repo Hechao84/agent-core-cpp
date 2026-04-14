@@ -12,7 +12,7 @@ std::vector<std::string> PlanAndExecuteAgentWorker::GeneratePlan(const std::stri
     CallModelStream(prompt, {},
         [&callback, &fullResponse](const std::string& chunk) { fullResponse += chunk; callback("[PLAN_STREAM] " + chunk); },
         [&callback, &fullResponse](const std::string& complete) { if (!complete.empty()) callback("[PLAN_COMPLETE] " + complete); });
-    if (m_cancelled.load()) return {};
+    if (cancelled_.load()) return {};
     std::vector<std::string> steps;
     std::istringstream stream(fullResponse);
     std::string line;
@@ -51,15 +51,15 @@ std::string PlanAndExecuteAgentWorker::SynthesizeResult(const std::string& query
 }
 
 void PlanAndExecuteAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback) {
-    m_cancelled.store(false);
+    cancelled_.store(false);
     std::vector<std::string> plan = GeneratePlan(query, callback);
-    if (m_cancelled.load() || plan.empty()) { callback("[STATUS] Cancelled or empty plan"); return; }
+    if (cancelled_.load() || plan.empty()) { callback("[STATUS] Cancelled or empty plan"); return; }
     std::string context;
-    for (size_t i = 0; i < plan.size() && !m_cancelled.load(); ++i) {
+    for (size_t i = 0; i < plan.size() && !cancelled_.load(); ++i) {
         callback("[PROGRESS] Step " + std::to_string(i + 1) + "/" + std::to_string(plan.size()));
         std::string stepResult = ExecuteStep(plan[i], context, callback);
         context += "\nStep " + std::to_string(i + 1) + ": " + plan[i] + "\nResult: " + stepResult;
     }
-    if (m_cancelled.load()) { callback("[STATUS] Cancelled during execution"); return; }
+    if (cancelled_.load()) { callback("[STATUS] Cancelled during execution"); return; }
     SynthesizeResult(query, context, callback);
 }
