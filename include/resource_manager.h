@@ -31,6 +31,7 @@ public:
 
 private:
     ResourceManager();
+    void RegisterBuiltinTools();
     void RegisterBuiltinModels();
 
     std::unordered_map<std::string, std::function<std::unique_ptr<Tool>()>> toolFactories_;

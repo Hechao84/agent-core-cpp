@@ -26,3 +26,7 @@ dist/
 
 # Temporary projects/copy
 temp_nanobot/
+build-linux/
+
+# Test reports
+TEST_REPORT.md

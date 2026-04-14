@@ -5,7 +5,6 @@
 #endif
 #include "agent.h"
 #include "resource_manager.h"
-#include "builtin_tools.h" // Use the public registration API
 
 // Helper function to convert local encoding to UTF-8 (Input for Agent)
 // Crucial for Windows console Chinese input support
@@ -48,11 +47,6 @@ void RunTestQuery(Agent& agent, const std::string& query) {
 
 int main() {
     std::cout << "=== Running Testcases for Builtin Tools & Skills ===\n" << std::flush;
-
-    // 1. Register Builtin Tools using the unified API
-    RegisterBuiltinTools();
-
-    std::cout << "[INFO] Built-in tools registered successfully.\n" << std::flush;
     std::cout << "[INFO] Checking Skills directory: ./my_skills\n" << std::flush;
 
     // 2. Configuration

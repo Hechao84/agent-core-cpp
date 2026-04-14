@@ -106,7 +106,6 @@ add_library(agent_framework SHARED
     src/tools/builtin_tools/exec_tool.cpp
     src/tools/builtin_tools/notebook_edit_tool.cpp
     src/tools/builtin_tools/file_state_tool.cpp
-    src/tools/builtin_tools/register_builtin_tools.cpp
     src/models/model.cpp
     src/models/openai_model.cpp
     src/models/anthropic_model.cpp

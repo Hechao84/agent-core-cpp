@@ -3,6 +3,21 @@
 #include "models/openai_model.h"
 #include "models/anthropic_model.h"
 #include "tools/mcp_tool.h"
+
+// Builtin Tools
+#include "tools/builtin_tools/time_info_tool.h"
+#include "tools/builtin_tools/web_search_tool.h"
+#include "tools/builtin_tools/web_fetch_tool.h"
+#include "tools/builtin_tools/read_file_tool.h"
+#include "tools/builtin_tools/write_file_tool.h"
+#include "tools/builtin_tools/edit_file_tool.h"
+#include "tools/builtin_tools/list_dir_tool.h"
+#include "tools/builtin_tools/glob_tool.h"
+#include "tools/builtin_tools/grep_tool.h"
+#include "tools/builtin_tools/exec_tool.h"
+#include "tools/builtin_tools/notebook_edit_tool.h"
+#include "tools/builtin_tools/file_state_tool.h"
+
 #include <algorithm>
 #include <stdexcept>
 
@@ -12,7 +27,23 @@ ResourceManager& ResourceManager::GetInstance() {
 }
 
 ResourceManager::ResourceManager() {
+    RegisterBuiltinTools();
     RegisterBuiltinModels();
+}
+
+void ResourceManager::RegisterBuiltinTools() {
+    RegisterTool("time_info", []() { return std::make_unique<TimeInfoTool>(); });
+    RegisterTool("web_search", []() { return std::make_unique<WebSearchTool>(); });
+    RegisterTool("web_fetcher", []() { return std::make_unique<WebFetcherTool>(); });
+    RegisterTool("read_file", []() { return std::make_unique<ReadFileTool>(); });
+    RegisterTool("write_file", []() { return std::make_unique<WriteFileTool>(); });
+    RegisterTool("edit_file", []() { return std::make_unique<EditFileTool>(); });
+    RegisterTool("list_dir", []() { return std::make_unique<ListDirTool>(); });
+    RegisterTool("glob", []() { return std::make_unique<GlobTool>(); });
+    RegisterTool("grep", []() { return std::make_unique<GrepTool>(); });
+    RegisterTool("exec", []() { return std::make_unique<ExecTool>(); });
+    RegisterTool("notebook_edit", []() { return std::make_unique<NotebookEditTool>(); });
+    RegisterTool("file_state", []() { return std::make_unique<FileStateTool>(); });
 }
 
 void ResourceManager::RegisterBuiltinModels() {

@@ -7,7 +7,6 @@
 #include "tools/builtin_tools/write_file_tool.h"
 #include "tools/builtin_tools/list_dir_tool.h"
 #include "tools/builtin_tools/time_info_tool.h"
-#include "builtin_tools.h"
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -20,9 +19,6 @@ namespace fs = std::filesystem;
 
 TEST(integration, RegisterAndExecuteBuiltinTools) {
     auto& rm = ResourceManager::GetInstance();
-
-    // Register all builtin tools
-    RegisterBuiltinTools();
 
     // Verify each tool is registered and can be created
     std::vector<std::string> expectedTools = {

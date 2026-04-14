@@ -5,7 +5,6 @@
 #include <filesystem>
 #include "agent.h"
 #include "resource_manager.h"
-#include "builtin_tools.h"
 #include "read_file_tool.h"
 #include "write_file_tool.h"
 #include "edit_file_tool.h"
