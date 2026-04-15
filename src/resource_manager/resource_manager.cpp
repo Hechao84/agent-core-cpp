@@ -67,15 +67,45 @@ void ResourceManager::RegisterModel(ModelFormatType type, std::function<std::uni
     modelFactories_[type] = std::move(factory);
 }
 
-void ResourceManager::RegisterMCPServer(const std::string& name, nlohmann::json config)
+void ResourceManager::RegisterMCPServer(const std::string& name, const std::string& jsonConfig)
 {
     MCPEndpointConfig endpointCfg;
+    nlohmann::json config;
 
-    // Parse transport type (default to STDIO if command is provided, else HTTP if url is provided)
+    try
+    {
+        config = nlohmann::json::parse(jsonConfig);
+    }
+    catch (const std::exception& e)
+    {
+        throw std::runtime_error("Invalid MCP JSON config: " + std::string(e.what()));
+    }
+
+    std::string transportTypeStr = config.value("type", config.value("transport", ""));
+
     if (config.contains("url"))
     {
-        endpointCfg.transportType = MCPTransportType::HTTP;
         endpointCfg.url = config["url"].get<std::string>();
+    }
+    else if (config.contains("AMap") && config.contains("endpoint"))
+    {
+        std::string baseUrl = config["AMap"].get<std::string>();
+        std::string path = config["endpoint"].get<std::string>();
+        if (!baseUrl.empty() && !path.empty()) {
+            endpointCfg.url = baseUrl + path;
+        }
+    }
+
+    if (!endpointCfg.url.empty())
+    {
+        if (transportTypeStr == "sse" || (transportTypeStr.empty() && endpointCfg.url.find("/sse") != std::string::npos))
+        {
+            endpointCfg.transportType = MCPTransportType::SSE;
+        }
+        else
+        {
+            endpointCfg.transportType = MCPTransportType::STREAMABLE_HTTP;
+        }
 
         if (config.contains("headers") && config["headers"].is_object())
         {
@@ -108,7 +138,7 @@ void ResourceManager::RegisterMCPServer(const std::string& name, nlohmann::json 
     }
     else
     {
-        throw std::runtime_error("Invalid MCP server config: missing 'url' (HTTP) or 'command' (Stdio)");
+        throw std::runtime_error("Invalid MCP server config: missing 'url' or 'AMap'+'endpoint'");
     }
 
     auto server = std::make_shared<MCPServer>(name, endpointCfg);

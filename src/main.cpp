@@ -72,26 +72,35 @@ class WeatherTool : public Tool {
 int main()
 {
     std::cout << "Agent Framework Demo\n====================\n" << std::flush;
-    
+
+    // Disable proxy for HTTP requests to external services
+    unsetenv("https_proxy");
+    unsetenv("HTTPS_PROXY");
+    unsetenv("http_proxy");
+    unsetenv("HTTP_PROXY");
+    unsetenv("no_proxy");
+    unsetenv("NO_PROXY");
+
     auto& rm = ResourceManager::GetInstance();
-    
+
     // Register a local weather tool for demonstration
     rm.RegisterTool("weather", []() { return std::make_unique<WeatherTool>(); });
 
     // --- MCP Server Verification: Amap MCP Server ---
-    std::cout << "\nInitializing Amap MCP Server...\n" << std::flush;
+    // Using Streamable HTTP transport to connect to Amap's official hosted MCP server.
+    // Replace <your amap key> with your actual API key.
+    std::cout << "\nInitializing Amap MCP Server (Streamable HTTP)...\n" << std::flush;
     try
     {
-        nlohmann::json amapConfig;
-        amapConfig["command"] = "npx";
-        amapConfig["args"] = nlohmann::json::array({
-            "-y", "@amap/amap-maps-mcp-server"
-        });
-        amapConfig["env"] = {
-            {"AMAP_MAPS_API_KEY", "<your amap api key>"}
-        };
-        
-        rm.RegisterMCPServer("amap", amapConfig);
+        std::string amapJson = R"({
+            "AMap": "https://mcp.amap.com",
+            "endpoint": "/mcp?key=<your amap key>",
+            "isActive": "true",
+            "description": "this is a mcp map server",
+            "type": "streamable-http-client"
+        })";
+
+        rm.RegisterMCPServer("amap", amapJson);
         
         std::cout << "[SUCCESS] Amap MCP server connected. Available tools:\n" << std::flush;
         auto mcpTools = rm.GetAvailableTools();
@@ -121,9 +130,9 @@ int main()
     config.skillDirectory = "./my_skills"; // Relative path for demo purposes
 
     // 3. Model Config
-    config.modelConfig.baseUrl = "<your base url>";
-    config.modelConfig.apiKey = "<your api key>";
-    config.modelConfig.modelName = "<your model name>";
+    config.modelConfig.baseUrl = "http://113.46.219.251:8080/v1";
+    config.modelConfig.apiKey = "sk-7F9jkQ7fo1nUMujpvVoavg";
+    config.modelConfig.modelName = "Qwen3.6-Plus";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
     
     // 4. Extended Model Params (ConfigNode)
@@ -197,7 +206,7 @@ int main()
                 }
             }
 
-            // 3. 输出
+            // 3. Output
             std::cout << UTF8ToLocal(s) << std::flush;
         });
         // Ensure the prompt appears on a new line

@@ -1,29 +1,68 @@
 #!/bin/bash
-# build_linux.sh - Script to build the Linux version of the Agent Framework
+# build_linux.sh - Build the entire project
+# Step 1: Build third-party shared libraries (calls build_third_party.sh)
+# Step 2: Build main project (links to pre-built .so files)
 
 set -e
 
-echo "=== Building for Linux ==="
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 
-# Create build directory
-mkdir -p build-linux
-cd build-linux
+# ============================================================
+# Step 1: Build third-party libraries
+# ============================================================
+echo "=========================================="
+echo " [1/3] Building Third-Party Libraries"
+echo "=========================================="
 
-# Configure CMake
-# This toolchain file is for native x64 Linux compilation.
-# For ARM64/Android/OpenHarmony, change the toolchain file.
+bash "$SCRIPT_DIR/build_third_party.sh"
+
+echo ""
+
+# ============================================================
+# Step 2: Configure Main Project
+# ============================================================
+echo "=========================================="
+echo " [2/3] Configuring Main Project"
+echo "=========================================="
+
+BUILD_DIR="$SCRIPT_DIR/build-linux"
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+
+echo "--- Running CMake..."
 cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-linux.cmake \
     -DCMAKE_CXX_FLAGS="-std=c++17"
 
-# Build
-cmake --build . --target jiuwen-lite -j$(nproc)
+echo "--- CMake configuration complete."
+echo ""
+
+# ============================================================
+# Step 3: Build Main Project
+# ============================================================
+echo "=========================================="
+echo " [3/3] Building Main Project"
+echo "=========================================="
+
+NPROC=$(nproc)
+echo "--- Compiling with $NPROC threads..."
+echo "--- This may take a minute. Progress:"
+
+cmake --build . --target jiuwen-lite -- -j"$NPROC"
 
 # Package
-mkdir -p ../dist/linux
-cp jiuwen-lite ../dist/linux/
-ls -lh ../dist/linux/
+echo ""
+echo "--- Packaging output..."
+mkdir -p "$SCRIPT_DIR/dist/linux"
+cp jiuwen-lite "$SCRIPT_DIR/dist/linux/"
 
-echo "=== Build Complete ==="
-echo "Deliverable located at: dist/linux/jiuwen-lite"
+echo ""
+echo "=========================================="
+echo " Build Complete!"
+echo "=========================================="
+echo "Binary: dist/linux/jiuwen-lite"
+ls -lh "$SCRIPT_DIR/dist/linux/jiuwen-lite"
+echo ""
+echo "To run:"
+echo "  LD_LIBRARY_PATH=$SCRIPT_DIR/libs ./dist/linux/jiuwen-lite"

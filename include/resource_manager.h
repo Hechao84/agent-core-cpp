@@ -16,7 +16,7 @@ public:
 
     void RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory);
     void RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory);
-    void RegisterMCPServer(const std::string& name, nlohmann::json config);
+    void RegisterMCPServer(const std::string& name, const std::string& jsonConfig);
 
     std::unique_ptr<Tool> CreateTool(const std::string& name);
     std::unique_ptr<Model> CreateModel(const ModelConfig& config);

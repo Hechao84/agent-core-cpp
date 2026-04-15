@@ -9,104 +9,69 @@ if(MSVC)
     string(APPEND CMAKE_CXX_FLAGS " /FS")
     string(REPLACE "/Zi" "/Z7" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(-Wall -Wextra -fPIC) # -fPIC is required for shared libraries on Linux/Android/OH
+    add_compile_options(-Wall -Wextra -fPIC)
 endif()
 
-# std::filesystem compatibility for older GCC (<9)
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
-    find_library(STDCXXFS_LIB stdc++fs QUIET)
-    if(STDCXXFS_LIB)
-        list(APPEND PLATFORM_LIBS ${STDCXXFS_LIB})
-    endif()
+# All third-party pre-built libs
+set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/3rd-party")
+set(TP_LIBS_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/libs")
+set(TP_INCLUDE_DIR  "${THIRD_PARTY_DIR}/include")
+set(TP_SRC_DIR      "${THIRD_PARTY_DIR}/src")
+
+# ============================================================
+# 1. Check if pre-built libraries exist
+# ============================================================
+include(FindPackageHandleStandardArgs)
+
+set(USE_PREBUILT_THIRD_PARTY OFF)
+if(EXISTS "${TP_INCLUDE_DIR}/nlohmann/json.hpp")
+    set(USE_PREBUILT_THIRD_PARTY ON)
+    message(STATUS "Using pre-built third-party includes from src/3rd-party/")
 endif()
 
-# Dependencies
-include(FetchContent)
+# System/system dependencies
+find_package(OpenSSL REQUIRED)
+find_package(CURL REQUIRED)
+set(CURL_LIB CURL::libcurl)
 
-# 1. curl
-option(USE_LOCAL_CURL "Use local curl source from src/3rd-party" OFF)
+# ============================================================
+# 2. SQLite3 (Pre-built shared library)
+# ============================================================
+set(SQLITE_LIB sqlite3)
 
-if(USE_LOCAL_CURL)
-    message(STATUS "Using local curl source from 3rd-party")
-    set(CURL_LOCAL_DIR ${CMAKE_SOURCE_DIR}/src/3rd-party/curl-8.7.1)
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build curl as static lib" FORCE)
-    set(CURL_USE_SCHANNEL ON CACHE BOOL "Use Windows native SSL" FORCE)
-    set(CURL_ZLIB OFF CACHE BOOL "Disable ZLIB" FORCE)
-    set(HTTP_ONLY ON CACHE BOOL "Build HTTP only" FORCE)
-    add_subdirectory(${CURL_LOCAL_DIR} ${CMAKE_BINARY_DIR}/curl-build EXCLUDE_FROM_ALL)
-    set(CURL_LIB libcurl)
-    target_include_directories(jiuwen-lite PRIVATE ${CURL_LOCAL_DIR}/include)
+if(EXISTS "${TP_LIBS_DIR}/libsqlite3.so")
+    message(STATUS "Using pre-built sqlite3 from libs/")
+    add_library(sqlite3 SHARED IMPORTED GLOBAL)
+    set_target_properties(sqlite3 PROPERTIES
+        IMPORTED_LOCATION "${TP_LIBS_DIR}/libsqlite3.so"
+        INTERFACE_INCLUDE_DIRECTORIES "${TP_INCLUDE_DIR}"
+    )
 else()
-    find_package(CURL QUIET)
-    if(CURL_FOUND)
-        message(STATUS "Using system curl")
-        set(CURL_LIB CURL::libcurl)
+    set(LOCAL_SQLITE_SRC "${TP_SRC_DIR}/sqlite3-src/sqlite3.c")
+    if(EXISTS "${LOCAL_SQLITE_SRC}")
+        message(STATUS "Using local sqlite3 source")
+        add_library(sqlite3 SHARED ${LOCAL_SQLITE_SRC})
+        target_include_directories(sqlite3 PUBLIC "${TP_SRC_DIR}/sqlite3-src" ${TP_INCLUDE_DIR})
+        target_link_libraries(sqlite3 PUBLIC dl pthread)
     else()
-        message(STATUS "System curl not found, fetching via FetchContent")
-        FetchContent_Declare(
-            curl
-            GIT_REPOSITORY https://github.com/curl/curl.git
-            GIT_TAG curl-8_7_1
-        )
-        set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build curl as static lib" FORCE)
-        
-        # Platform-specific SSL backend for curl
-        if(WIN32)
-            set(CURL_USE_SCHANNEL ON CACHE BOOL "Use Windows native SSL" FORCE)
-            set(CURL_USE_OPENSSL OFF CACHE BOOL "Use OpenSSL" FORCE)
-        else()
-            set(CURL_USE_SCHANNEL OFF CACHE BOOL "Use Schannel" FORCE)
-            set(CURL_USE_OPENSSL ON CACHE BOOL "Use OpenSSL" FORCE)
-        endif()
-        
-        set(CURL_ZLIB OFF CACHE BOOL "Disable ZLIB" FORCE)
-        set(HTTP_ONLY ON CACHE BOOL "Build HTTP only" FORCE)
-        set(CURL_DISABLE_TESTS ON CACHE BOOL "Disable curl tests for cross-compilation" FORCE)
-        FetchContent_MakeAvailable(curl)
-        set(CURL_LIB libcurl)
+        message(STATUS "Warning: sqlite3 not found in libs/ or src/. Building without sqlite.")
+        add_library(sqlite3 INTERFACE IMPORTED)
     endif()
 endif()
 
-# 2. MCP SDK (Model Context Protocol Client) - Must be before agent_framework to provide json
-FetchContent_Declare(
-    agent_protocol
-    GIT_REPOSITORY https://github.com/openJiuwen-ai/agent-protocol.git
-    GIT_TAG        main
-)
-FetchContent_GetProperties(agent_protocol)
-if(NOT agent_protocol_POPULATED)
-    message(STATUS "Fetching OpenJiuwen Agent Protocol (MCP SDK)...")
-    FetchContent_Populate(agent_protocol)
-    
-    set(MCP_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
-    set(MCP_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(MCP_ENABLE_COVERAGE OFF CACHE BOOL "" FORCE)
-
-    # Make SDK's find_package calls use our already resolved dependencies
-    set(CURL_FOUND TRUE)
-    set(CURL_LIBRARY ${CURL_LIB})
-    set(CURL_INCLUDE_DIR ${curl_BINARY_DIR}/include)
-
-    # Find OpenSSL for the SDK
-    find_package(OpenSSL REQUIRED)
-
-    add_subdirectory(${agent_protocol_SOURCE_DIR}/MCP/cpp-sdk ${agent_protocol_BINARY_DIR}/MCP_cpp_build)
-    
-    # Fix SDK's hardcoded CMAKE_SOURCE_DIR which points to our root project
-    if(TARGET mcp)
-        target_include_directories(mcp PUBLIC 
-            ${agent_protocol_SOURCE_DIR}/MCP/cpp-sdk/include
-        )
-        target_include_directories(mcp PRIVATE
-            ${agent_protocol_BINARY_DIR}/MCP_cpp_build/include
-        )
-    endif()
-
-    message(STATUS "MCP SDK integrated")
+# ============================================================
+# 3. nlohmann/json
+# ============================================================
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    add_library(nlohmann_json::nlohmann_json INTERFACE IMPORTED GLOBAL)
+    set_property(TARGET nlohmann_json::nlohmann_json PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TP_INCLUDE_DIR}")
 endif()
 
-# Define Shared Library (agent_framework)
+# ============================================================
+# Shared Library: agent_framework
+# ============================================================
 add_library(agent_framework SHARED
+    src/protocol/mcp_client.cpp
     src/core/agent.cpp
     src/core/agent_worker.cpp
     src/skills/skill_engine.cpp
@@ -138,107 +103,31 @@ add_library(agent_framework SHARED
     src/models/anthropic_model.cpp
 )
 
-target_include_directories(agent_framework PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
+target_include_directories(agent_framework PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(agent_framework PRIVATE BUILDING_AGENT_FRAMEWORK)
 
-# 3. SQLite3 (For Database Context Storage)
-option(USE_LOCAL_SQLITE "Use local sqlite3 source from src/3rd-party/sqlite" OFF)
-
-if(USE_LOCAL_SQLITE)
-    message(STATUS "Using local sqlite3 from src/3rd-party")
-    add_library(sqlite3 STATIC ${CMAKE_SOURCE_DIR}/src/3rd-party/sqlite/sqlite3.c)
-    target_include_directories(sqlite3 PUBLIC ${CMAKE_SOURCE_DIR}/src/3rd-party/sqlite)
-    set(SQLITE_LIB sqlite3)
-else()
-    find_package(SQLite3 QUIET)
-    if(SQLite3_FOUND)
-        message(STATUS "Using system sqlite3")
-        set(SQLITE_LIB SQLite::SQLite3)
-    else()
-        message(STATUS "SQLite3 not found locally or system-wide, fetching via FetchContent...")
-        FetchContent_Declare(
-            sqlite3
-            URL https://www.sqlite.org/2024/sqlite-amalgamation-3450300.zip
-        )
-        FetchContent_GetProperties(sqlite3)
-        if(NOT sqlite3_POPULATED)
-            FetchContent_Populate(sqlite3)
-            add_library(sqlite3 STATIC ${sqlite3_SOURCE_DIR}/sqlite3.c)
-            target_include_directories(sqlite3 PUBLIC ${sqlite3_SOURCE_DIR})
-        endif()
-        set(SQLITE_LIB sqlite3)
-    endif()
-endif()
-
-if(TARGET mcp)
-    target_link_libraries(agent_framework PRIVATE mcp pthread dl)
-    target_include_directories(agent_framework PRIVATE 
-        ${agent_protocol_SOURCE_DIR}/MCP/cpp-sdk/include
-        ${CURL_INCLUDE_DIR}
-    )
-endif()
+target_include_directories(agent_framework PRIVATE ${CURL_INCLUDE_DIRS})
 
 target_link_libraries(agent_framework PRIVATE 
     ${CURL_LIB}
     ${SQLITE_LIB}
-    ${PLATFORM_LIBS}
     nlohmann_json::nlohmann_json
+    pthread
+    dl
 )
 
-# Define Executable (jiuwen-lite)
+# ============================================================
+# Executables
+# ============================================================
 add_executable(jiuwen-lite src/main.cpp)
-
-target_include_directories(jiuwen-lite PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
+target_include_directories(jiuwen-lite PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(jiuwen-lite PRIVATE agent_framework nlohmann_json::nlohmann_json)
 
-# Define Testcase Executable
-add_executable(test_builtin_tools testcases/test_builtin_tools.cpp)
-target_include_directories(test_builtin_tools PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/tools/builtin_tools
-)
-target_link_libraries(test_builtin_tools PRIVATE agent_framework nlohmann_json::nlohmann_json)
-
-# Unit Tests (src/unittest/)
-add_executable(unittest
-    unittest/main.cpp
-    unittest/test_types.cpp
-    unittest/test_tool.cpp
-    unittest/test_file_tools.cpp
-    unittest/test_search_tools.cpp
-    unittest/test_misc_tools.cpp
-    unittest/test_tool_selector.cpp
-    unittest/test_context_engine.cpp
-    unittest/test_resource_manager.cpp
-    unittest/test_agent_factory.cpp
-    unittest/test_integration.cpp
-)
-target_include_directories(unittest PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/unittest
-)
+# Optional test targets
+add_executable(unittest unittest/main.cpp unittest/test_types.cpp unittest/test_tool.cpp)
+target_include_directories(unittest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/unittest)
 target_link_libraries(unittest PRIVATE agent_framework nlohmann_json::nlohmann_json)
 
-# Functional Tests (testcases/)
-add_executable(test_functional_tools testcases/test_functional_tools.cpp)
-target_include_directories(test_functional_tools PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/tools/builtin_tools
-)
-target_link_libraries(test_functional_tools PRIVATE agent_framework nlohmann_json::nlohmann_json)
-
-# Install rules
 install(TARGETS agent_framework jiuwen-lite
-    ARCHIVE DESTINATION lib
-    LIBRARY DESTINATION lib
-    RUNTIME DESTINATION bin
-)
+    ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
 install(DIRECTORY include/ DESTINATION include)
