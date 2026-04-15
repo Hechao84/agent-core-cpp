@@ -25,8 +25,7 @@ std::string LocalToUTF8(const std::string& str)
         WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &result[0], len, NULL, NULL);
         if (!result.empty()) result.pop_back(); // Remove null terminator
         return result;
-    } catch (...)
-    {
+    } catch (...) {
         return str;
     }
 #else
@@ -50,8 +49,7 @@ std::string UTF8ToLocal(const std::string& str)
         WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, &result[0], len, NULL, NULL);
         if (!result.empty()) result.pop_back(); // Remove null terminator
         return result;
-    } catch (...)
-    {
+    } catch (...) {
         return str;
     }
 #else
@@ -90,10 +88,9 @@ int main()
     // Using Streamable HTTP transport to connect to Amap's official hosted MCP server.
     // Replace <your amap key> with your actual API key.
     std::cout << "\nInitializing Amap MCP Server (Streamable HTTP)...\n" << std::flush;
-    try
-    {
+    try {
         std::string amapJson = R"({
-            "AMap": "https://mcp.amap.com",
+            "url": "https://mcp.amap.com",
             "endpoint": "/mcp?key=<your amap key>",
             "isActive": "true",
             "description": "this is a mcp map server",
@@ -104,13 +101,10 @@ int main()
         
         std::cout << "[SUCCESS] Amap MCP server connected. Available tools:\n" << std::flush;
         auto mcpTools = rm.GetAvailableTools();
-        for (const auto& toolName : mcpTools)
-        {
+        for (const auto& toolName : mcpTools) {
             std::cout << "  - " << toolName << "\n" << std::flush;
         }
-    }
-    catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         std::cout << "[WARN] MCP Server initialization failed: " << e.what() << "\n" << std::flush;
     }
     // ------------------------------------------------
@@ -130,9 +124,9 @@ int main()
     config.skillDirectory = "./my_skills"; // Relative path for demo purposes
 
     // 3. Model Config
-    config.modelConfig.baseUrl = "http://113.46.219.251:8080/v1";
-    config.modelConfig.apiKey = "sk-7F9jkQ7fo1nUMujpvVoavg";
-    config.modelConfig.modelName = "Qwen3.6-Plus";
+    config.modelConfig.baseUrl = "<your base url>";
+    config.modelConfig.apiKey = "<your api key>";
+    config.modelConfig.modelName = "<your model name>";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
     
     // 4. Extended Model Params (ConfigNode)
@@ -162,17 +156,12 @@ int main()
             continue;
         }
         
-        // Convert input to UTF-8
         query = LocalToUTF8(query);
-        
         std::cout << "Processing...\n";
         
-        bool is_streaming = false; // Track streaming state
-        agent.Invoke(query, [&](const std::string& resp)
-        {
+        bool is_streaming = false;
+        agent.Invoke(query, [&](const std::string& resp) {
             std::string s = resp;
-
-            // 1. Remove stream tags [STREAM] and [STREAM] 
             std::vector<std::string> streamTags = {"[STREAM] ", "[STREAM]"};
             bool foundStream = false;
             for (const auto& st : streamTags) {
@@ -185,31 +174,22 @@ int main()
             }
             if (foundStream) is_streaming = true;
 
-            // 2. Insert newlines for control tags ([STATUS], [TOOL_CALLS], etc.)
-            std::vector<std::string> controlTags = {
-                "[STATUS]", "[THOUGHT]", "[ACTION]", "[TOOL_CALLS]", 
-                "[TOOL_RESPONSE]", "[RESPONSE]", "[FINAL]", "[ERROR]"
-            };
-
+            std::vector<std::string> controlTags = {"[STATUS]", "[THOUGHT]", "[ACTION]", "[TOOL_CALLS]", "[TOOL_RESPONSE]", "[RESPONSE]", "[FINAL]", "[ERROR]"};
             for (const auto& tag : controlTags) {
                 size_t pos = s.find(tag);
                 while (pos != std::string::npos) {
-                    is_streaming = false; // Control tag ends stream
-                    // Insert newline before tag if not at start and not preceded by newline
+                    is_streaming = false;
                     if (pos > 0 && s[pos-1] != '\n') {
                         s.insert(pos, "\n");
-                        pos += tag.length() + 1; // Skip inserted newline and tag
+                        pos += tag.length() + 1;
                     } else {
-                        pos += tag.length(); // Skip tag
+                        pos += tag.length();
                     }
                     pos = s.find(tag, pos);
                 }
             }
-
-            // 3. Output
             std::cout << UTF8ToLocal(s) << std::flush;
         });
-        // Ensure the prompt appears on a new line
         std::cout << "\n";
     }
     

@@ -72,73 +72,64 @@ void ResourceManager::RegisterMCPServer(const std::string& name, const std::stri
     MCPEndpointConfig endpointCfg;
     nlohmann::json config;
 
-    try
-    {
+    try {
         config = nlohmann::json::parse(jsonConfig);
-    }
-    catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         throw std::runtime_error("Invalid MCP JSON config: " + std::string(e.what()));
     }
 
-    std::string transportTypeStr = config.value("type", config.value("transport", ""));
+    std::string baseUrl = config.value("url", "");
+    std::string endpoint = config.value("endpoint", "");
 
-    if (config.contains("url"))
-    {
-        endpointCfg.url = config["url"].get<std::string>();
-    }
-    else if (config.contains("AMap") && config.contains("endpoint"))
-    {
-        std::string baseUrl = config["AMap"].get<std::string>();
-        std::string path = config["endpoint"].get<std::string>();
-        if (!baseUrl.empty() && !path.empty()) {
-            endpointCfg.url = baseUrl + path;
+    // Combine URL and endpoint
+    if (baseUrl.empty()) {
+        baseUrl = endpoint;
+    } else if (!endpoint.empty()) {
+        if (baseUrl.back() != '/' && endpoint.front() != '/') {
+            baseUrl += "/";
         }
+        baseUrl += endpoint;
+    }
+    
+    endpointCfg.url = baseUrl;
+
+    std::string transportTypeStr = config.value("type", "");
+    if (transportTypeStr.empty()) {
+        transportTypeStr = config.value("transport", "");
     }
 
-    if (!endpointCfg.url.empty())
-    {
-        if (transportTypeStr == "sse" || (transportTypeStr.empty() && endpointCfg.url.find("/sse") != std::string::npos))
-        {
+    if (!endpointCfg.url.empty()) {
+        if (transportTypeStr == "sse" || 
+            (transportTypeStr.empty() && endpointCfg.url.find("/sse") != std::string::npos)) {
             endpointCfg.transportType = MCPTransportType::SSE;
-        }
-        else
-        {
+        } else {
             endpointCfg.transportType = MCPTransportType::STREAMABLE_HTTP;
         }
 
-        if (config.contains("headers") && config["headers"].is_object())
-        {
-            for (auto& [k, v] : config["headers"].items())
-            {
-                if (v.is_string()) endpointCfg.headers[k] = v.get<std::string>();
+        if (config.contains("headers") && config["headers"].is_object()) {
+            for (auto& [k, v] : config["headers"].items()) {
+                if (v.is_string()) {
+                    endpointCfg.headers[k] = v.get<std::string>();
+                }
             }
         }
-    }
-    else if (config.contains("command"))
-    {
+    } else if (config.contains("command")) {
         endpointCfg.transportType = MCPTransportType::STDIO;
         endpointCfg.command = config["command"].get<std::string>();
 
-        if (config.contains("args") && config["args"].is_array())
-        {
-            for (const auto& arg : config["args"])
-            {
+        if (config.contains("args") && config["args"].is_array()) {
+            for (const auto& arg : config["args"]) {
                 if (arg.is_string()) endpointCfg.args.push_back(arg.get<std::string>());
             }
         }
 
-        if (config.contains("env") && config["env"].is_object())
-        {
-            for (auto& [k, v] : config["env"].items())
-            {
+        if (config.contains("env") && config["env"].is_object()) {
+            for (auto& [k, v] : config["env"].items()) {
                 if (v.is_string()) endpointCfg.env[k] = v.get<std::string>();
             }
         }
-    }
-    else
-    {
-        throw std::runtime_error("Invalid MCP server config: missing 'url' or 'AMap'+'endpoint'");
+    } else {
+        throw std::runtime_error("Invalid MCP server config: missing 'url' or 'command'");
     }
 
     auto server = std::make_shared<MCPServer>(name, endpointCfg);
@@ -180,8 +171,10 @@ std::vector<std::string> ResourceManager::GetAvailableModels() const
 {
     std::vector<std::string> names;
     std::unordered_map<ModelFormatType, std::string> typeMap = {
-        {ModelFormatType::OPENAI, "openai"}, {ModelFormatType::ANTHROPIC, "anthropic"},
-        {ModelFormatType::DEEPSEEK, "deepseek"}, {ModelFormatType::DASHSCOPE, "dashscope"}
+        {ModelFormatType::OPENAI, "openai"}, 
+        {ModelFormatType::ANTHROPIC, "anthropic"},
+        {ModelFormatType::DEEPSEEK, "deepseek"}, 
+        {ModelFormatType::DASHSCOPE, "dashscope"}
     };
     for (const auto& p : modelFactories_) {
         if (typeMap.count(p.first)) names.push_back(typeMap[p.first]);
