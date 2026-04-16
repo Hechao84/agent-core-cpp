@@ -1,15 +1,16 @@
-#include "read_file_tool.h"
+
+
+#include "src/tools/builtin_tools/read_file_tool.h"
 #include <fstream>
 #include <sstream>
-#include <filesystem>
+#include <string>
 #include <vector>
+#include "filesystem"
 
 namespace fs = std::filesystem;
 
 static const int kMaxChars = 128000;
-static const int kDefaultLimit = 2000;
-
-static std::string ParseStringField(const std::string& json, const std::string& key)
+static const int kDefaultLimit = 2000;static std::string ParseStringField(const std::string& json, const std::string& key)
 {
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
@@ -43,8 +44,7 @@ static int ParseIntField(const std::string& json, const std::string& key, int de
     if (valStart == std::string::npos) return defaultVal;
     try {
         return std::stoi(json.substr(valStart));
-    } catch (...)
-    {
+    } catch (...) {
         return defaultVal;
     }
 }
@@ -56,9 +56,7 @@ ReadFileTool::ReadFileTool()
          "Output format: LINE_NUM|CONTENT. Truncated at ~128K chars.",
          {{"path", "The file path to read", "string", true},
           {"offset", "1-based line number to start from", "integer", false},
-          {"limit", "Maximum lines to read (default 2000)", "integer", false}}) {}
-
-std::string ReadFileTool::Invoke(const std::string& input)
+          {"limit", "Maximum lines to read (default 2000)", "integer", false}}){} std::string ReadFileTool::Invoke(const std::string& input)
 {
     std::string filePath = ParseStringField(input, "path");
     if (filePath.empty()) {

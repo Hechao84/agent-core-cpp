@@ -1,11 +1,15 @@
-#include "db_storage.h"
-#include "sqlite3.h"
+
+
+#include "src/context_engine/db_storage.h"
 #include <iostream>
 #include <sstream>
+#include <string>
+#include <vector>
+#include "src/3rd-party/include/sqlite3.h"
 
 DbStorage::DbStorage(const std::string& path, const std::string& sessionId)
     : sessionId_(sessionId)
-    {
+{
     if (sqlite3_open(path.c_str(), &db_) != SQLITE_OK) {
         PrintError("Failed to open database");
         db_ = nullptr;

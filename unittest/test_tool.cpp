@@ -1,12 +1,15 @@
-#include "test_runner.h"
-#include "tool.h"
+
+
 #include <string>
 #include <vector>
+#include "include/tool.h"
+#include "test_runner.h"
 
 class DummyTool : public Tool {
 public:
     DummyTool() : Tool("dummy", "A dummy tool for testing",
-        {{"input", "Input text", "string", true}, {"count", "Repeat count", "integer", false}}) {}
+        {{"input", "Input text", "string", true}, {"count", "Repeat count", "integer", false}}){};
+
     std::string Invoke(const std::string& input) override
     {
         return "echo: " + input;
@@ -58,8 +61,11 @@ TEST(tool, EmptyParamsTool)
 {
     class NoParamTool : public Tool {
     public:
-        NoParamTool() : Tool("noparams", "No params", {}) {}
-        std::string Invoke(const std::string&) override { return "ok"; }
+        NoParamTool() : Tool("noparams", "No params", {}){} 
+        std::string Invoke(const std::string&) override 
+        { 
+            return "ok"; 
+        }
     };
     NoParamTool tool;
     std::string schema = tool.GetSchema();

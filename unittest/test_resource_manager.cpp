@@ -1,23 +1,27 @@
-#include "test_runner.h"
-#include "resource_manager.h"
-#include "tool.h"
-#include "model.h"
-#include "core/agent_worker.h"
-#include <string>
-#include <vector>
 
 // Dummy tool for ResourceManager tests
-class TestTool : public Tool {
-public:
-    TestTool() : Tool("test_tool", "A test tool", {{"input", "Input", "string", true}}) {}
-    std::string Invoke(const std::string& input) override { return "tested: " + input; }
+
+#include <memory>
+#include <string>
+#include <vector>
+#include "include/model.h"
+#include "include/resource_manager.h"
+#include "include/tool.h"
+#include "src/core/agent_worker.h"
+#include "test_runner.h"
+
+class TestTool : public Tool {public:
+    TestTool() : Tool("test_tool", "A test tool", {{"input", "Input", "string", true}}){} 
+    std::string Invoke(const std::string& input) override 
+    { 
+        return "tested: " + input; 
+    }
 };
 
 // Dummy model for ResourceManager tests
 class TestModel : public Model {
 public:
-    TestModel(ModelConfig config) : Model(std::move(config)) {}
-    std::string Format(const std::string& systemPrompt, const std::vector<Message>& messages) override
+    TestModel(ModelConfig config) : Model(std::move(config)){} std::string Format(const std::string& systemPrompt, const std::vector<Message>& messages) override
     {
         return "formatted:" + systemPrompt;
     }
@@ -60,8 +64,7 @@ TEST(resource_manager, CreateToolMissingThrows)
     bool threw = false;
     try {
         rm.CreateTool("nonexistent_tool_xyz");
-    } catch (const std::runtime_error&)
-    {
+    } catch (const std::runtime_error&) {
         threw = true;
     }
     TestRunner::AssertTrue(threw, "Should throw for non-existent tool");

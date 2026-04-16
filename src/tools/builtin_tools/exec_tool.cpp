@@ -1,14 +1,19 @@
-#include "exec_tool.h"
+
+
+#include "src/tools/builtin_tools/exec_tool.h"
+#include <algorithm>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include "cstdlib"
+#include "regex"
 
 #ifdef _WIN32
-#include <windows.h>
-#include <fstream>
+    #include <windows.h>
 #else
-#include <cstdlib>
+    // Linux/Unix specific alternatives if needed, or simply exclude logic
 #endif
-#include <algorithm>
-#include <sstream>
-#include <regex>
 
 static std::string ParseStringField(const std::string& json, const std::string& key)
 {
@@ -22,8 +27,13 @@ static std::string ParseStringField(const std::string& json, const std::string& 
     if (json[valStart] != '"') return "";
     size_t valEnd = valStart + 1;
     while (valEnd < json.length()) {
-        if (json[valEnd] == '\\' && valEnd + 1 < json.length()) { valEnd += 2; continue; }
-        if (json[valEnd] == '"') break;
+        if (json[valEnd] == '\\' && valEnd + 1 < json.length()) { 
+            valEnd += 2; 
+            continue; 
+        }
+        if (json[valEnd] == '"') {
+            break;
+        }
         valEnd++;
     }
     return json.substr(valStart + 1, valEnd - valStart - 1);
@@ -38,7 +48,11 @@ static int ParseIntField(const std::string& json, const std::string& key, int de
     if (colonPos == std::string::npos) return defaultVal;
     size_t valStart = json.find_first_not_of(" \t", colonPos + 1);
     if (valStart == std::string::npos) return defaultVal;
-    try { return std::stoi(json.substr(valStart)); } catch (...) { return defaultVal; }
+    try { 
+        return std::stoi(json.substr(valStart)); 
+    } catch (...) { 
+        return defaultVal; 
+    }
 }
 
 ExecTool::ExecTool()
@@ -49,9 +63,7 @@ ExecTool::ExecTool()
          "'working_dir' (optional), 'timeout' (default 60, max 600).",
          {{"command", "The shell command to execute", "string", true},
           {"working_dir", "Optional working directory", "string", false},
-          {"timeout", "Timeout in seconds (default 60, max 600)", "integer", false}}) {}
-
-std::string ExecTool::Invoke(const std::string& input)
+          {"timeout", "Timeout in seconds (default 60, max 600)", "integer", false}}){} std::string ExecTool::Invoke(const std::string& input)
 {
     // Extract command from JSON
     std::string command = ParseStringField(input, "command");
@@ -98,7 +110,9 @@ std::string ExecTool::GuardCommand(const std::string& command)
             if (std::regex_search(lowerCmd, re)) {
                 return "Error: Command blocked by safety guard (dangerous pattern detected)";
             }
-        } catch (...) {}
+        } catch (...){
+
+        } 
     }
     return "";
 }

@@ -1,7 +1,8 @@
 #pragma once
-#include "tool.h"
+
 #include <string>
 #include <vector>
+#include "include/tool.h"
 
 class NotebookEditTool : public Tool {
 public:

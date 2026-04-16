@@ -1,9 +1,14 @@
-#include "react_worker.h"
-#include "context_engine/context_engine.h"
-#include <iostream>
-#include <algorithm>
 
-// Extract JSON string starting from brace position, handling nested braces and strings
+// Extract JSON string starting from brace position,handling nested braces and strings
+
+#include "src/workers/react_worker.h"
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <vector>
+#include "src/utils/logger.h"
+#include "src/context_engine/context_engine.h"
+
 static std::string ExtractJson(const std::string& text, size_t startPos)
 {
     if (startPos >= text.length()) return "";
@@ -12,11 +17,15 @@ static std::string ExtractJson(const std::string& text, size_t startPos)
     int depth = 0;
     bool inString = false;
     for (size_t i = startPos; i < text.length(); ++i) {
-        if (text[i] == '\\') { i++; continue; }
+        if (text[i] == '\\') { 
+            i++; 
+            continue; 
+        }
         if (text[i] == '"') inString = !inString;
         if (!inString) {
-            if (text[i] == '{') depth++;
-            else if (text[i] == '}') {
+            if (text[i] == '{') {
+                depth++;
+            } else if (text[i] == '}') {
                 depth--;
                 if (depth == 0) return text.substr(startPos, i - startPos + 1);
             }
@@ -50,8 +59,7 @@ static std::string ParseAction(const std::string& response, std::string& actionI
                         // Validate: name should be short, not contain spaces or braces
                         if (!name.empty() && name.length() < 50 &&
                             name.find('{') == std::string::npos &&
-                            name.find('}') == std::string::npos)
-                            {
+                            name.find('}') == std::string::npos) {
                             // Extract "arguments" value (object or string)
                             size_t argsKey = jsonStr.find("\"arguments\"");
                             if (argsKey != std::string::npos) {
@@ -63,8 +71,7 @@ static std::string ParseAction(const std::string& response, std::string& actionI
                                         if (!argsObj.empty()) {
                                             actionInput = argsObj;
                                         }
-                                    } else if (jsonStr[aValStart] == '"')
-                                    {
+                                    } else if (jsonStr[aValStart] == '"') {
                                         size_t aEnd = jsonStr.find('"', aValStart + 1);
                                         if (aEnd != std::string::npos) {
                                             actionInput = "\"" + jsonStr.substr(aValStart + 1, aEnd - aValStart - 1) + "\"";
@@ -94,7 +101,6 @@ static std::string ParseAction(const std::string& response, std::string& actionI
 
         // If Action line itself is a JSON, recurse
         if (!actLine.empty() && actLine.front() == '{') {
-            size_t end2 = response.find('\n', end != std::string::npos ? end : actPos);
             std::string multiLine = response.substr(actPos);
             return ParseAction(multiLine, actionInput);
         }
@@ -137,15 +143,16 @@ static std::string ParseAction(const std::string& response, std::string& actionI
     return "";
 }
 
-ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(config)) {}
-
-void ReactAgentWorker::ReactLoop(const std::string& query, std::function<void(const std::string&)> callback)
+ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(config)){} void ReactAgentWorker::ReactLoop(const std::string& query, std::function<void(const std::string&)> callback)
 {
+    LOG(INFO) << "Starting ReactLoop for query: " << query;
+
     std::string scratchpad;
 
     std::vector<std::pair<std::string, std::string>> msgHistory;
     if (contextEngine_) {
         auto history = contextEngine_->GetContextWindow();
+        LOG(INFO) << "Loaded " << history.size() << " messages from context history.";
         for (const auto& m : history) {
             msgHistory.push_back({m.role, m.content});
         }
@@ -168,17 +175,22 @@ void ReactAgentWorker::ReactLoop(const std::string& query, std::function<void(co
 
         msgHistory.push_back({"assistant", fullResponse});
 
-        if (cancelled_.load()) { callback("\n[STATUS] Cancelled\n"); return; }
+        if (cancelled_.load()) { 
+            callback("\n[STATUS] Cancelled\n"); 
+            return; 
+        }
 
         std::string actionInput;
         std::string action = ParseAction(fullResponse, actionInput);
 
         if (action.empty()) {
+            LOG(INFO) << "No tool action parsed, treating as final response.";
             callback("\n[RESPONSE] " + fullResponse + "\n");
             callback("\n[FINAL] " + fullResponse + "\n");
             return;
         }
 
+        LOG(INFO) << "Parsed tool call: " << action << " with input: " << actionInput;
         callback("\n[TOOL_CALLS] {\"name\": \"" + action + "\", \"arguments\": " + actionInput + "}\n");
         callback("\n[STATUS] Tool Called: " + action + "\n");
 

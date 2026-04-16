@@ -1,11 +1,13 @@
-#include "notebook_edit_tool.h"
+
+
+#include "src/tools/builtin_tools/notebook_edit_tool.h"
 #include <fstream>
 #include <sstream>
-#include <filesystem>
+#include <string>
+#include <vector>
+#include "filesystem"
 
-namespace fs = std::filesystem;
-
-static std::string ParseStringField(const std::string& json, const std::string& key)
+namespace fs = std::filesystem;static std::string ParseStringField(const std::string& json, const std::string& key)
 {
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
@@ -17,7 +19,10 @@ static std::string ParseStringField(const std::string& json, const std::string& 
     if (json[valStart] != '"') return "";
     size_t valEnd = valStart + 1;
     while (valEnd < json.length()) {
-        if (json[valEnd] == '\\' && valEnd + 1 < json.length()) { valEnd += 2; continue; }
+        if (json[valEnd] == '\\' && valEnd + 1 < json.length()) { 
+            valEnd += 2; 
+            continue; 
+        }
         if (json[valEnd] == '"') break;
         valEnd++;
     }
@@ -25,6 +30,7 @@ static std::string ParseStringField(const std::string& json, const std::string& 
 }
 
 static int ParseIntField(const std::string& json, const std::string& key, int defaultVal)
+
 {
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
@@ -33,7 +39,11 @@ static int ParseIntField(const std::string& json, const std::string& key, int de
     if (colonPos == std::string::npos) return defaultVal;
     size_t valStart = json.find_first_not_of(" \t", colonPos + 1);
     if (valStart == std::string::npos) return defaultVal;
-    try { return std::stoi(json.substr(valStart)); } catch (...) { return defaultVal; }
+    try { 
+        return std::stoi(json.substr(valStart)); 
+    } catch (...) { 
+        return defaultVal; 
+    }
 }
 
 NotebookEditTool::NotebookEditTool()
@@ -46,9 +56,7 @@ NotebookEditTool::NotebookEditTool()
           {"cell_index", "0-based index of the cell to edit", "integer", true},
           {"new_source", "New source content for the cell", "string", false},
           {"cell_type", "Cell type: code or markdown", "string", false},
-          {"edit_mode", "Mode: replace, insert, or delete", "string", false}}) {}
-
-std::string NotebookEditTool::Invoke(const std::string& input)
+          {"edit_mode", "Mode: replace, insert, or delete", "string", false}}){} std::string NotebookEditTool::Invoke(const std::string& input)
 {
     std::string filePath = ParseStringField(input, "path");
     if (filePath.empty()) {
@@ -168,6 +176,7 @@ std::string NotebookEditTool::Invoke(const std::string& input)
 }
 
 std::string NotebookEditTool::EscapeJson(const std::string& input)
+
 {
     std::string result;
     for (char c : input) {
@@ -232,18 +241,15 @@ void NotebookEditTool::ExtractCells(const std::string& content, std::vector<std:
         if (c == '{') {
             if (depth == 1) cellStart = pos;
             cellDepth++;
-        } else if (c == '}')
-        {
+        } else if (c == '}') {
             cellDepth--;
             if (cellDepth == 0 && cellStart != std::string::npos) {
                 cells.push_back(content.substr(cellStart, pos - cellStart + 1));
                 cellStart = std::string::npos;
             }
-        } else if (c == '[')
-        {
+        } else if (c == '[') {
             depth++;
-        } else if (c == ']')
-        {
+        } else if (c == ']') {
             depth--;
         }
         pos++;

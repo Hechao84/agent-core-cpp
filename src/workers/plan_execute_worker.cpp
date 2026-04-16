@@ -1,11 +1,12 @@
-#include "plan_execute_worker.h"
+
+#include "src/workers/plan_execute_worker.h"
+#include <algorithm>
 #include <iostream>
 #include <sstream>
-#include <algorithm>
+#include <string>
+#include <vector>
 
-PlanAndExecuteAgentWorker::PlanAndExecuteAgentWorker(AgentConfig config) : AgentWorker(std::move(config)) {}
-
-std::vector<std::string> PlanAndExecuteAgentWorker::GeneratePlan(const std::string& query, std::function<void(const std::string&)> callback)
+PlanAndExecuteAgentWorker::PlanAndExecuteAgentWorker(AgentConfig config) : AgentWorker(std::move(config)){} std::vector<std::string> PlanAndExecuteAgentWorker::GeneratePlan(const std::string& query, std::function<void(const std::string&)> callback)
 {
     std::string prompt = BuildPrompt("plan_system", query, "");
     callback("[STATUS] Generating plan...");
@@ -57,13 +58,19 @@ void PlanAndExecuteAgentWorker::Invoke(const std::string& query, std::function<v
 {
     cancelled_.store(false);
     std::vector<std::string> plan = GeneratePlan(query, callback);
-    if (cancelled_.load() || plan.empty()) { callback("[STATUS] Cancelled or empty plan"); return; }
+    if (cancelled_.load() || plan.empty()) { 
+        callback("[STATUS] Cancelled or empty plan"); 
+        return; 
+    }
     std::string context;
     for (size_t i = 0; i < plan.size() && !cancelled_.load(); ++i) {
         callback("[PROGRESS] Step " + std::to_string(i + 1) + "/" + std::to_string(plan.size()));
         std::string stepResult = ExecuteStep(plan[i], context, callback);
         context += "\nStep " + std::to_string(i + 1) + ": " + plan[i] + "\nResult: " + stepResult;
     }
-    if (cancelled_.load()) { callback("[STATUS] Cancelled during execution"); return; }
+    if (cancelled_.load()) { 
+        callback("[STATUS] Cancelled during execution"); 
+        return; 
+    }
     SynthesizeResult(query, context, callback);
 }

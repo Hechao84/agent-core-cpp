@@ -1,24 +1,22 @@
 #pragma once
 
-#include <nlohmann/json.hpp>
+#include <memory>
 #include <string>
 #include <vector>
+#include "src/3rd-party/include/nlohmann/json.hpp"
 
-struct MCPToolInfo
-{
+struct MCPToolInfo {
     std::string name;
     std::string description;
     nlohmann::json inputSchema;
 };
 
-struct MCPToolResult
-{
+struct MCPToolResult {
     bool isError{false};
     std::vector<std::string> content;
 };
 
-class MCPClient
-{
+class MCPClient {
 public:
     MCPClient(const std::string& name, const std::string& version, const std::string& endpoint);
     ~MCPClient();

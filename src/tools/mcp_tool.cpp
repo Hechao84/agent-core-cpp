@@ -1,19 +1,16 @@
-#include "tools/mcp_tool.h"
-#include "../protocol/mcp_client.h"
-#include "resource_manager.h"
 
-#include <iostream>
-#include <memory>
-#include <nlohmann/json.hpp>
-
+#include "src/tools/mcp_tool.h"
 #include <algorithm>
+#include <memory>
+#include <string>
+#include <vector>
+#include "src/utils/logger.h"
+#include "include/resource_manager.h"
+#include "src/protocol/mcp_client.h"
+#include "src/3rd-party/include/nlohmann/json.hpp"
 
 MCPTool::MCPTool(std::string name, std::string description, std::vector<ToolParam> params, std::shared_ptr<MCPServer> server)
-    : Tool(std::move(name), std::move(description), std::move(params)), server_(std::move(server))
-{
-}
-
-std::string MCPTool::Invoke(const std::string& input)
+    : Tool(std::move(name), std::move(description), std::move(params)), server_(std::move(server)){} std::string MCPTool::Invoke(const std::string& input)
 {
     if (!server_ || !server_->IsConnected()) {
         return "Error: MCP Server not connected or invalid";
@@ -46,11 +43,7 @@ std::string MCPTool::Invoke(const std::string& input)
 }
 
 MCPServer::MCPServer(std::string name, MCPEndpointConfig config)
-    : name_(std::move(name)), config_(std::move(config))
-{
-}
-
-void MCPServer::CreateClient()
+    : name_(std::move(name)), config_(std::move(config)){} void MCPServer::CreateClient()
 {
     if (config_.transportType == MCPTransportType::SSE ||
         config_.transportType == MCPTransportType::STREAMABLE_HTTP) {
@@ -84,6 +77,7 @@ void MCPServer::Connect()
         for (const auto& toolDef : tools) {
             availableTools_.push_back(toolDef);
             std::cout << "[MCPServer] Discovered tool: " << toolDef.name << std::endl;
+            LOG(INFO) << "MCP Server [" << name_ << "] discovered tool: " << toolDef.name;
 
             auto& rm = ResourceManager::GetInstance();
             std::string tName = toolDef.name;

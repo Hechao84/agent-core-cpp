@@ -1,7 +1,8 @@
-#include "web_fetch_tool.h"
-#include "curl/curl.h"
-#include <string>
+
+#include "src/tools/builtin_tools/web_fetch_tool.h"
 #include <iostream>
+#include <string>
+#include "src/3rd-party/include/curl/curl.h"
 
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
 {
@@ -9,9 +10,7 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* use
     return size * nmemb;
 }
 
-WebFetcherTool::WebFetcherTool() : Tool("web_fetcher", "Fetches the content of a given URL", {{"url", "The URL to fetch", "string", true}}) {}
-
-std::string WebFetcherTool::FetchUrl(const std::string& url)
+WebFetcherTool::WebFetcherTool() : Tool("web_fetcher", "Fetches the content of a given URL", {{"url", "The URL to fetch", "string", true}}){} std::string WebFetcherTool::FetchUrl(const std::string& url)
 {
     CURL* curl = curl_easy_init();
     if (!curl) return "Error: Failed to initialize curl";

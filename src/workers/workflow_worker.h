@@ -1,10 +1,11 @@
 #pragma once
-#include "types.h"
-#include "core/agent_worker.h"
-#include <string>
+
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
+#include "include/types.h"
+#include "src/core/agent_worker.h"
 
 struct WorkflowNode {
     std::string name;

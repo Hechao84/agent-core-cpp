@@ -1,10 +1,11 @@
 #pragma once
-#include <string>
-#include <vector>
-#include <variant>
-#include <memory>
+
 #include <map>
+#include <memory>
+#include <string>
 #include <unordered_map>
+#include <variant>
+#include <vector>
 
 // Forward declaration for recursive configuration structure
 struct ConfigNode;
@@ -21,17 +22,18 @@ using ConfigValue = std::variant<
 >;
 
 // ConfigNode: Represents a branch or leaf map in the configuration tree
-struct ConfigNode {
+struct ConfigNode 
+{
     std::map<std::string, ConfigValue> fields_;
 
     // Set a value (overwrites if exists)
-    void Set(const std::string& key, ConfigValue value)
+    void Set(const std::string& key, ConfigValue value) 
     {
         fields_[key] = std::move(value);
     }
 
     // Set a value using dot-notation path (e.g., "model.temperature") to support hierarchy
-    void SetNested(const std::string& path, ConfigValue value)
+    void SetNested(const std::string& path, ConfigValue value) 
     {
         size_t pos = path.find('.');
         if (pos == std::string::npos) {
@@ -81,14 +83,16 @@ struct ConfigNode {
     }
 };
 
-enum class ModelFormatType {
+enum class ModelFormatType 
+{
     OPENAI,
     ANTHROPIC,
     DEEPSEEK,
     DASHSCOPE,
 };
 
-struct ModelConfig {
+struct ModelConfig 
+{
     std::string baseUrl;
     std::string apiKey;
     std::string modelName;
@@ -99,22 +103,25 @@ struct ModelConfig {
     ConfigNode extraParams;
 };
 
-enum class AgentWorkMode {
+enum class AgentWorkMode 
+{
     REACT,
     PLAN_AND_EXECUTE,
     WORKFLOW,
 };
 
 // Context Engine Configuration
-struct ContextConfig {
+struct ContextConfig 
+{
     int maxContextTokens{4096};
     std::string sessionId;
     std::string storagePath; // For DB: path to file, For File: directory path
-    enum class StorageType { MEMORY_ONLY, MARKDOWN_FILE, DATABASE };
+    enum class StorageType{ MEMORY_ONLY, MARKDOWN_FILE, DATABASE };
     StorageType storageType{StorageType::MARKDOWN_FILE}; // Default to Markdown file for persistence
 };
 
-struct AgentConfig {
+struct AgentConfig 
+{
     std::string id;
     std::string name;
     std::string description;

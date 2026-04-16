@@ -1,12 +1,12 @@
 #pragma once
-#include <string>
-#include <vector>
+
 #include <functional>
-#include <unordered_map>
 #include <memory>
-#include <nlohmann/json.hpp>
-#include "tool.h"
-#include "model.h"
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include "include/model.h"
+#include "include/tool.h"
 
 class MCPServer;
 

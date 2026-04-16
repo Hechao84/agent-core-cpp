@@ -1,9 +1,12 @@
-#include "models/anthropic_model.h"
-#include <curl/curl.h>
+
+
+#include "src/models/anthropic_model.h"
 #include <iostream>
 #include <sstream>
 #include <string>
-#include "nlohmann/json.hpp"
+#include <vector>
+#include "src/3rd-party/include/curl/curl.h"
+#include "src/3rd-party/include/nlohmann/json.hpp"
 
 using json = nlohmann::json;
 
@@ -42,13 +45,11 @@ static size_t AnthropicWriteCallback(void* contents, size_t size, size_t nmemb, 
                             if (ctx->onChunk) ctx->onChunk(text);
                         }
                     }
-                } else if (type == "message_stop")
-                {
+                } else if (type == "message_stop") {
                     ctx->buffer.clear();
                     break;
                 }
-            } catch (const std::exception& e)
-            {
+            } catch (const std::exception& e) {
                 std::cerr << "[Anthropic] JSON Parse Error: " << e.what() << std::endl;
             }
         }

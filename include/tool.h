@@ -1,12 +1,14 @@
 #pragma once
-#include <string>
-#include <vector>
-#include <functional>
-#include <unordered_map>
-#include <memory>
-#include "agent_export.h"
 
-struct ToolParam {
+#include <functional>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include "include/agent_export.h"
+
+struct ToolParam 
+{
     std::string name;
     std::string description;
     std::string type;

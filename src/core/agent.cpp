@@ -1,10 +1,14 @@
-#include "agent.h"
-#include "agent_worker.h"
-#include "resource_manager.h"
-#include "context_engine/context_engine.h"
-#include "skills/skill_engine.h"
-#include <iostream>
+
+
+#include "include/agent.h"
 #include <algorithm>
+#include <iostream>
+#include <string>
+#include <vector>
+#include "include/resource_manager.h"
+#include "src/context_engine/context_engine.h"
+#include "src/core/agent_worker.h"
+#include "src/skills/skill_engine.h"
 
 Agent::Agent(AgentConfig config) : config_(std::move(config))
 {

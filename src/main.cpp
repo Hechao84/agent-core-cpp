@@ -1,15 +1,64 @@
 #include <iostream>
+#include <memory>
 #include <string>
-#include "agent.h"
-#include "resource_manager.h"
-
-#include <nlohmann/json.hpp>
-
+#include <vector>
+#include "include/agent.h"
+#include "include/resource_manager.h"
 #ifdef _WIN32
-#include <windows.h>
+    #include <windows.h>
+#else
+    // Linux/Unix specific alternatives if needed, or simply exclude logic
 #endif
+#include "src/3rd-party/include/nlohmann/json.hpp"
 
-// Helper function to convert local encoding (GBK/ACP) to UTF-8 (Input)
+// Helper function to validate and fix UTF-8 encoding
+// Replaces invalid UTF-8 bytes with the Unicode replacement character (U+FFFD)
+std::string FixUTF8(const std::string& str)
+{
+    std::string result;
+    size_t i = 0;
+    while (i < str.length()) {
+        unsigned char c = static_cast<unsigned char>(str[i]);
+        int expectedLength = 0;
+        
+        if ((c & 0x80) == 0) {
+            expectedLength = 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            expectedLength = 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            expectedLength = 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            expectedLength = 4;
+        } else {
+            result += "\xEF\xBF\xBD";
+            i++;
+            continue;
+        }
+        
+        if (i + expectedLength > str.length()) {
+            result += "\xEF\xBF\xBD";
+            break;
+        }
+        
+        bool valid = true;
+        for (int j = 1; j < expectedLength; ++j) {
+            if ((str[i + j] & 0xC0) != 0x80) {
+                valid = false;
+                break;
+            }
+        }
+        
+        if (valid) {
+            result.append(str.substr(i, expectedLength));
+        } else {
+            result += "\xEF\xBF\xBD";
+        }
+        i += expectedLength;
+    }
+    return result;
+}
+
+//Helper function to convert local encoding (GBK/ACP) to UTF-8 (Input)
 std::string LocalToUTF8(const std::string& str)
 {
 #ifdef _WIN32
@@ -57,32 +106,11 @@ std::string UTF8ToLocal(const std::string& str)
 #endif
 }
 
-class WeatherTool : public Tool {
-    public:
-        WeatherTool() : Tool("weather", "Get weather information for a city", 
-            {{"city", "The city name", "string", true}}) {}
-        std::string Invoke(const std::string& input) override
-        {
-            return "Weather in " + input + ": Sunny, 25°C";
-        }
-};
-
 int main()
 {
     std::cout << "Agent Framework Demo\n====================\n" << std::flush;
 
-    // Disable proxy for HTTP requests to external services
-    unsetenv("https_proxy");
-    unsetenv("HTTPS_PROXY");
-    unsetenv("http_proxy");
-    unsetenv("HTTP_PROXY");
-    unsetenv("no_proxy");
-    unsetenv("NO_PROXY");
-
     auto& rm = ResourceManager::GetInstance();
-
-    // Register a local weather tool for demonstration
-    rm.RegisterTool("weather", []() { return std::make_unique<WeatherTool>(); });
 
     // --- MCP Server Verification: Amap MCP Server ---
     // Using Streamable HTTP transport to connect to Amap's official hosted MCP server.
@@ -139,8 +167,6 @@ int main()
         "You are a reasoning agent. You must reply in the same language as the user's query.\nSkills:\n{skills}\nTools:\n{tools}\nQuestion: {query}\n{context}";
     
     Agent agent(config);
-    // Add local weather tool and let the agent discover MCP tools via RM automatically
-    agent.AddTools({"weather"});
     
     std::cout << "\nEnter '/exit' to quit.\n" << std::flush;
     std::string query;
@@ -157,6 +183,7 @@ int main()
         }
         
         query = LocalToUTF8(query);
+        query = FixUTF8(query);
         std::cout << "Processing...\n";
         
         bool is_streaming = false;
@@ -188,7 +215,7 @@ int main()
                     pos = s.find(tag, pos);
                 }
             }
-            std::cout << UTF8ToLocal(s) << std::flush;
+            std::cout << UTF8ToLocal(FixUTF8(s)) << std::flush;
         });
         std::cout << "\n";
     }

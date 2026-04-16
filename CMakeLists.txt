@@ -101,9 +101,15 @@ add_library(agent_framework SHARED
     src/models/model.cpp
     src/models/openai_model.cpp
     src/models/anthropic_model.cpp
+    src/utils/logger.cpp
 )
 
-target_include_directories(agent_framework PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(agent_framework PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR} 
+    ${CMAKE_CURRENT_SOURCE_DIR}/include 
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
 target_compile_definitions(agent_framework PRIVATE BUILDING_AGENT_FRAMEWORK)
 
 target_include_directories(agent_framework PRIVATE ${CURL_INCLUDE_DIRS})
@@ -120,12 +126,20 @@ target_link_libraries(agent_framework PRIVATE
 # Executables
 # ============================================================
 add_executable(jiuwen-lite src/main.cpp)
-target_include_directories(jiuwen-lite PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(jiuwen-lite PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR} 
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 target_link_libraries(jiuwen-lite PRIVATE agent_framework nlohmann_json::nlohmann_json)
 
 # Optional test targets
 add_executable(unittest unittest/main.cpp unittest/test_types.cpp unittest/test_tool.cpp)
-target_include_directories(unittest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/unittest)
+target_include_directories(unittest PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR} 
+    ${CMAKE_CURRENT_SOURCE_DIR}/include 
+    ${CMAKE_CURRENT_SOURCE_DIR}/src 
+    ${CMAKE_CURRENT_SOURCE_DIR}/unittest
+)
 target_link_libraries(unittest PRIVATE agent_framework nlohmann_json::nlohmann_json)
 
 install(TARGETS agent_framework jiuwen-lite

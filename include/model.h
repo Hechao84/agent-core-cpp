@@ -1,17 +1,20 @@
 #pragma once
-#include <string>
-#include <vector>
+
 #include <functional>
 #include <memory>
-#include "types.h"
-#include "agent_export.h"
+#include <string>
+#include <vector>
+#include "include/agent_export.h"
+#include "include/types.h"
 
-struct Message {
+struct Message 
+{
     std::string role;
     std::string content;
 };
 
-struct ModelResponse {
+struct ModelResponse 
+{
     std::string content;
     bool isFinished{false};
     std::string finishReason;

@@ -1,11 +1,13 @@
-#include "test_runner.h"
-#include "context_engine/context_engine.h"
-#include "context_engine/storage_interface.h"
-#include "context_engine/md_storage.h"
-#include "types.h"
-#include <filesystem>
+
+
 #include <string>
 #include <vector>
+#include "filesystem"
+#include "include/types.h"
+#include "src/context_engine/context_engine.h"
+#include "src/context_engine/md_storage.h"
+#include "src/context_engine/storage_interface.h"
+#include "test_runner.h"
 
 namespace fs = std::filesystem;
 
@@ -28,7 +30,11 @@ public:
         return loadReturn_;
     }
 
-    void Clear() override { clearCalled_ = true; savedMessages_.clear(); }
+    void Clear() override 
+    { 
+        clearCalled_ = true; 
+        savedMessages_.clear(); 
+    }
 };
 
 TEST(context_engine, MemoryOnlyInit)

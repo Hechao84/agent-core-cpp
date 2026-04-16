@@ -1,9 +1,13 @@
-#include "glob_tool.h"
-#include <filesystem>
-#include <sstream>
+
+
+#include "src/tools/builtin_tools/glob_tool.h"
 #include <algorithm>
 #include <set>
-#include <regex>
+#include <sstream>
+#include <string>
+#include <vector>
+#include "filesystem"
+#include "regex"
 
 namespace fs = std::filesystem;
 
@@ -25,8 +29,13 @@ static std::string ParseStringField(const std::string& json, const std::string& 
     if (json[valStart] != '"') return "";
     size_t valEnd = valStart + 1;
     while (valEnd < json.length()) {
-        if (json[valEnd] == '\\' && valEnd + 1 < json.length()) { valEnd += 2; continue; }
-        if (json[valEnd] == '"') break;
+        if (json[valEnd] == '\\' && valEnd + 1 < json.length()) { 
+            valEnd += 2; 
+            continue; 
+        }
+        if (json[valEnd] == '"') {
+            break;
+        }
         valEnd++;
     }
     return json.substr(valStart + 1, valEnd - valStart - 1);
@@ -36,12 +45,22 @@ static int ParseIntField(const std::string& json, const std::string& key, int de
 {
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
-    if (keyPos == std::string::npos) return defaultVal;
+    if (keyPos == std::string::npos) {
+        return defaultVal;
+    }
     size_t colonPos = json.find(':', keyPos + searchKey.length());
-    if (colonPos == std::string::npos) return defaultVal;
+    if (colonPos == std::string::npos) {
+        return defaultVal;
+    }
     size_t valStart = json.find_first_not_of(" \t", colonPos + 1);
-    if (valStart == std::string::npos) return defaultVal;
-    try { return std::stoi(json.substr(valStart)); } catch (...) { return defaultVal; }
+    if (valStart == std::string::npos) {
+        return defaultVal;
+    }
+    try { 
+        return std::stoi(json.substr(valStart)); 
+    } catch (...) { 
+        return defaultVal; 
+    }
 }
 
 static bool GlobMatch(const std::string& relPath, const std::string& fileName, const std::string& pattern)
@@ -64,8 +83,7 @@ static bool GlobMatch(const std::string& relPath, const std::string& fileName, c
             return std::regex_match(relPath, re);
         }
         return std::regex_match(fileName, re);
-    } catch (...)
-    {
+    } catch (...) {
         return false;
     }
 }
@@ -79,9 +97,7 @@ GlobTool::GlobTool()
          {{"pattern", "Glob pattern to match", "string", true},
           {"path", "Directory to search from", "string", false},
           {"head_limit", "Max results to return (default 250)", "integer", false},
-          {"entry_type", "Match files, dirs, or both", "string", false}}) {}
-
-std::string GlobTool::Invoke(const std::string& input)
+          {"entry_type", "Match files, dirs, or both", "string", false}}){} std::string GlobTool::Invoke(const std::string& input)
 {
     std::string pattern = ParseStringField(input, "pattern");
     if (pattern.empty()) {
@@ -112,7 +128,10 @@ std::string GlobTool::Invoke(const std::string& input)
         for (const auto& entry : fs::recursive_directory_iterator(root)) {
             bool skip = false;
             for (const auto& part : entry.path()) {
-                if (kIgnoreDirs.count(part.string())) { skip = true; break; }
+                if (kIgnoreDirs.count(part.string())) { 
+                    skip = true; 
+                    break; 
+                }
             }
             if (skip) continue;
 
@@ -126,12 +145,10 @@ std::string GlobTool::Invoke(const std::string& input)
                 std::string display = relPath;
                 if (entry.is_directory()) display += "/";
                 double mtime = 0.0;
-                try { mtime = entry.last_write_time().time_since_epoch().count() / 1e9; } catch (...) {}
-                matches.push_back({display, mtime});
+                try { mtime = entry.last_write_time().time_since_epoch().count() / 1e9; } catch (...){} matches.push_back({display, mtime});
             }
         }
-    } catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         return "Error finding files: " + std::string(e.what());
     }
 

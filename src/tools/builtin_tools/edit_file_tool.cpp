@@ -1,12 +1,14 @@
-#include "edit_file_tool.h"
+
+
+#include "src/tools/builtin_tools/edit_file_tool.h"
+#include <algorithm>
 #include <fstream>
 #include <sstream>
-#include <filesystem>
-#include <algorithm>
+#include <string>
+#include <vector>
+#include "filesystem"
 
-namespace fs = std::filesystem;
-
-static std::string ParseStringField(const std::string& json, const std::string& key)
+namespace fs = std::filesystem;static std::string ParseStringField(const std::string& json, const std::string& key)
 {
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
@@ -54,9 +56,7 @@ EditFileTool::EditFileTool()
          {{"path", "The file path to edit", "string", true},
           {"old_text", "The text to find and replace", "string", true},
           {"new_text", "The new text to replace with", "string", true},
-          {"replace_all", "Replace all occurrences (default false)", "boolean", false}}) {}
-
-std::string EditFileTool::Invoke(const std::string& input)
+          {"replace_all", "Replace all occurrences (default false)", "boolean", false}}){} std::string EditFileTool::Invoke(const std::string& input)
 {
     std::string filePath = ParseStringField(input, "path");
     if (filePath.empty()) {

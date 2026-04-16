@@ -1,10 +1,12 @@
-#include "grep_tool.h"
-#include <filesystem>
-#include <fstream>
-#include <sstream>
+#include "src/tools/builtin_tools/grep_tool.h"
 #include <algorithm>
+#include <fstream>
 #include <set>
-#include <regex>
+#include <sstream>
+#include <string>
+#include <vector>
+#include "filesystem"
+#include "regex"
 
 namespace fs = std::filesystem;
 
@@ -28,7 +30,10 @@ static std::string ParseStringField(const std::string& json, const std::string& 
     if (json[valStart] != '"') return "";
     size_t valEnd = valStart + 1;
     while (valEnd < json.length()) {
-        if (json[valEnd] == '\\' && valEnd + 1 < json.length()) { valEnd += 2; continue; }
+        if (json[valEnd] == '\\' && valEnd + 1 < json.length()) { 
+            valEnd += 2; 
+            continue; 
+        }
         if (json[valEnd] == '"') break;
         valEnd++;
     }
@@ -36,6 +41,7 @@ static std::string ParseStringField(const std::string& json, const std::string& 
 }
 
 static int ParseIntField(const std::string& json, const std::string& key, int defaultVal)
+
 {
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
@@ -44,7 +50,11 @@ static int ParseIntField(const std::string& json, const std::string& key, int de
     if (colonPos == std::string::npos) return defaultVal;
     size_t valStart = json.find_first_not_of(" \t", colonPos + 1);
     if (valStart == std::string::npos) return defaultVal;
-    try { return std::stoi(json.substr(valStart)); } catch (...) { return defaultVal; }
+    try { 
+        return std::stoi(json.substr(valStart)); 
+    } catch (...) { 
+        return defaultVal; 
+    }
 }
 
 static bool ParseBoolField(const std::string& json, const std::string& key, bool defaultVal)
@@ -95,9 +105,7 @@ GrepTool::GrepTool()
           {"glob", "Optional file filter, e.g. '*.cpp'", "string", false},
           {"head_limit", "Max results to return", "integer", false},
           {"context_before", "Lines of context before match", "integer", false},
-          {"context_after", "Lines of context after match", "integer", false}}) {}
-
-std::string GrepTool::Invoke(const std::string& input)
+          {"context_after", "Lines of context after match", "integer", false}}){} std::string GrepTool::Invoke(const std::string& input)
 {
     std::string pattern = ParseStringField(input, "pattern");
     if (pattern.empty()) {
@@ -128,8 +136,7 @@ std::string GrepTool::Invoke(const std::string& input)
     std::regex re;
     try {
         re = std::regex(pattern, flags);
-    } catch (const std::regex_error& e)
-    {
+    } catch (const std::regex_error& e) {
         return "Error: invalid regex pattern: " + std::string(e.what());
     }
 
@@ -150,8 +157,7 @@ std::string GrepTool::Invoke(const std::string& input)
                            headLimit, contextBefore, contextAfter, matchingFiles, blocks,
                            counts, fileMtimes, resultChars, truncated, skippedBinary, skippedLarge);
             }
-        } else if (fs::is_directory(target))
-        {
+        } else if (fs::is_directory(target)) {
             for (const auto& entry : fs::recursive_directory_iterator(target)) {
                 bool skip = false;
                 for (const auto& part : entry.path()) {
@@ -169,8 +175,7 @@ std::string GrepTool::Invoke(const std::string& input)
                 if (truncated) break;
             }
         }
-    } catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         return "Error searching files: " + std::string(e.what());
     }
 
@@ -183,8 +188,7 @@ std::string GrepTool::Invoke(const std::string& input)
             if (i > 0) oss << "\n";
             oss << matchingFiles[i];
         }
-    } else if (outputMode == "count")
-    {
+    } else if (outputMode == "count") {
         if (counts.empty()) {
             return "No matches found for pattern '" + pattern + "' in " + searchPath;
         }
@@ -231,21 +235,28 @@ void GrepTool::ProcessFile(const fs::path& filePath, const fs::path& root,
                           int& resultChars, bool& truncated,
                           int& skippedBinary, int& skippedLarge) {
     auto fsize = fs::file_size(filePath);
-    if (fsize > static_cast<uintmax_t>(kMaxFileBytes)) { skippedLarge++; return; }
+    if (fsize > static_cast<uintmax_t>(kMaxFileBytes)) { 
+        skippedLarge++; 
+        return; 
+    }
 
     std::ifstream file(filePath.string());
-    if (!file.is_open()) { skippedBinary++; return; }
+    if (!file.is_open()) {
+         skippedBinary++; 
+         return; 
+    }
 
     std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     file.close();
 
-    if (IsBinary(content)) { skippedBinary++; return; }
+    if (IsBinary(content)) { 
+        skippedBinary++; 
+        return; 
+    }
     if (content.empty()) return;
 
     double mtime = 0.0;
-    try { mtime = fs::last_write_time(filePath).time_since_epoch().count() / 1e9; } catch (...) {}
-
-    std::string displayPath = fs::relative(filePath, root).generic_string();
+    try { mtime = fs::last_write_time(filePath).time_since_epoch().count() / 1e9; } catch (...){} std::string displayPath = fs::relative(filePath, root).generic_string();
     std::istringstream ss(content);
     std::string line;
     std::vector<std::string> lines;
@@ -269,7 +280,10 @@ void GrepTool::ProcessFile(const fs::path& filePath, const fs::path& root,
         }
 
         // Content mode
-        if (static_cast<int>(blocks.size()) >= headLimit) { truncated = true; break; }
+        if (static_cast<int>(blocks.size()) >= headLimit) { 
+            truncated = true; 
+            break; 
+        }
 
         int startLine = static_cast<int>(std::max(static_cast<int>(idx) - contextBefore, 0));
         int endLine = static_cast<int>(std::min(idx + static_cast<size_t>(contextAfter) + 1, lines.size()));

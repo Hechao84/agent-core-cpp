@@ -1,20 +1,22 @@
-#include <iostream>
+
+
 #include <fstream>
+#include <iostream>
 #include <string>
 #include <vector>
-#include <filesystem>
-#include "agent.h"
-#include "resource_manager.h"
-#include "read_file_tool.h"
-#include "write_file_tool.h"
-#include "edit_file_tool.h"
-#include "list_dir_tool.h"
-#include "glob_tool.h"
-#include "grep_tool.h"
-#include "exec_tool.h"
-#include "time_info_tool.h"
-#include "file_state_tool.h"
-#include "notebook_edit_tool.h"
+#include "filesystem"
+#include "include/agent.h"
+#include "include/resource_manager.h"
+#include "src/tools/builtin_tools/edit_file_tool.h"
+#include "src/tools/builtin_tools/exec_tool.h"
+#include "src/tools/builtin_tools/file_state_tool.h"
+#include "src/tools/builtin_tools/glob_tool.h"
+#include "src/tools/builtin_tools/grep_tool.h"
+#include "src/tools/builtin_tools/list_dir_tool.h"
+#include "src/tools/builtin_tools/notebook_edit_tool.h"
+#include "src/tools/builtin_tools/read_file_tool.h"
+#include "src/tools/builtin_tools/time_info_tool.h"
+#include "src/tools/builtin_tools/write_file_tool.h"
 
 namespace fs = std::filesystem;
 
@@ -32,7 +34,8 @@ std::vector<TestResult> all_results;
 void RunAndCheck(const std::string& category, const std::string& name,
                  const std::string& input, const std::string& expected_kw,
                  std::function<std::string()> fn)
-                 {
+                 
+{
     try {
         std::string actual = fn();
         bool pass = actual.find(expected_kw) != std::string::npos;
@@ -42,8 +45,7 @@ void RunAndCheck(const std::string& category, const std::string& name,
             std::cout << "    Expected to find: '" << expected_kw << "'\n";
             std::cout << "    Got: '" << actual.substr(0, 200) << "'\n";
         }
-    } catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         all_results.push_back({category, name, input, expected_kw, e.what(), false});
         std::cout << "  [FAIL] " << name << " -> exception: " << e.what() << "\n";
     }
@@ -52,7 +54,7 @@ void RunAndCheck(const std::string& category, const std::string& name,
 void RunAndCheckEq(const std::string& category, const std::string& name,
                    const std::string& input, const std::string& expected_exact,
                    std::function<std::string()> fn)
-                   {
+{
     try {
         std::string actual = fn();
         bool pass = actual == expected_exact;
@@ -62,8 +64,7 @@ void RunAndCheckEq(const std::string& category, const std::string& name,
             std::cout << "    Expected: '" << expected_exact << "'\n";
             std::cout << "    Got:      '" << actual.substr(0, 200) << "'\n";
         }
-    } catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         all_results.push_back({category, name, input, expected_exact, e.what(), false});
         std::cout << "  [FAIL] " << name << " -> exception: " << e.what() << "\n";
     }

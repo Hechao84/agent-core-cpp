@@ -1,9 +1,11 @@
 #pragma once
+
 #include <string>
 #include <vector>
-#include "model.h"
+#include "include/model.h"
 
-class ContextStorageInterface {
+class ContextStorageInterface 
+{
 public:
     virtual ~ContextStorageInterface() = default;
     virtual bool SaveMessage(const Message& msg) = 0;

@@ -1,12 +1,14 @@
-#include "test_runner.h"
-#include "tools/builtin_tools/time_info_tool.h"
-#include "tools/builtin_tools/exec_tool.h"
-#include "tools/builtin_tools/file_state_tool.h"
-#include "tools/builtin_tools/notebook_edit_tool.h"
-#include <filesystem>
+
+
 #include <fstream>
 #include <string>
-#include <ctime>
+#include "ctime"
+#include "filesystem"
+#include "src/tools/builtin_tools/exec_tool.h"
+#include "src/tools/builtin_tools/file_state_tool.h"
+#include "src/tools/builtin_tools/notebook_edit_tool.h"
+#include "src/tools/builtin_tools/time_info_tool.h"
+#include "test_runner.h"
 
 namespace fs = std::filesystem;
 
@@ -86,7 +88,10 @@ TEST(exec_tool, AllowsSafeCommands)
 }
 
 // FileStateTool Tests
-static std::string GetStateDir() { return "test_tmp_filestate"; }
+static std::string GetStateDir() 
+{ 
+    return "test_tmp_filestate"; 
+}
 
 TEST(file_state_tool, ClearAction)
 {
@@ -115,7 +120,10 @@ TEST(file_state_tool, RecordReadMissingFile)
 }
 
 // NotebookEditTool Tests
-static std::string GetNbDir() { return "test_tmp_notebook"; }
+static std::string GetNbDir() 
+{ 
+    return "test_tmp_notebook"; 
+}
 
 TEST(notebook_edit_tool, MissingPath)
 {

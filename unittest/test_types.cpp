@@ -1,12 +1,13 @@
-#include "test_runner.h"
-#include "types.h"
-#include <memory>
-#include <vector>
-#include <string>
 
 // ========================================
 // ConfigNode Tests
 // ========================================
+
+#include <memory>
+#include <string>
+#include <vector>
+#include "include/types.h"
+#include "test_runner.h"
 
 TEST(types, SetAndGetInt)
 {

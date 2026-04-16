@@ -1,9 +1,13 @@
-#include "list_dir_tool.h"
-#include <fstream>
-#include <filesystem>
-#include <sstream>
+
+
+#include "src/tools/builtin_tools/list_dir_tool.h"
 #include <algorithm>
+#include <fstream>
 #include <set>
+#include <sstream>
+#include <string>
+#include <vector>
+#include "filesystem"
 
 namespace fs = std::filesystem;
 
@@ -58,7 +62,11 @@ static int ParseIntField(const std::string& json, const std::string& key, int de
     if (colonPos == std::string::npos) return defaultVal;
     size_t valStart = json.find_first_not_of(" \t", colonPos + 1);
     if (valStart == std::string::npos) return defaultVal;
-    try { return std::stoi(json.substr(valStart)); } catch (...) { return defaultVal; }
+    try { 
+        return std::stoi(json.substr(valStart)); 
+    } catch (...) { 
+        return defaultVal; 
+    }
 }
 
 ListDirTool::ListDirTool()
@@ -68,9 +76,7 @@ ListDirTool::ListDirTool()
          "'max_entries' (default 200).",
          {{"path", "The directory path to list", "string", true},
           {"recursive", "Recursively list all files", "boolean", false},
-          {"max_entries", "Maximum entries to return", "integer", false}}) {}
-
-std::string ListDirTool::Invoke(const std::string& input)
+          {"max_entries", "Maximum entries to return", "integer", false}}){} std::string ListDirTool::Invoke(const std::string& input)
 {
     std::string dirPath = ParseStringField(input, "path");
     if (dirPath.empty()) {

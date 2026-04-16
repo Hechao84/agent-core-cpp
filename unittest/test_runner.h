@@ -1,13 +1,15 @@
 #pragma once
-#include <string>
-#include <vector>
+
 #include <functional>
 #include <iostream>
 #include <sstream>
-#include <stdexcept>
+#include <string>
+#include <vector>
+#include "stdexcept"
 
 // Simple unit test framework
-class TestRunner {
+class TestRunner 
+{
 public:
     struct TestCase {
         std::string suite;
@@ -26,12 +28,11 @@ public:
 
     void AddTest(const std::string& suite, const std::string& name,
                  std::function<void()> test_fn)
-                 {
+    {
         try {
             test_fn();
             results_.push_back({suite, name, "", "", "", true});
-        } catch (const std::exception& e)
-        {
+        } catch (const std::exception& e) {
             results_.push_back({suite, name, "", "", e.what(), false});
         }
     }
@@ -111,16 +112,27 @@ public:
         std::cout << "========================================\n";
     }
 
-    int GetTotal() const { return static_cast<int>(results_.size()); }
+    int GetTotal() const 
+    { 
+        return static_cast<int>(results_.size()); 
+    }
+
     int GetPassed() const
     {
         int c = 0;
         for (const auto& r : results_) if (r.passed) c++;
         return c;
     }
-    int GetFailed() const { return GetTotal() - GetPassed(); }
 
-    const std::vector<TestCase>& GetResults() const { return results_; }
+    int GetFailed() const 
+    { 
+        return GetTotal() - GetPassed(); 
+    }
+
+    const std::vector<TestCase>& GetResults() const 
+    { 
+        return results_; 
+    }
 
 private:
     std::vector<TestCase> results_;

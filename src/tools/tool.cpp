@@ -1,12 +1,24 @@
-#include "tool.h"
+
+#include "include/tool.h"
 #include <sstream>
+#include <string>
+#include <vector>
 
 Tool::Tool(std::string name, std::string description, std::vector<ToolParam> params)
-    : name_(std::move(name)), description_(std::move(description)), params_(std::move(params)) {}
+    : name_(std::move(name)), description_(std::move(description)), params_(std::move(params)){} std::string Tool::GetName() const 
+{ 
+    return name_; 
+}
 
-std::string Tool::GetName() const { return name_; }
-std::string Tool::GetDescription() const { return description_; }
-std::vector<ToolParam> Tool::GetParams() const { return params_; }
+std::string Tool::GetDescription() const 
+{ 
+    return description_; 
+}
+
+std::vector<ToolParam> Tool::GetParams() const 
+{ 
+    return params_; 
+}
 
 std::string Tool::GetSchema() const
 {

@@ -1,8 +1,15 @@
 #pragma once
+
 #include <string>
-#include <vector>
 #include <unordered_map>
-#include "skill.h"
+#include <vector>
+
+struct Skill {
+    std::string id; // Directory name
+    std::string name; // Skill Name (extracted from header or folder name)
+    std::string description;
+    std::string instructions; // Full markdown content
+};
 
 // SkillEngine handles loading and managing skills from a directory structure
 class SkillEngine {

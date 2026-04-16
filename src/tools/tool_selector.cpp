@@ -1,10 +1,11 @@
-#include "tools/tool_selector.h"
-#include "resource_manager.h"
+
+#include "src/tools/tool_selector.h"
 #include <algorithm>
+#include <string>
+#include <vector>
+#include "include/resource_manager.h"
 
-ToolSelector::ToolSelector(SearchConfig config) : config_(std::move(config)) {}
-
-void ToolSelector::AddToolToPool(const std::string& toolName)
+ToolSelector::ToolSelector(SearchConfig config) : config_(std::move(config)){} void ToolSelector::AddToolToPool(const std::string& toolName)
 {
     if (std::find(toolPool_.begin(), toolPool_.end(), toolName) == toolPool_.end()) {
         toolPool_.push_back(toolName);
@@ -16,7 +17,10 @@ void ToolSelector::RemoveToolFromPool(const std::string& toolName)
     toolPool_.erase(std::remove(toolPool_.begin(), toolPool_.end(), toolName), toolPool_.end());
 }
 
-std::vector<std::string> ToolSelector::GetToolPool() const { return toolPool_; }
+std::vector<std::string> ToolSelector::GetToolPool() const 
+{ 
+    return toolPool_; 
+}
 
 std::string ToolSelector::SelectTool(const std::string& query, const std::vector<std::string>& availableTools)
 {
@@ -45,7 +49,10 @@ std::vector<ToolMatchResult> ToolSelector::RankTools(const std::string& query, c
     return ScoreTools(query, availableTools);
 }
 
-void ToolSelector::SetSearchConfig(const SearchConfig& config) { config_ = config; }
+void ToolSelector::SetSearchConfig(const SearchConfig& config) 
+{
+    config_ = config; 
+}
 
 std::vector<ToolMatchResult> ToolSelector::ScoreTools(const std::string& query, const std::vector<std::string>& availableTools)
 {
@@ -59,13 +66,15 @@ std::vector<ToolMatchResult> ToolSelector::ScoreTools(const std::string& query, 
     return results;
 }
 
-double ToolSelector::CalculateKeywordScore(const std::string& query, const std::string& toolName, const std::string& toolDesc) {
+double ToolSelector::CalculateKeywordScore(const std::string& query, const std::string& toolName, const std::string& toolDesc) 
+{
     // TODO: implement BM25 algorithm
     (void)query; (void)toolName; (void)toolDesc;
     return 1.0;
 }
 
-double ToolSelector::CalculateEmbeddingScore(const std::string& query, const std::string& toolName) {
+double ToolSelector::CalculateEmbeddingScore(const std::string& query, const std::string& toolName) 
+{
     // TODO: implement embedding-based vector similarity calculation
     (void)query; (void)toolName;
     return 1.0;

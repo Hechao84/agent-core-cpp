@@ -1,6 +1,7 @@
 #pragma once
-#include "tool.h"
+
 #include <string>
+#include "include/tool.h"
 
 class GlobTool : public Tool {
 public:

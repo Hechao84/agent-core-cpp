@@ -1,12 +1,14 @@
-#include "md_storage.h"
+
+
+#include "src/context_engine/md_storage.h"
 #include <fstream>
-#include <sstream>
-#include <filesystem>
 #include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include "filesystem"
 
-namespace fs = std::filesystem;
-
-MarkdownStorage::MarkdownStorage(const std::string& path, const std::string& sessionId)
+namespace fs = std::filesystem;MarkdownStorage::MarkdownStorage(const std::string& path, const std::string& sessionId)
 {
     fs::path dir(path);
     if (!fs::exists(dir)) {
@@ -22,8 +24,7 @@ bool MarkdownStorage::SaveMessage(const Message& msg)
         if (!file.is_open()) return false;
         file << FormatMessage(msg);
         return true;
-    } catch (...)
-    {
+    } catch (...) {
         return false;
     }
 }
@@ -48,8 +49,7 @@ bool MarkdownStorage::LoadHistory(std::vector<Message>& outMessages)
             if (nextPos == std::string::npos) break;
             pos = nextPos;
         }
-    } catch (...)
-    {
+    } catch (...) {
         return false;
     }
     return true;
@@ -61,8 +61,7 @@ void MarkdownStorage::Clear()
         if (fs::exists(filePath_)) {
             fs::remove(filePath_);
         }
-    } catch (...) {}
-}
+    } catch (...){} }
 
 std::string MarkdownStorage::FormatMessage(const Message& msg) const
 {

@@ -1,9 +1,10 @@
 #pragma once
+
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
-#include "model.h" // For Message struct
-#include "types.h" // For ContextConfig and StorageType enums
+#include "include/model.h"
+#include "include/types.h"
 
 class ContextStorageInterface; // Forward declaration
 

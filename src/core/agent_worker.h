@@ -1,11 +1,12 @@
 #pragma once
-#include <string>
+
 #include <functional>
 #include <memory>
-#include <atomic>
+#include <string>
 #include <vector>
-#include "types.h"
-#include "tools/tool_selector.h"
+#include "atomic"
+#include "include/types.h"
+#include "src/tools/tool_selector.h"
 
 class ContextEngine; // Forward declaration
 class SkillEngine;   // Forward declaration

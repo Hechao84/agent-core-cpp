@@ -1,14 +1,16 @@
-#include "context_engine/context_engine.h"
-#include "storage_interface.h"
-#include "md_storage.h"
-#include "db_storage.h"
+
+#include "src/context_engine/context_engine.h"
 #include <algorithm>
 #include <iostream>
+#include <memory>
 #include <sstream>
+#include <string>
+#include <vector>
+#include "src/context_engine/db_storage.h"
+#include "src/context_engine/md_storage.h"
+#include "src/context_engine/storage_interface.h"
 
-ContextEngine::ContextEngine(const ContextConfig& config) : config_(config) {}
-
-ContextEngine::~ContextEngine() = default;
+ContextEngine::ContextEngine(const ContextConfig& config) : config_(config){} ContextEngine::~ContextEngine() = default;
 
 bool ContextEngine::Initialize()
 {

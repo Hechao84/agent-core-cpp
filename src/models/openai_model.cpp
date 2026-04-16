@@ -1,11 +1,40 @@
-#include "models/openai_model.h"
-#include <curl/curl.h>
+#include "src/models/openai_model.h"
 #include <iostream>
 #include <sstream>
 #include <string>
-#include "nlohmann/json.hpp"
+#include <vector>
+#include "src/3rd-party/include/curl/curl.h"
+#include "src/3rd-party/include/nlohmann/json.hpp"
 
 using json = nlohmann::json;
+
+static std::string FixStringUTF8(const std::string& str)
+{
+    std::string result;
+    size_t i = 0;
+    while (i < str.length()) {
+        unsigned char c = static_cast<unsigned char>(str[i]);
+        int expectedLength = 0;
+        
+        if ((c & 0x80) == 0) expectedLength = 1;
+        else if ((c & 0xE0) == 0xC0) expectedLength = 2;
+        else if ((c & 0xF0) == 0xE0) expectedLength = 3;
+        else if ((c & 0xF8) == 0xF0) expectedLength = 4;
+        else { result += "\xEF\xBF\xBD"; i++; continue; }
+        
+        if (i + expectedLength > str.length()) { result += "\xEF\xBF\xBD"; break; }
+        
+        bool valid = true;
+        for (int j = 1; j < expectedLength; ++j) {
+            if ((str[i + j] & 0xC0) != 0x80) { valid = false; break; }
+        }
+        
+        if (valid) result.append(str.substr(i, expectedLength));
+        else result += "\xEF\xBF\xBD";
+        i += expectedLength;
+    }
+    return result;
+}
 
 struct StreamContext {
     std::function<void(const std::string&)> onChunk;
@@ -50,8 +79,7 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* use
                         break;
                     }
                 }
-            } catch (const std::exception& e)
-            {
+            } catch (const std::exception& e) {
                 std::cerr << "[OpenAI] JSON Parse Error: " << e.what() << std::endl;
             }
         }
@@ -70,7 +98,7 @@ std::string OpenAIModel::Format(const std::string& systemPrompt, const std::vect
         msgs.push_back({{"role", "system"}, {"content", systemPrompt}});
     }
     for (const auto& msg : messages) {
-        msgs.push_back({{"role", msg.role}, {"content", msg.content}});
+        msgs.push_back({{"role", msg.role}, {"content", FixStringUTF8(msg.content)}});
     }
     payload["messages"] = msgs;
 

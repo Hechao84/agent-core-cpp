@@ -1,10 +1,11 @@
-#include "write_file_tool.h"
+
+
+#include "src/tools/builtin_tools/write_file_tool.h"
 #include <fstream>
-#include <filesystem>
+#include <string>
+#include "filesystem"
 
-namespace fs = std::filesystem;
-
-static std::string ParseStringField(const std::string& json, const std::string& key)
+namespace fs = std::filesystem;static std::string ParseStringField(const std::string& json, const std::string& key)
 {
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
@@ -30,9 +31,7 @@ WriteFileTool::WriteFileTool()
          "creates parent directories as needed. "
          "Input: JSON with 'path' and 'content' (both required).",
          {{"path", "The file path to write to", "string", true},
-          {"content", "The content to write", "string", true}}) {}
-
-std::string WriteFileTool::Invoke(const std::string& input)
+          {"content", "The content to write", "string", true}}){} std::string WriteFileTool::Invoke(const std::string& input)
 {
     std::string filePath = ParseStringField(input, "path");
     if (filePath.empty()) {
@@ -81,8 +80,7 @@ std::string WriteFileTool::Invoke(const std::string& input)
         file.close();
         return "Successfully wrote " + std::to_string(content.length()) +
                " characters to " + filePath;
-    } catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         return "Error writing file: " + std::string(e.what());
     }
 }

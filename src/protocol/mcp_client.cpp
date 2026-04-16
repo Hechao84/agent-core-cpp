@@ -1,10 +1,12 @@
-#include "mcp_client.h"
-
-#include <curl/curl.h>
+#include "src/protocol/mcp_client.h"
 #include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
+#include "src/3rd-party/include/curl/curl.h"
+#include "src/3rd-party/include/nlohmann/json.hpp"
 
-namespace
-{
+namespace {
     size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output)
     {
         size_t totalSize = size * nmemb;

@@ -1,19 +1,27 @@
-#include "agent_worker.h"
-#include "resource_manager.h"
-#include "model.h"
-#include "tools/tool_selector.h"
-#include "context_engine/context_engine.h"
-#include "skills/skill_engine.h"
-#include <iostream>
+
+#include "src/core/agent_worker.h"
 #include <algorithm>
+#include <iostream>
+#include <memory>
 #include <sstream>
+#include <string>
+#include <vector>
+#include "src/utils/logger.h"
+#include "include/model.h"
+#include "include/resource_manager.h"
+#include "src/context_engine/context_engine.h"
+#include "src/skills/skill_engine.h"
+#include "src/tools/tool_selector.h"
 
 AgentWorker::AgentWorker(AgentConfig config) : config_(std::move(config))
 {
     toolSelector_ = std::make_unique<ToolSelector>();
 }
 
-void AgentWorker::Cancel() { cancelled_.store(true); }
+void AgentWorker::Cancel() 
+{ 
+    cancelled_.store(true); 
+}
 
 void AgentWorker::AddTools(const std::vector<std::string>& toolNames)
 {
@@ -39,18 +47,26 @@ void AgentWorker::SetSkillEngine(std::shared_ptr<SkillEngine> engine)
 }
 
 void AgentWorker::CallModelStream(const std::string& prompt, const std::vector<std::pair<std::string, std::string>>& messages,
-                                  std::function<void(const std::string&)> onChunk, std::function<void(const std::string&)> onComplete)
-                                  {
-    if (cancelled_.load()) { onComplete(""); return; }
+                                  std::function<void(const std::string&)> onChunk, std::function<void(const std::string&)> onComplete) 
+{
+    if (cancelled_.load()) { 
+        onComplete(""); 
+        return; 
+    }
     try {
         auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
         std::vector<Message> msgHistory;
         for (const auto& m : messages) msgHistory.push_back({m.first, m.second});
         std::string formatted = model->Format(prompt, msgHistory);
+        
+        LOG(INFO) << "Request Model Prompt:\n" << formatted;
+        
         std::string fullResponse = model->Invoke(formatted, onChunk);
+        
+        LOG(INFO) << "Model Response:\n" << fullResponse;
+        
         if (onComplete) onComplete(fullResponse);
-    } catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         std::string err = "Model Error: " + std::string(e.what());
         if (onChunk) onChunk(err);
         if (onComplete) onComplete(err);
@@ -90,8 +106,7 @@ std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::str
     try {
         auto tool = ResourceManager::GetInstance().CreateTool(toolName);
         return tool->Invoke(input);
-    } catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         return "Error executing tool '" + toolName + "': " + e.what();
     }
 }
@@ -103,7 +118,6 @@ std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
     if (selected.empty() && !toolNames_.empty()) selected.push_back(toolNames_[0]);
     std::string schema;
     for (const auto& name : selected) {
-        try { schema += rm.CreateTool(name)->GetSchema() + "\n\n"; } catch (...) {}
-    }
+        try { schema += rm.CreateTool(name)->GetSchema() + "\n\n"; } catch (...){} }
     return schema;
 }

@@ -1,23 +1,20 @@
 #pragma once
 
 #include <memory>
-#include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "include/tool.h"
+#include "src/protocol/mcp_client.h"
+#include "src/3rd-party/include/nlohmann/json.hpp"
 
-#include "../protocol/mcp_client.h"
-#include "tool.h"
-
-enum class MCPTransportType
-{
+enum class MCPTransportType {
     STDIO,
     SSE,
     STREAMABLE_HTTP
 };
 
-struct MCPEndpointConfig
-{
+struct MCPEndpointConfig {
     std::string command;
     std::vector<std::string> args;
     std::string url;
@@ -28,8 +25,7 @@ struct MCPEndpointConfig
 
 class MCPTool;
 
-class MCPServer : public std::enable_shared_from_this<MCPServer>
-{
+class MCPServer : public std::enable_shared_from_this<MCPServer> {
 public:
     MCPServer(std::string name, MCPEndpointConfig config);
     void Connect();
@@ -50,8 +46,7 @@ private:
     void CreateClient();
 };
 
-class MCPTool : public Tool
-{
+class MCPTool : public Tool {
 public:
     MCPTool(std::string name, std::string description, std::vector<ToolParam> params, std::shared_ptr<MCPServer> server);
     std::string Invoke(const std::string& input) override;

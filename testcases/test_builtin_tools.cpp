@@ -1,10 +1,16 @@
+
 #include <iostream>
 #include <string>
+#include "include/agent.h"
+#include "include/resource_manager.h"
 #ifdef _WIN32
-#include <windows.h>
+    #include <windows.h>
+#else
+    // Linux/Unix specific alternatives if needed, or simply exclude logic
 #endif
-#include "agent.h"
-#include "resource_manager.h"
+
+#ifdef _WIN32
+#endif
 
 // Helper function to convert local encoding to UTF-8 (Input for Agent)
 // Crucial for Windows console Chinese input support

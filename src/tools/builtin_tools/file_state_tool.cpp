@@ -1,13 +1,14 @@
-#include "file_state_tool.h"
-#include <filesystem>
+
+
+#include "src/tools/builtin_tools/file_state_tool.h"
 #include <fstream>
-#include <sstream>
 #include <map>
-#include <ctime>
+#include <sstream>
+#include <string>
+#include "ctime"
+#include "filesystem"
 
-namespace fs = std::filesystem;
-
-static std::string ParseStringField(const std::string& json, const std::string& key)
+namespace fs = std::filesystem;static std::string ParseStringField(const std::string& json, const std::string& key)
 {
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
@@ -35,7 +36,11 @@ static int ParseIntField(const std::string& json, const std::string& key, int de
     if (colonPos == std::string::npos) return defaultVal;
     size_t valStart = json.find_first_not_of(" \t", colonPos + 1);
     if (valStart == std::string::npos) return defaultVal;
-    try { return std::stoi(json.substr(valStart)); } catch (...) { return defaultVal; }
+    try { 
+        return std::stoi(json.substr(valStart)); 
+    } catch (...) { 
+        return defaultVal; 
+    }
 }
 
 FileStateTool::FileStateTool()
@@ -45,9 +50,12 @@ FileStateTool::FileStateTool()
          "clear (clear all state). "
          "Input: JSON with 'action' (required), 'path' (for check/record_read/record_write).",
           {{"action", "Action: check, record_read, record_write, or clear", "string", true},
-           {"path", "File path to track", "string", false}}) {}
-
-void FileStateTool::SetStateFile(const std::string& path) { stateFile_ = path; }
+           {"path", "File path to track", "string", false}}) {} 
+           
+void FileStateTool::SetStateFile(const std::string& path) 
+{
+     stateFile_ = path; 
+}
 
 std::string FileStateTool::Invoke(const std::string& input)
 {
@@ -145,20 +153,15 @@ void FileStateTool::LoadState()
             }
             currentPath = line.substr(5);
             current = FileState();
-        } else if (line.substr(0, 7) == "mtime: ")
-        {
+        } else if (line.substr(0, 7) == "mtime: ") {
             current.lastMtime = std::stoll(line.substr(7));
-        } else if (line.substr(0, 11) == "read_time: ")
-        {
+        } else if (line.substr(0, 11) == "read_time: ") {
             current.lastReadTime = std::stoll(line.substr(11));
-        } else if (line.substr(0, 12) == "write_time: ")
-        {
+        } else if (line.substr(0, 12) == "write_time: ") {
             current.lastWriteTime = std::stoll(line.substr(12));
-        } else if (line.substr(0, 8) == "offset: ")
-        {
+        } else if (line.substr(0, 8) == "offset: ") {
             current.lastReadOffset = std::stoi(line.substr(8));
-        } else if (line.substr(0, 7) == "limit: ")
-        {
+        } else if (line.substr(0, 7) == "limit: ") {
             current.lastReadLimit = std::stoi(line.substr(7));
         }
     }

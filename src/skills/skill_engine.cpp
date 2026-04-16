@@ -1,14 +1,12 @@
-#include "skills/skill_engine.h"
-#include <filesystem>
+#include "src/skills/skill_engine.h"
 #include <fstream>
-#include <sstream>
 #include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include "filesystem"
 
-namespace fs = std::filesystem;
-
-SkillEngine::SkillEngine(const std::string& rootDir) : rootDir_(rootDir) {}
-
-void SkillEngine::SetRootDir(const std::string& rootDir)
+namespace fs = std::filesystem;SkillEngine::SkillEngine(const std::string& rootDir) : rootDir_(rootDir){} void SkillEngine::SetRootDir(const std::string& rootDir)
 {
     rootDir_ = rootDir;
 }
@@ -91,8 +89,7 @@ Skill SkillEngine::ParseSkillDir(const std::string& dirPath, const std::string& 
                 skill.name.erase(0, skill.name.find_first_not_of(" \t\r\n"));
                 skill.name.erase(skill.name.find_last_not_of(" \t\r\n") + 1);
             }
-        } catch (const std::exception& e)
-        {
+        } catch (const std::exception& e) {
             std::cerr << "Failed to read skill file: " << e.what() << std::endl;
         }
     } else {

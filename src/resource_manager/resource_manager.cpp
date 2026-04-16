@@ -1,25 +1,30 @@
-#include "resource_manager.h"
-#include "model.h"
-#include "models/openai_model.h"
-#include "models/anthropic_model.h"
-#include "tools/mcp_tool.h"
 
-// Builtin Tools
-#include "tools/builtin_tools/time_info_tool.h"
-#include "tools/builtin_tools/web_search_tool.h"
-#include "tools/builtin_tools/web_fetch_tool.h"
-#include "tools/builtin_tools/read_file_tool.h"
-#include "tools/builtin_tools/write_file_tool.h"
-#include "tools/builtin_tools/edit_file_tool.h"
-#include "tools/builtin_tools/list_dir_tool.h"
-#include "tools/builtin_tools/glob_tool.h"
-#include "tools/builtin_tools/grep_tool.h"
-#include "tools/builtin_tools/exec_tool.h"
-#include "tools/builtin_tools/notebook_edit_tool.h"
-#include "tools/builtin_tools/file_state_tool.h"
-
+#include "include/resource_manager.h"
 #include <algorithm>
-#include <stdexcept>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include "src/utils/logger.h"
+#include "include/model.h"
+#include "src/models/anthropic_model.h"
+#include "src/models/openai_model.h"
+// Builtin Tools
+#include "src/tools/builtin_tools/edit_file_tool.h"
+#include "src/tools/builtin_tools/exec_tool.h"
+#include "src/tools/builtin_tools/file_state_tool.h"
+#include "src/tools/builtin_tools/glob_tool.h"
+#include "src/tools/builtin_tools/grep_tool.h"
+#include "src/tools/builtin_tools/list_dir_tool.h"
+#include "src/tools/builtin_tools/notebook_edit_tool.h"
+#include "src/tools/builtin_tools/read_file_tool.h"
+#include "src/tools/builtin_tools/time_info_tool.h"
+#include "src/tools/builtin_tools/web_fetch_tool.h"
+#include "src/tools/builtin_tools/web_search_tool.h"
+#include "src/tools/builtin_tools/write_file_tool.h"
+#include "src/tools/mcp_tool.h"
+#include "stdexcept"
+#include "src/3rd-party/include/nlohmann/json.hpp"
 
 ResourceManager& ResourceManager::GetInstance()
 {
@@ -51,10 +56,14 @@ void ResourceManager::RegisterBuiltinTools()
 
 void ResourceManager::RegisterBuiltinModels()
 {
-    RegisterModel(ModelFormatType::OPENAI, [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
-    RegisterModel(ModelFormatType::ANTHROPIC, [](const ModelConfig& cfg) { return std::make_unique<AnthropicModel>(cfg); });
-    RegisterModel(ModelFormatType::DEEPSEEK, [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
-    RegisterModel(ModelFormatType::DASHSCOPE, [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
+    RegisterModel(ModelFormatType::OPENAI, 
+        [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
+    RegisterModel(ModelFormatType::ANTHROPIC, 
+        [](const ModelConfig& cfg) { return std::make_unique<AnthropicModel>(cfg); });
+    RegisterModel(ModelFormatType::DEEPSEEK, 
+        [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
+    RegisterModel(ModelFormatType::DASHSCOPE, 
+        [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
 }
 
 void ResourceManager::RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory)
@@ -141,8 +150,10 @@ void ResourceManager::RegisterMCPServer(const std::string& name, const std::stri
 
 std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
 {
+    LOG(INFO) << "Creating tool instance: " << name;
     auto it = toolFactories_.find(name);
     if (it != toolFactories_.end()) return it->second();
+    LOG(INFO) << "Tool not found in factories: " << name;
     throw std::runtime_error("Tool not found: " + name);
 }
 
@@ -189,6 +200,17 @@ std::vector<std::string> ResourceManager::GetAvailableMCPServers() const
     return names;
 }
 
-bool ResourceManager::HasTool(const std::string& name) const { return toolFactories_.count(name) > 0; }
-bool ResourceManager::HasModel(ModelFormatType type) const { return modelFactories_.count(type) > 0; }
-bool ResourceManager::HasMCPServer(const std::string& name) const { return mcpServers_.count(name) > 0; }
+bool ResourceManager::HasTool(const std::string& name) const 
+{ 
+    return toolFactories_.count(name) > 0; 
+}
+
+bool ResourceManager::HasModel(ModelFormatType type) const 
+{ 
+    return modelFactories_.count(type) > 0; 
+}
+
+bool ResourceManager::HasMCPServer(const std::string& name) const 
+{ 
+    return mcpServers_.count(name) > 0; 
+}

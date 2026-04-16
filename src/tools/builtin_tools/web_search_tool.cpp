@@ -1,7 +1,8 @@
-#include "web_search_tool.h"
-#include "curl/curl.h"
-#include <string>
+
+#include "src/tools/builtin_tools/web_search_tool.h"
 #include <iostream>
+#include <string>
+#include "src/3rd-party/include/curl/curl.h"
 
 static size_t SearchWriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
 {
@@ -9,9 +10,7 @@ static size_t SearchWriteCallback(void* contents, size_t size, size_t nmemb, voi
     return size * nmemb;
 }
 
-WebSearchTool::WebSearchTool() : Tool("web_search", "Search the web for information", {{"query", "The search query", "string", true}}) {}
-
-std::string WebSearchTool::Search(const std::string& query)
+WebSearchTool::WebSearchTool() : Tool("web_search", "Search the web for information", {{"query", "The search query", "string", true}}){} std::string WebSearchTool::Search(const std::string& query)
 {
     CURL* curl = curl_easy_init();
     if (!curl) return "Error: Failed to initialize curl";
