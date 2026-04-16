@@ -164,8 +164,11 @@ int main()
     config.modelConfig.extraParams.Set("tool_choice", std::string("auto"));
     
     config.promptTemplates["react_system"] = 
-        "You are a reasoning agent. You must reply in the same language as the user's query.\nSkills:\n{skills}\nTools:\n{tools}\n{context}";
-    
+        "You are a reasoning agent. You must reply in the same language as the user's query.\n"
+        "To call a tool, you MUST output a JSON object with the EXACT format: {\"name\": \"tool_name\", \"arguments\": {arg1: val1}}.\n"
+        "Do NOT wrap the JSON in markdown code blocks.\n"
+        "Skills:\n{skills}\nTools:\n{tools}\n{context}";
+           
     Agent agent(config);
     
     // Register all available tools (including MCP) to the agent

@@ -83,19 +83,6 @@ static std::string ParseAction(const std::string& response, std::string& actionI
                         }
                     }
                 }
-                                        } else if (jsonStr[aValStart] == '"') {
-                                            size_t aEnd = jsonStr.find('"', aValStart + 1);
-                                            if (aEnd != std::string::npos) {
-                                                actionInput = "\"" + jsonStr.substr(aValStart + 1, aEnd - aValStart - 1) + "\"";
-                                            }
-                                        }
-                                    }
-                                }
-                                return name;
-                            }
-                        }
-                    }
-                }
             }
         }
     }

@@ -79,12 +79,54 @@ void MCPServer::Connect()
             std::cout << "[MCPServer] Discovered tool: " << toolDef.name << std::endl;
             LOG(INFO) << "MCP Server [" << name_ << "] discovered tool: " << toolDef.name;
 
-            auto& rm = ResourceManager::GetInstance();
             std::string tName = toolDef.name;
             std::string tDesc = toolDef.description;
             if (tDesc.empty()) tDesc = "MCP Tool: " + tName;
             auto serverPtr = shared_from_this();
-            std::vector<ToolParam> params = {{"input", "JSON input arguments", "string", true}};
+            auto& rm = ResourceManager::GetInstance();
+
+            // Extract tool parameters from inputSchema (JSON Schema)
+            std::vector<ToolParam> params;
+            bool hasSchema = false;
+
+            if (toolDef.inputSchema.contains("properties") && toolDef.inputSchema["properties"].is_object()) {
+                const auto& props = toolDef.inputSchema["properties"];
+                for (auto it = props.begin(); it != props.end(); ++it) {
+                    ToolParam p;
+                    p.name = it.key();
+                    
+                    if (it->contains("description")) {
+                        p.description = (*it)["description"].get<std::string>();
+                    } else {
+                        p.description = "Parameter " + p.name;
+                    }
+                    
+                    if (it->contains("type")) {
+                        p.type = (*it)["type"].get<std::string>();
+                    } else {
+                        p.type = "string";
+                    }
+                    p.required = false;
+
+                    // Check if parameter is required
+                    if (toolDef.inputSchema.contains("required") && 
+                        toolDef.inputSchema["required"].is_array()) {
+                        for (const auto& req_name : toolDef.inputSchema["required"]) {
+                            if (req_name.is_string() && req_name.get<std::string>() == p.name) {
+                                p.required = true;
+                                break;
+                            }
+                        }
+                    }
+                    params.push_back(p);
+                    hasSchema = true;
+                }
+            }
+            
+            // Fallback if schema is empty
+            if (!hasSchema) {
+                params = {{"input", "JSON input arguments", "string", true}};
+            }
 
             rm.RegisterTool(tName, [tName, tDesc, serverPtr, params]() {
                 return std::make_unique<MCPTool>(tName, tDesc, params, serverPtr);
