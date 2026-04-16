@@ -1,36 +1,39 @@
-libs/
-.cache/
+# Build Output
 build/
+build-linux/
+dist/
+output/
+
+# CMake Generated Files
+*.cmake
+CMakeCache.txt
+CMakeFiles/
+
+# Third-Party Libraries
+libs/
+src/3rd-party/*
+!src/3rd-party/README.md
+third_party/
+
+# Compiler/IDE Artifacts
+.cache/
 .vscode/
-opencode.json
+.local_settings/
 *.exe
 *.pdb
 *.dir/
 *.vcxproj
 *.vcxproj.filters
 *.sln
-# CMake generated files
-*.cmake
-CMakeCache.txt
-CMakeFiles/
 
-# 3rd party libraries (fetched via CMake FetchContent)
-src/3rd-party/*
-!src/3rd-party/README.md
-
-# Sensitive data and local settings
+# Sensitive Data & Local Config
 opencode.json
 *.db
-.local_settings/
 
-# Distribution
-dist/
+# Log Files & AI Assistant Docs
+jiuwen-lite.log
+AGENTS.md
+CLANG.md
 
-# Temporary projects/copy
+# Historical Temp Copies
 temp_nanobot/
-build-linux/
-
-# Test reports
-TEST_REPORT.md
-third_party/
-output/
