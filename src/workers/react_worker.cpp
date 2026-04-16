@@ -8,6 +8,7 @@
 #include <vector>
 #include "src/utils/logger.h"
 #include "src/context_engine/context_engine.h"
+#include "src/tools/tool_selector.h"
 
 static std::string ExtractJson(const std::string& text, size_t startPos)
 {
@@ -50,10 +51,9 @@ static std::string ParseAction(const std::string& response, std::string& actionI
             size_t nameKey = jsonStr.find("\"name\"");
             if (nameKey != std::string::npos) {
                 size_t colon = jsonStr.find(':', nameKey + 6);
-                size_t valStart = jsonStr.find_first_not_of(" \t\"", colon + 1);
-                if (valStart != std::string::npos) {
-                    char q = jsonStr[valStart];
-                    size_t valEnd = jsonStr.find(q, valStart + 1);
+                size_t valStart = jsonStr.find_first_not_of(" \t", colon + 1);
+                if (valStart != std::string::npos && jsonStr[valStart] == '"') {
+                    size_t valEnd = jsonStr.find('"', valStart + 1);
                     if (valEnd != std::string::npos) {
                         std::string name = jsonStr.substr(valStart + 1, valEnd - valStart - 1);
                         // Validate: name should be short, not contain spaces or braces
@@ -80,6 +80,19 @@ static std::string ParseAction(const std::string& response, std::string& actionI
                                 }
                             }
                             return name;
+                        }
+                    }
+                }
+                                        } else if (jsonStr[aValStart] == '"') {
+                                            size_t aEnd = jsonStr.find('"', aValStart + 1);
+                                            if (aEnd != std::string::npos) {
+                                                actionInput = "\"" + jsonStr.substr(aValStart + 1, aEnd - aValStart - 1) + "\"";
+                                            }
+                                        }
+                                    }
+                                }
+                                return name;
+                            }
                         }
                     }
                 }
