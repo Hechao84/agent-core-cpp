@@ -113,11 +113,16 @@ std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::str
 
 std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
 {
+    // TODO: Bypass tool selection for now; dump all registered tools into prompt.
+    (void)query;
     auto& rm = ResourceManager::GetInstance();
-    auto selected = toolSelector_->SelectTopTools(query, toolNames_, 3);
-    if (selected.empty() && !toolNames_.empty()) selected.push_back(toolNames_[0]);
     std::string schema;
-    for (const auto& name : selected) {
-        try { schema += rm.CreateTool(name)->GetSchema() + "\n\n"; } catch (...){} }
+    for (const auto& name : toolNames_) {
+        try {
+            schema += rm.CreateTool(name)->GetSchema() + "\n\n";
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Failed to get schema for tool: " << name;
+        }
+    }
     return schema;
 }

@@ -31,3 +31,6 @@ opencode.json
 *.log
 AGENTS.md
 CLANG.md
+
+# Conversation Logs
+data/

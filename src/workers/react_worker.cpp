@@ -163,7 +163,6 @@ ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(c
         callback("\n[STATUS] Thinking... (Iteration " + std::to_string(iteration + 1) + ")\n");
 
         std::string fullResponse;
-        msgHistory.push_back({"user", query});
 
         CallModelStream(prompt, msgHistory,
             [&callback, &fullResponse](const std::string& chunk)

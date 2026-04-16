@@ -119,7 +119,7 @@ int main()
     try {
         std::string amapJson = R"({
             "url": "https://mcp.amap.com",
-            "endpoint": "/mcp?key=<your amap key>",
+            "endpoint": "/mcp?key=<your-amap-key>",
             "isActive": "true",
             "description": "this is a mcp map server",
             "type": "streamable-http-client"
@@ -152,9 +152,9 @@ int main()
     config.skillDirectory = "./my_skills"; // Relative path for demo purposes
 
     // 3. Model Config
-    config.modelConfig.baseUrl = "<your base url>";
-    config.modelConfig.apiKey = "<your api key>";
-    config.modelConfig.modelName = "<your model name>";
+    config.modelConfig.baseUrl = "<your-model-base-url>";
+    config.modelConfig.apiKey = "<your-api-key>";
+    config.modelConfig.modelName = "<your-model-name>";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
     
     // 4. Extended Model Params (ConfigNode)
@@ -164,9 +164,13 @@ int main()
     config.modelConfig.extraParams.Set("tool_choice", std::string("auto"));
     
     config.promptTemplates["react_system"] = 
-        "You are a reasoning agent. You must reply in the same language as the user's query.\nSkills:\n{skills}\nTools:\n{tools}\nQuestion: {query}\n{context}";
+        "You are a reasoning agent. You must reply in the same language as the user's query.\nSkills:\n{skills}\nTools:\n{tools}\n{context}";
     
     Agent agent(config);
+    
+    // Register all available tools (including MCP) to the agent
+    auto allTools = rm.GetAvailableTools();
+    agent.AddTools(allTools);
     
     std::cout << "\nEnter '/exit' to quit.\n" << std::flush;
     std::string query;
