@@ -81,11 +81,13 @@ void MCPServer::Connect()
 
             auto& rm = ResourceManager::GetInstance();
             std::string tName = toolDef.name;
+            std::string tDesc = toolDef.description;
+            if (tDesc.empty()) tDesc = "MCP Tool: " + tName;
             auto serverPtr = shared_from_this();
             std::vector<ToolParam> params = {{"input", "JSON input arguments", "string", true}};
 
-            rm.RegisterTool(tName, [tName, serverPtr, params]() {
-                return std::make_unique<MCPTool>(tName, "MCP Tool: " + tName, params, serverPtr);
+            rm.RegisterTool(tName, [tName, tDesc, serverPtr, params]() {
+                return std::make_unique<MCPTool>(tName, tDesc, params, serverPtr);
             });
         }
 
