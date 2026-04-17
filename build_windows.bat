@@ -62,20 +62,21 @@ cd /d "%BUILD_DIR%"
 echo --- Running CMake...
 
 REM Auto-detect vcpkg toolchain if VCPKG_ROOT is set
-set "VP_TOOLCHAIN="
+set "VP_TOOLCHAIN_PATH="
 if defined VCPKG_ROOT (
-    set "VP_TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake"
-    echo Using vcpkg toolchain from: %VCPKG_ROOT%
+    set "VP_TOOLCHAIN_PATH=!VCPKG_ROOT!\scripts\buildsystems\vcpkg.cmake"
+    echo Using vcpkg toolchain from: !VCPKG_ROOT!
 ) else if defined VCPKG_INSTALLATION_ROOT (
-    set "VP_TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_INSTALLATION_ROOT%/scripts/buildsystems/vcpkg.cmake"
-    echo Using vcpkg toolchain from: %VCPKG_INSTALLATION_ROOT%
+    set "VP_TOOLCHAIN_PATH=!VCPKG_INSTALLATION_ROOT!\scripts\buildsystems\vcpkg.cmake"
+    echo Using vcpkg toolchain from: !VCPKG_INSTALLATION_ROOT!
 )
 
-cmake .. ^
-    -G "Visual Studio 17 2022" ^
-    -A x64 ^
-    -DCMAKE_BUILD_TYPE=Release ^
-    %VP_TOOLCHAIN%
+if defined VP_TOOLCHAIN_PATH (
+    echo Setting toolchain file: "!VP_TOOLCHAIN_PATH!"
+    cmake .. -A x64 -DCMAKE_BUILD_TYPE=Release "-DCMAKE_TOOLCHAIN_FILE=!VP_TOOLCHAIN_PATH!"
+) else (
+    cmake .. -A x64 -DCMAKE_BUILD_TYPE=Release
+)
 
 if errorlevel 1 (
     echo ERROR: CMake configuration failed.
@@ -119,6 +120,13 @@ if exist "%BUILD_DIR%\Release\agent_framework.lib" (
 REM Copy SQLite DLL if it exists
 if exist "%SCRIPT_DIR%\libs\sqlite3.dll" (
     copy "%SCRIPT_DIR%\libs\sqlite3.dll" "%SCRIPT_DIR%\dist\windows\" >nul
+)
+
+REM Copy vcpkg DLLs (CURL, OpenSSL, zlib, etc.)
+if defined VCPKG_ROOT (
+    copy "%VCPKG_ROOT%\installed\x64-windows\bin\*.dll" "%SCRIPT_DIR%\dist\windows\" >nul 2>nul
+) else if defined VCPKG_INSTALLATION_ROOT (
+    copy "%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\bin\*.dll" "%SCRIPT_DIR%\dist\windows\" >nul 2>nul
 )
 
 REM Copy skills directory if exists

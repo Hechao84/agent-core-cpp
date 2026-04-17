@@ -1,5 +1,6 @@
 # Build Output
 build-linux/
+build-windows/
 dist/
 
 # CMake Generated Files
@@ -16,12 +17,16 @@ src/3rd-party/*
 .cache/
 .vscode/
 .local_settings/
-*.exe
+*.so
 *.pdb
 *.dir/
 *.vcxproj
 *.vcxproj.filters
 *.sln
+vcpkg_installed/
+*.obj
+*.dll
+*.exe
 
 # Sensitive Data & Local Config
 opencode.json

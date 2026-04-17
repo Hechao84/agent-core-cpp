@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Platform-specific Compiler Flags
 if(MSVC)
-    string(APPEND CMAKE_CXX_FLAGS " /FS")
+    string(APPEND CMAKE_CXX_FLAGS " /FS /utf-8")
     string(REPLACE "/Zi" "/Z7" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Wextra -fPIC)
@@ -28,6 +28,10 @@ if(EXISTS "${TP_INCLUDE_DIR}/nlohmann/json.hpp")
     set(USE_PREBUILT_THIRD_PARTY ON)
     message(STATUS "Using pre-built third-party includes from src/3rd-party/")
 endif()
+
+# DEBUG: Print variables to diagnose vcpkg integration
+message(STATUS "[DEBUG] CMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+message(STATUS "[DEBUG] VCPKG_TARGET_TRIPLET=${VCPKG_TARGET_TRIPLET}")
 
 # System/system dependencies
 find_package(CURL REQUIRED)

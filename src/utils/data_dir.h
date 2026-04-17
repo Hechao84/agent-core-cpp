@@ -2,6 +2,16 @@
 
 #include <string>
 
+#ifdef _WIN32
+  #ifdef BUILDING_AGENT_FRAMEWORK
+    #define DATA_DIR_API __declspec(dllexport)
+  #else
+    #define DATA_DIR_API __declspec(dllimport)
+  #endif
+#else
+  #define DATA_DIR_API
+#endif
+
 // DataDir provides a centralized way to manage agent data directories.
 // All agent-generated data (context, cron, memory, etc.) is stored under
 // a base directory, with different data types in separate subdirectories.
@@ -12,7 +22,7 @@
 //   ├── cron/        - Scheduled reminders and job definitions
 //   -- memory/       - Long-term memory and knowledge files
 //   -- temp/         - Temporary files and caches
-class DataDir {
+class DATA_DIR_API DataDir {
 public:
     DataDir();
     explicit DataDir(const std::string& basePath);
@@ -35,7 +45,7 @@ private:
 };
 
 // Get the global DataDir singleton instance
-DataDir& GetDataDir();
+DATA_DIR_API DataDir& GetDataDir();
 
 // Initialize the global DataDir with a custom base path
-void InitDataDir(const std::string& basePath);
+DATA_DIR_API void InitDataDir(const std::string& basePath);

@@ -84,19 +84,13 @@ if exist "%LIBS_DIR%\sqlite3.dll" (
     )
     
     echo Compiling sqlite3.dll...
-    cl /LD /O2 /DSQLITE_API=__declspec(dllexport) ^
-       /Fe"%LIBS_DIR%\sqlite3.dll" ^
-       "%TP_SRC%\sqlite3-src\sqlite3.c" ^
-       /link /OUT:"%LIBS_DIR%\sqlite3.dll"
+    cl /LD /O2 /DSQLITE_API=__declspec^(dllexport^) /Fe"%LIBS_DIR%\sqlite3.dll" "%TP_SRC%\sqlite3-src\sqlite3.c"
     
     if errorlevel 1 (
         echo ERROR: Failed to compile sqlite3.dll
         exit /b 1
     )
     
-    if exist "%LIBS_DIR%\sqlite3.lib" (
-        del "%LIBS_DIR%\sqlite3.lib" >nul 2>nul
-    )
     if exist "%LIBS_DIR%\sqlite3.exp" (
         del "%LIBS_DIR%\sqlite3.exp" >nul 2>nul
     )
@@ -113,4 +107,5 @@ echo  Third-Party Libraries Ready
 echo ==========================================
 echo Headers: %TP_INCLUDE%
 echo Libs:    %LIBS_DIR%
-endlocal
+REM Explicitly succeed to avoid false failures from mkdir/echo
+exit /b 0

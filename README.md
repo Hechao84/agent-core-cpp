@@ -89,35 +89,19 @@ sudo yum install -y cmake libcurl-devel pkg-config
 ```
 
 ### Windows
+The Windows build scripts are designed to handle most of the complexity for you, provided your environment is set up correctly.
 
-The Windows build requires Visual Studio 2022 (Community or higher) and `vcpkg` for dependency management (`libcurl` and `sqlite3` are not always available by default).
+1.  **Prerequisites**
+    - **Visual Studio 2019/2022/2026 (Community or higher)**.
+    - **Desktop development with C++ workload** (Must include MSVC tools and Windows SDK).
 
-1.  **Visual Studio 2022**
-    - Download and install [Visual Studio 2022](https://visualstudio.microsoft.com/zh-hans/downloads/).
-    - Run **Visual Studio Installer**, click "Modify".
-    - Ensure the **Desktop development with C++** workload is selected.
-    - Ensure the **MSVC** compiler and **Windows SDK** are checked in the installation details.
+2.  **Environment Variables & vcpkg**
+    - The project uses **vcpkg** in manifest mode to automatically manage dependencies (like `libcurl`). Ensure `vcpkg.json` at the root is tracked in git.
+    - Ensure the environment variable **`VCPKG_ROOT`** is set to your vcpkg installation directory (e.g., `C:\vcpkg` or `D:\tools\vcpkg`).
+    - *Note: If you do not have vcpkg installed yet, clone it and run `bootstrap-vcpkg.bat`.*
 
-2.  **Setup vcpkg**
-    [vcpkg](https://learn.microsoft.com/zh-cn/vcpkg) is used to manage C++ libraries:
-    ```powershell
-    git clone https://github.com/microsoft/vcpkg.git
-    cd vcpkg
-    .\bootstrap-vcpkg.bat
-    
-    # Optional: Integrate with Visual Studio for easier usage
-    .\vcpkg integrate install
-    ```
-
-3.  **Install Dependencies (libcurl & SQLite3)**
-    Use vcpkg to install the required libraries (using `x64-windows` triplet):
-    ```powershell
-    .\vcpkg install curl[ssl,winssl,schannel]:x64-windows sqlite3:x64-windows
-    ```
-    *Note: `schannel` is recommended over `openssl` for native Windows SSL support.*
-
-4.  **Configure CMAKE_TOOLCHAIN_FILE**
-    You must tell CMake to use vcpkg. You can do this by adding `-DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake` to your build command or environment variables.
+3.  **Building**
+    - **IMPORTANT:** Always run the build script from a **"Developer Command Prompt for VS"** (or VS20xx x64 Native Tools Command Prompt) because the script requires `cl.exe` and standard MSVC environment variables.
 
 ## Building
 
@@ -128,13 +112,10 @@ The Windows build requires Visual Studio 2022 (Community or higher) and `vcpkg` 
 ```
 
 ### Windows
-
-```powershell
-# Ensure you are in a Developer Command Prompt or PowerShell with vcvarsall loaded
-.\build_windows.bat
+```cmd
+build_windows.bat
 ```
-
-*Note: If you use vcpkg (as recommended above), you may need to pass the toolchain file to CMake. You can modify `build_windows.bat` or run CMake manually with `-DCMAKE_TOOLCHAIN_FILE=<vcpkg_root>/scripts/buildsystems/vcpkg.cmake`.*
+*(Note: Ensure `VCPKG_ROOT` is defined before running the script.)*
 
 Both scripts:
 1. Build third-party dependencies (nlohmann/json, SQLite3)
