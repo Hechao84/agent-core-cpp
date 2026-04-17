@@ -60,10 +60,6 @@ void ResourceManager::RegisterBuiltinModels()
         [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
     RegisterModel(ModelFormatType::ANTHROPIC, 
         [](const ModelConfig& cfg) { return std::make_unique<AnthropicModel>(cfg); });
-    RegisterModel(ModelFormatType::DEEPSEEK, 
-        [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
-    RegisterModel(ModelFormatType::DASHSCOPE, 
-        [](const ModelConfig& cfg) { return std::make_unique<OpenAIModel>(cfg); });
 }
 
 void ResourceManager::RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory)
@@ -183,9 +179,7 @@ std::vector<std::string> ResourceManager::GetAvailableModels() const
     std::vector<std::string> names;
     std::unordered_map<ModelFormatType, std::string> typeMap = {
         {ModelFormatType::OPENAI, "openai"}, 
-        {ModelFormatType::ANTHROPIC, "anthropic"},
-        {ModelFormatType::DEEPSEEK, "deepseek"}, 
-        {ModelFormatType::DASHSCOPE, "dashscope"}
+        {ModelFormatType::ANTHROPIC, "anthropic"}
     };
     for (const auto& p : modelFactories_) {
         if (typeMap.count(p.first)) names.push_back(typeMap[p.first]);

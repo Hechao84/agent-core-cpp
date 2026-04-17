@@ -87,8 +87,6 @@ enum class ModelFormatType
 {
     OPENAI,
     ANTHROPIC,
-    DEEPSEEK,
-    DASHSCOPE,
 };
 
 struct ModelConfig 
