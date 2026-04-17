@@ -2,9 +2,9 @@
 
 #include <string>
 #include <vector>
-#include "src/context_engine/storage_interface.h"
+#include "src/context_engine/storage_base.h"
 
-class MarkdownStorage : public ContextStorageInterface {
+class MarkdownStorage : public ContextStorageBase {
 public:
     MarkdownStorage(const std::string& path, const std::string& sessionId);
 

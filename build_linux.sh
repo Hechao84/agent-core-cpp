@@ -49,13 +49,14 @@ NPROC=$(nproc)
 echo "--- Compiling with $NPROC threads..."
 echo "--- This may take a minute. Progress:"
 
-cmake --build . --target jiuwen-lite -- -j"$NPROC"
+cmake --build . --target jiuwenClaw -- -j"$NPROC"
 
 # Package
 echo ""
 echo "--- Packaging output..."
 mkdir -p "$SCRIPT_DIR/dist/linux"
-cp jiuwen-lite "$SCRIPT_DIR/dist/linux/"
+cp jiuwenClaw "$SCRIPT_DIR/dist/linux/"
+cp libagent_framework.so "$SCRIPT_DIR/dist/linux/"
 
 # Copy skills directory if they exist
 if [ -d "$SCRIPT_DIR/my_skills" ]; then
@@ -67,8 +68,10 @@ echo ""
 echo "=========================================="
 echo " Build Complete!"
 echo "=========================================="
-echo "Binary: dist/linux/jiuwen-lite"
-ls -lh "$SCRIPT_DIR/dist/linux/jiuwen-lite"
+echo "Library: dist/linux/libagent_framework.so"
+ls -lh "$SCRIPT_DIR/dist/linux/libagent_framework.so"
+echo "Binary:  dist/linux/jiuwenClaw"
+ls -lh "$SCRIPT_DIR/dist/linux/jiuwenClaw"
 echo ""
-echo "To run:"
-echo "  LD_LIBRARY_PATH=$SCRIPT_DIR/libs ./dist/linux/jiuwen-lite"
+echo "To run the demo app:"
+echo "  LD_LIBRARY_PATH=$SCRIPT_DIR/libs:$SCRIPT_DIR/dist/linux ./dist/linux/jiuwenClaw"

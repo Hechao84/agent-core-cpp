@@ -2,13 +2,13 @@
 
 #include <string>
 #include <vector>
-#include "src/context_engine/storage_interface.h"
+#include "src/context_engine/storage_base.h"
 
 struct sqlite3; // Forward declaration
 
-class DbStorage : public ContextStorageInterface {
+class DbStorage : public ContextStorageBase {
 public:
-    DbStorage(const std::string& connStr, const std::string& sessionId);
+    DbStorage(const std::string& dbPath, const std::string& sessionId);
     ~DbStorage() override;
 
     bool SaveMessage(const Message& msg) override;
@@ -17,8 +17,8 @@ public:
 
 private:
     sqlite3* db_ = nullptr;
-    std::string sessionId_;
 
+    bool InitDatabase();
     bool CreateTable();
-    void PrintError(const char* msg);
+    void LogError(const char* msg);
 };

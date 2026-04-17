@@ -4,6 +4,10 @@
 #include <vector>
 #include "include/agent.h"
 #include "include/resource_manager.h"
+// Demo-specific tools (not part of the framework)
+#include "tools/notebook_edit_tool.h"
+#include "tools/file_state_tool.h"
+#include "tools/cron_tool.h"
 #ifdef _WIN32
     #include <windows.h>
 #else
@@ -112,6 +116,11 @@ int main()
 
     auto& rm = ResourceManager::GetInstance();
 
+    // Register demo-specific tools (not part of the framework)
+    rm.RegisterTool("notebook_edit", []() { return std::make_unique<NotebookEditTool>(); });
+    rm.RegisterTool("file_state", []() { return std::make_unique<FileStateTool>(); });
+    rm.RegisterTool("cron", []() { return std::make_unique<CronTool>(); });
+
     // --- MCP Server Verification: Amap MCP Server ---
     // Using Streamable HTTP transport to connect to Amap's official hosted MCP server.
     // Replace <your amap key> with your actual API key.
@@ -119,7 +128,7 @@ int main()
     try {
         std::string amapJson = R"({
             "url": "https://mcp.amap.com",
-            "endpoint": "/mcp?key=<your-amap-key>",
+            "endpoint": "/mcp?key=<your amap key>",
             "isActive": "true",
             "description": "this is a mcp map server",
             "type": "streamable-http-client"
@@ -152,13 +161,13 @@ int main()
     config.skillDirectory = "./my_skills"; // Relative path for demo purposes
 
     // 3. Model Config
-    config.modelConfig.baseUrl = "<your-model-base-url>";
-    config.modelConfig.apiKey = "<your-api-key>";
-    config.modelConfig.modelName = "<your-model-name>";
+    config.modelConfig.baseUrl = "<your llm endpoint>/v1";
+    config.modelConfig.apiKey = "<your api key>";
+    config.modelConfig.modelName = "Qwen3.6-Plus";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
     
     // 4. Extended Model Params (ConfigNode)
-    config.modelConfig.extraParams.Set("max_tokens", 2048);
+    config.modelConfig.extraParams.Set("max_tokens", 4096);
     config.modelConfig.extraParams.Set("temperature", 0.0f);
     config.modelConfig.extraParams.Set("top_p", 0.0f);
     config.modelConfig.extraParams.Set("tool_choice", std::string("auto"));
@@ -172,7 +181,7 @@ int main()
            
     Agent agent(config);
     
-    // Register all available tools (including MCP) to the agent
+    // Register all available tools (including MCP and demo-specific)
     auto allTools = rm.GetAvailableTools();
     agent.AddTools(allTools);
     

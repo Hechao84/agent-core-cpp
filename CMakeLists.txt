@@ -30,7 +30,6 @@ if(EXISTS "${TP_INCLUDE_DIR}/nlohmann/json.hpp")
 endif()
 
 # System/system dependencies
-find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
 set(CURL_LIB CURL::libcurl)
 
@@ -39,23 +38,53 @@ set(CURL_LIB CURL::libcurl)
 # ============================================================
 set(SQLITE_LIB sqlite3)
 
-if(EXISTS "${TP_LIBS_DIR}/libsqlite3.so")
-    message(STATUS "Using pre-built sqlite3 from libs/")
-    add_library(sqlite3 SHARED IMPORTED GLOBAL)
-    set_target_properties(sqlite3 PROPERTIES
-        IMPORTED_LOCATION "${TP_LIBS_DIR}/libsqlite3.so"
-        INTERFACE_INCLUDE_DIRECTORIES "${TP_INCLUDE_DIR}"
-    )
-else()
-    set(LOCAL_SQLITE_SRC "${TP_SRC_DIR}/sqlite3-src/sqlite3.c")
-    if(EXISTS "${LOCAL_SQLITE_SRC}")
-        message(STATUS "Using local sqlite3 source")
-        add_library(sqlite3 SHARED ${LOCAL_SQLITE_SRC})
-        target_include_directories(sqlite3 PUBLIC "${TP_SRC_DIR}/sqlite3-src" ${TP_INCLUDE_DIR})
-        target_link_libraries(sqlite3 PUBLIC dl pthread)
+if(WIN32)
+    # Windows: look for sqlite3.dll
+    if(EXISTS "${TP_LIBS_DIR}/sqlite3.dll")
+        message(STATUS "Using pre-built sqlite3.dll from libs/")
+        add_library(sqlite3 SHARED IMPORTED GLOBAL)
+        set_target_properties(sqlite3 PROPERTIES
+            IMPORTED_LOCATION "${TP_LIBS_DIR}/sqlite3.dll"
+            INTERFACE_INCLUDE_DIRECTORIES "${TP_INCLUDE_DIR}"
+        )
+        # Also import the .lib if it exists (for MSVC linking)
+        if(EXISTS "${TP_LIBS_DIR}/sqlite3.lib")
+            set_target_properties(sqlite3 PROPERTIES
+                IMPORTED_IMPLIB "${TP_LIBS_DIR}/sqlite3.lib"
+            )
+        endif()
     else()
-        message(STATUS "Warning: sqlite3 not found in libs/ or src/. Building without sqlite.")
-        add_library(sqlite3 INTERFACE IMPORTED)
+        set(LOCAL_SQLITE_SRC "${TP_SRC_DIR}/sqlite3-src/sqlite3.c")
+        if(EXISTS "${LOCAL_SQLITE_SRC}")
+            message(STATUS "Building sqlite3 from source")
+            add_library(sqlite3 SHARED ${LOCAL_SQLITE_SRC})
+            target_include_directories(sqlite3 PUBLIC "${TP_SRC_DIR}/sqlite3-src" ${TP_INCLUDE_DIR})
+            target_compile_definitions(sqlite3 PRIVATE SQLITE_API=__declspec(dllexport))
+        else()
+            message(STATUS "Warning: sqlite3 not found. Building without SQLite support.")
+            add_library(sqlite3 INTERFACE IMPORTED)
+        endif()
+    endif()
+else()
+    # Linux: look for libsqlite3.so
+    if(EXISTS "${TP_LIBS_DIR}/libsqlite3.so")
+        message(STATUS "Using pre-built sqlite3 from libs/")
+        add_library(sqlite3 SHARED IMPORTED GLOBAL)
+        set_target_properties(sqlite3 PROPERTIES
+            IMPORTED_LOCATION "${TP_LIBS_DIR}/libsqlite3.so"
+            INTERFACE_INCLUDE_DIRECTORIES "${TP_INCLUDE_DIR}"
+        )
+    else()
+        set(LOCAL_SQLITE_SRC "${TP_SRC_DIR}/sqlite3-src/sqlite3.c")
+        if(EXISTS "${LOCAL_SQLITE_SRC}")
+            message(STATUS "Using local sqlite3 source")
+            add_library(sqlite3 SHARED ${LOCAL_SQLITE_SRC})
+            target_include_directories(sqlite3 PUBLIC "${TP_SRC_DIR}/sqlite3-src" ${TP_INCLUDE_DIR})
+            target_link_libraries(sqlite3 PUBLIC dl pthread)
+        else()
+            message(STATUS "Warning: sqlite3 not found in libs/ or src/. Building without sqlite.")
+            add_library(sqlite3 INTERFACE IMPORTED)
+        endif()
     endif()
 endif()
 
@@ -76,6 +105,7 @@ add_library(agent_framework SHARED
     src/core/agent_worker.cpp
     src/skills/skill_engine.cpp
     src/context_engine/context_engine.cpp
+    src/context_engine/storage_base.cpp
     src/context_engine/md_storage.cpp
     src/context_engine/db_storage.cpp
     src/workers/agent_worker_factory.cpp
@@ -96,10 +126,7 @@ add_library(agent_framework SHARED
     src/tools/builtin_tools/glob_tool.cpp
     src/tools/builtin_tools/grep_tool.cpp
     src/tools/builtin_tools/exec_tool.cpp
-    src/tools/builtin_tools/notebook_edit_tool.cpp
-    src/tools/builtin_tools/file_state_tool.cpp
     src/tools/builtin_tools/skill_search_tool.cpp
-    src/tools/builtin_tools/cron_tool.cpp
     src/models/model.cpp
     src/models/openai_model.cpp
     src/models/anthropic_model.cpp
@@ -117,23 +144,39 @@ target_compile_definitions(agent_framework PRIVATE BUILDING_AGENT_FRAMEWORK)
 
 target_include_directories(agent_framework PRIVATE ${CURL_INCLUDE_DIRS})
 
-target_link_libraries(agent_framework PRIVATE 
-    ${CURL_LIB}
-    ${SQLITE_LIB}
-    nlohmann_json::nlohmann_json
-    pthread
-    dl
-)
+# Platform-specific link libraries
+if(WIN32)
+    target_link_libraries(agent_framework PRIVATE 
+        ${CURL_LIB}
+        ${SQLITE_LIB}
+        nlohmann_json::nlohmann_json
+        ws2_32  # Windows Sockets (required by libcurl on Windows)
+        crypt32 # Required by libcurl for SSL
+    )
+else()
+    target_link_libraries(agent_framework PRIVATE 
+        ${CURL_LIB}
+        ${SQLITE_LIB}
+        nlohmann_json::nlohmann_json
+        pthread
+    )
+endif()
 
 # ============================================================
-# Executables
+# Sample Application (demonstrates how to use the framework)
 # ============================================================
-add_executable(jiuwen-lite src/main.cpp)
-target_include_directories(jiuwen-lite PRIVATE 
+add_executable(jiuwenClaw 
+    examples/jiuwenClaw/main.cpp
+    examples/jiuwenClaw/tools/notebook_edit_tool.cpp
+    examples/jiuwenClaw/tools/file_state_tool.cpp
+    examples/jiuwenClaw/tools/cron_tool.cpp
+)
+target_include_directories(jiuwenClaw PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-target_link_libraries(jiuwen-lite PRIVATE agent_framework nlohmann_json::nlohmann_json)
+target_link_libraries(jiuwenClaw PRIVATE agent_framework nlohmann_json::nlohmann_json)
 
 # Optional test targets
 add_executable(unittest unittest/main.cpp unittest/test_types.cpp unittest/test_tool.cpp)
@@ -145,6 +188,7 @@ target_include_directories(unittest PRIVATE
 )
 target_link_libraries(unittest PRIVATE agent_framework nlohmann_json::nlohmann_json)
 
-install(TARGETS agent_framework jiuwen-lite
+install(TARGETS agent_framework jiuwenClaw
     ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
 install(DIRECTORY include/ DESTINATION include)
+install(DIRECTORY examples/jiuwenClaw/ DESTINATION share/jiuwen-lite/examples)

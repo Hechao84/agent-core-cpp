@@ -1,6 +1,6 @@
 
 
-#include "src/tools/builtin_tools/notebook_edit_tool.h"
+#include "notebook_edit_tool.h"
 #include <fstream>
 #include <sstream>
 #include <string>

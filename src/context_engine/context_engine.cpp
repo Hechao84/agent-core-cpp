@@ -8,7 +8,7 @@
 #include <vector>
 #include "src/context_engine/db_storage.h"
 #include "src/context_engine/md_storage.h"
-#include "src/context_engine/storage_interface.h"
+#include "src/context_engine/storage_base.h"
 
 ContextEngine::ContextEngine(const ContextConfig& config) : config_(config){} ContextEngine::~ContextEngine() = default;
 
