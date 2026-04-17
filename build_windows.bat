@@ -61,11 +61,21 @@ cd /d "%BUILD_DIR%"
 
 echo --- Running CMake...
 
+REM Auto-detect vcpkg toolchain if VCPKG_ROOT is set
+set "VP_TOOLCHAIN="
+if defined VCPKG_ROOT (
+    set "VP_TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake"
+    echo Using vcpkg toolchain from: %VCPKG_ROOT%
+) else if defined VCPKG_INSTALLATION_ROOT (
+    set "VP_TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_INSTALLATION_ROOT%/scripts/buildsystems/vcpkg.cmake"
+    echo Using vcpkg toolchain from: %VCPKG_INSTALLATION_ROOT%
+)
+
 cmake .. ^
     -G "Visual Studio 17 2022" ^
     -A x64 ^
     -DCMAKE_BUILD_TYPE=Release ^
-    -DCMAKE_CXX_STANDARD=17
+    %VP_TOOLCHAIN%
 
 if errorlevel 1 (
     echo ERROR: CMake configuration failed.
