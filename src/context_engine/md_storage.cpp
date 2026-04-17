@@ -8,7 +8,51 @@
 #include <vector>
 #include "filesystem"
 
-namespace fs = std::filesystem;MarkdownStorage::MarkdownStorage(const std::string& path, const std::string& sessionId)
+namespace fs = std::filesystem;
+
+// Remove ANSI escape sequences and terminal control characters.
+// This cleans up artifacts from user editing (backspace, arrows, etc.)
+static std::string CleanControlChars(const std::string& input)
+{
+    std::string output;
+    output.reserve(input.length());
+
+    bool inEscape = false;
+
+    for (size_t i = 0; i < input.length(); ++i) {
+        unsigned char c = static_cast<unsigned char>(input[i]);
+
+        // Start of ANSI escape sequence: ESC (0x1B) followed by [
+        if (!inEscape && c == 0x1B && i + 1 < input.length() && input[i + 1] == '[') {
+            inEscape = true;
+            continue;
+        }
+
+        // Inside escape sequence: skip until terminator (A-Z or a-z)
+        if (inEscape) {
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == 'm') {
+                inEscape = false;
+            }
+            continue;
+        }
+
+        // Skip control characters except \t, \n, \r
+        if (c < 0x20 && c != '\t' && c != '\n' && c != '\r') {
+            continue;
+        }
+
+        // Skip DEL (0x7F, backspace on some terminals)
+        if (c == 0x7F) {
+            continue;
+        }
+
+        output += input[i];
+    }
+
+    return output;
+}
+
+MarkdownStorage::MarkdownStorage(const std::string& path, const std::string& sessionId)
 {
     fs::path dir(path);
     if (!fs::exists(dir)) {
@@ -67,7 +111,7 @@ void MarkdownStorage::Clear()
 
 std::string MarkdownStorage::FormatMessage(const Message& msg) const
 {
-    return "\n## " + msg.role + "\n\n" + msg.content + "\n";
+    return "\n## " + msg.role + "\n\n" + CleanControlChars(msg.content) + "\n";
 }
 
 Message MarkdownStorage::ParseMessageBlock(const std::string& block) const
