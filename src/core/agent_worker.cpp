@@ -89,7 +89,7 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
     // 1. Hot-reload skills to pick up file system changes
     if (skillEngine_) {
         skillEngine_->Load(true);
-        replaceAll("{skills}", skillEngine_->GetFormattedInstructions());
+        replaceAll("{skills}", skillEngine_->GetSkillCatalog());
     } else {
         replaceAll("{skills}", "");
     }
@@ -103,11 +103,26 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
 
 std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::string& input)
 {
+    LOG(INFO) << "[Tool Execute] Tool: " << toolName << ", Input: " << input;
+
     try {
         auto tool = ResourceManager::GetInstance().CreateTool(toolName);
-        return tool->Invoke(input);
+        std::string result = tool->Invoke(input);
+
+        // Log output (truncate if too long)
+        if (result.length() > 2000) {
+            LOG(INFO) << "[Tool Result] Tool: " << toolName
+                      << ", Output length: " << result.length()
+                      << ", Preview: " << result.substr(0, 200) << "...";
+        } else {
+            LOG(INFO) << "[Tool Result] Tool: " << toolName << ", Output: " << result;
+        }
+
+        return result;
     } catch (const std::exception& e) {
-        return "Error executing tool '" + toolName + "': " + e.what();
+        std::string errMsg = "Error executing tool '" + toolName + "': " + e.what();
+        LOG(ERROR) << "[Tool Error] " << errMsg;
+        return errMsg;
     }
 }
 

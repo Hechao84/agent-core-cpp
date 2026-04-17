@@ -172,8 +172,6 @@ ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(c
             },
             [](const std::string& complete) { (void)complete; });
 
-        msgHistory.push_back({"assistant", fullResponse});
-
         if (cancelled_.load()) { 
             callback("\n[STATUS] Cancelled\n"); 
             return; 
@@ -183,6 +181,8 @@ ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(c
         std::string action = ParseAction(fullResponse, actionInput);
 
         if (action.empty()) {
+            // Final response, add to history and return
+            msgHistory.push_back({"assistant", fullResponse});
             LOG(INFO) << "No tool action parsed, treating as final response.";
             callback("\n[RESPONSE] " + fullResponse + "\n");
             callback("\n[FINAL] " + fullResponse + "\n");
@@ -194,7 +194,12 @@ ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(c
         callback("\n[STATUS] Tool Called: " + action + "\n");
 
         std::string observation = ExecuteTool(action, actionInput);
+        LOG(INFO) << "[React] Tool observation length: " << observation.length();
         callback("\n[TOOL_RESPONSE]" + observation + "\n");
+
+        // Add tool call and result to message history so model sees what happened
+        msgHistory.push_back({"assistant", fullResponse});
+        msgHistory.push_back({"tool", observation});
 
         scratchpad += "\nThought: [Streamed]\nAction: " + action +
                       "\nAction Input: " + actionInput +

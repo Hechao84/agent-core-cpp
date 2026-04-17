@@ -2,6 +2,7 @@
 
 #include "include/agent.h"
 #include <algorithm>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -9,10 +10,21 @@
 #include "src/context_engine/context_engine.h"
 #include "src/core/agent_worker.h"
 #include "src/skills/skill_engine.h"
+#include "src/tools/builtin_tools/skill_search_tool.h"
+#include "src/utils/data_dir.h"
+
+namespace fs = std::filesystem;
+
 
 Agent::Agent(AgentConfig config) : config_(std::move(config))
 {
-    // 1. Initialize Context Engine based on config
+    // 0. Initialize global DataDir from context storage path
+    // Extract base data directory: "./data/context" -> "./data"
+    std::string dataBasePath = "./data";
+    if (!config_.contextConfig.storagePath.empty()) {
+        dataBasePath = fs::path(config_.contextConfig.storagePath).parent_path().string();
+    }
+    InitDataDir(dataBasePath);
     contextEngine_ = std::make_shared<ContextEngine>(config_.contextConfig);
     contextEngine_->Initialize();
 
@@ -20,6 +32,8 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
     if (!config_.skillDirectory.empty()) {
         skillEngine_ = std::make_shared<SkillEngine>(config_.skillDirectory);
         skillEngine_->Load(true); // Load from disk
+        // Inject SkillEngine reference into SkillSearchTool
+        SkillSearchTool::SetEngine(skillEngine_.get());
     }
 
     // 3. Create Worker and inject engines

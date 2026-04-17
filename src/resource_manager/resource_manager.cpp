@@ -10,6 +10,7 @@
 #include "src/models/anthropic_model.h"
 #include "src/models/openai_model.h"
 // Builtin Tools
+#include "src/tools/builtin_tools/cron_tool.h"
 #include "src/tools/builtin_tools/edit_file_tool.h"
 #include "src/tools/builtin_tools/exec_tool.h"
 #include "src/tools/builtin_tools/file_state_tool.h"
@@ -18,6 +19,7 @@
 #include "src/tools/builtin_tools/list_dir_tool.h"
 #include "src/tools/builtin_tools/notebook_edit_tool.h"
 #include "src/tools/builtin_tools/read_file_tool.h"
+#include "src/tools/builtin_tools/skill_search_tool.h"
 #include "src/tools/builtin_tools/time_info_tool.h"
 #include "src/tools/builtin_tools/web_fetch_tool.h"
 #include "src/tools/builtin_tools/web_search_tool.h"
@@ -52,6 +54,8 @@ void ResourceManager::RegisterBuiltinTools()
     RegisterTool("exec", []() { return std::make_unique<ExecTool>(); });
     RegisterTool("notebook_edit", []() { return std::make_unique<NotebookEditTool>(); });
     RegisterTool("file_state", []() { return std::make_unique<FileStateTool>(); });
+    RegisterTool("skill_search", []() { return std::make_unique<SkillSearchTool>(); });
+    RegisterTool("cron", []() { return std::make_unique<CronTool>(); });
 }
 
 void ResourceManager::RegisterBuiltinModels()

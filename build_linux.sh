@@ -57,6 +57,12 @@ echo "--- Packaging output..."
 mkdir -p "$SCRIPT_DIR/dist/linux"
 cp jiuwen-lite "$SCRIPT_DIR/dist/linux/"
 
+# Copy skills directory if they exist
+if [ -d "$SCRIPT_DIR/my_skills" ]; then
+    cp -r "$SCRIPT_DIR/my_skills" "$SCRIPT_DIR/dist/linux/"
+    echo "Skills copied to dist/linux/my_skills"
+fi
+
 echo ""
 echo "=========================================="
 echo " Build Complete!"

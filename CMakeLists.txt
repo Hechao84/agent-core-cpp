@@ -98,10 +98,13 @@ add_library(agent_framework SHARED
     src/tools/builtin_tools/exec_tool.cpp
     src/tools/builtin_tools/notebook_edit_tool.cpp
     src/tools/builtin_tools/file_state_tool.cpp
+    src/tools/builtin_tools/skill_search_tool.cpp
+    src/tools/builtin_tools/cron_tool.cpp
     src/models/model.cpp
     src/models/openai_model.cpp
     src/models/anthropic_model.cpp
     src/utils/logger.cpp
+    src/utils/data_dir.cpp
 )
 
 target_include_directories(agent_framework PRIVATE 

@@ -167,6 +167,7 @@ int main()
         "You are a reasoning agent. You must reply in the same language as the user's query.\n"
         "To call a tool, you MUST output a JSON object with the EXACT format: {\"name\": \"tool_name\", \"arguments\": {arg1: val1}}.\n"
         "Do NOT wrap the JSON in markdown code blocks.\n"
+        "When you need specialized knowledge, use the skill_search tool with action='search' to find relevant skills, then action='load' to get full instructions.\n"
         "Skills:\n{skills}\nTools:\n{tools}\n{context}";
            
     Agent agent(config);
