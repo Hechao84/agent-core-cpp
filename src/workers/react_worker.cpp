@@ -143,11 +143,22 @@ static std::string ParseAction(const std::string& response, std::string& actionI
     return "";
 }
 
-ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(config)){} void ReactAgentWorker::ReactLoop(const std::string& query, std::function<void(const std::string&)> callback)
+static std::string TrimStr(const std::string& str)
+{
+    size_t first = str.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "";
+    size_t last = str.find_last_not_of(" \t\r\n");
+    return str.substr(first, last - first + 1);
+}
+
+ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(config)){}
+
+std::string ReactAgentWorker::ReactLoop(const std::string& query, std::function<void(const std::string&)> callback)
 {
     LOG(INFO) << "Starting ReactLoop for query: " << query;
 
     std::string scratchpad;
+    std::string finalAnswer;
 
     std::vector<std::pair<std::string, std::string>> msgHistory;
     if (contextEngine_) {
@@ -172,9 +183,18 @@ ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(c
             },
             [](const std::string& complete) { (void)complete; });
 
+        LOG(INFO) << "[React] Model returned " << fullResponse.length() << " chars. Content preview: "
+                  << (fullResponse.length() > 200 ? fullResponse.substr(0, 200) + "..." : fullResponse);
+
+        if (fullResponse.empty()) {
+            LOG(WARNING) << "[React] Model returned empty response. Loop stopped.";
+            callback("\n[STATUS] Model returned empty response\n");
+            return "";
+        }
+
         if (cancelled_.load()) { 
             callback("\n[STATUS] Cancelled\n"); 
-            return; 
+            return finalAnswer;
         }
 
         std::string actionInput;
@@ -184,9 +204,11 @@ ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(c
             // Final response, add to history and return
             msgHistory.push_back({"assistant", fullResponse});
             LOG(INFO) << "No tool action parsed, treating as final response.";
-            callback("\n[RESPONSE] " + fullResponse + "\n");
-            callback("\n[FINAL] " + fullResponse + "\n");
-            return;
+
+            // fullResponse contains only raw LLM output (tags are added by callback, stored separately)
+            std::string cleanAnswer = TrimStr(fullResponse);
+            callback("\n[FINAL] " + cleanAnswer + "\n");
+            return cleanAnswer;
         }
 
         LOG(INFO) << "Parsed tool call: " << action << " with input: " << actionInput;
@@ -197,8 +219,9 @@ ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(c
         LOG(INFO) << "[React] Tool observation length: " << observation.length();
         callback("\n[TOOL_RESPONSE]" + observation + "\n");
 
-        // Add tool call and result to message history so model sees what happened
-        msgHistory.push_back({"assistant", fullResponse});
+        // Build a concise assistant message for history: just the tool call JSON + result
+        std::string assistantMsg = "{\"name\": \"" + action + "\", \"arguments\": " + actionInput + "}";
+        msgHistory.push_back({"assistant", assistantMsg});
         msgHistory.push_back({"tool", observation});
 
         scratchpad += "\nThought: [Streamed]\nAction: " + action +
@@ -209,10 +232,12 @@ ReactAgentWorker::ReactAgentWorker(AgentConfig config) : AgentWorker(std::move(c
     if (!cancelled_.load()) {
         callback("\n[STATUS] Max iterations reached\n");
     }
+
+    return finalAnswer;
 }
 
-void ReactAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
+std::string ReactAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
 {
     cancelled_.store(false);
-    ReactLoop(query, std::move(callback));
+    return ReactLoop(query, std::move(callback));
 }

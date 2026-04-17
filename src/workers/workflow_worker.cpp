@@ -38,13 +38,13 @@ std::string WorkflowAgentWorker::ExecuteNode(const WorkflowNode& node, const std
     return fullResponse;
 }
 
-void WorkflowAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
+std::string WorkflowAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
 {
     cancelled_.store(false);
     std::vector<WorkflowNode> nodes = ParseWorkflowConfig();
     if (nodes.empty()) { 
         callback("[ERROR] No workflow nodes"); 
-        return; 
+        return "";
     }
     std::string currentInput = query;
     std::queue<std::string> nodeQueue;
@@ -61,12 +61,14 @@ void WorkflowAgentWorker::Invoke(const std::string& query, std::function<void(co
         currentInput = ExecuteNode(*it, currentInput, callback);
         if (cancelled_.load()) { 
             callback("[STATUS] Cancelled"); 
-            return; 
+            return "";
         }
         for (const auto& nextNode : it->nextNodes) nodeQueue.push(nextNode);
     }
     if (cancelled_.load()) {
         callback("[STATUS] Cancelled");
+        return "";
     }
-    else callback("[FINAL] " + currentInput);
+    callback("[FINAL] " + currentInput);
+    return currentInput;
 }

@@ -15,7 +15,7 @@ class AgentWorker {
 public:
     AgentWorker(AgentConfig config);
     virtual ~AgentWorker() = default;
-    virtual void Invoke(const std::string& query, std::function<void(const std::string&)> callback) = 0;
+    virtual std::string Invoke(const std::string& query, std::function<void(const std::string&)> callback) = 0;
     virtual void Cancel();
     void AddTools(const std::vector<std::string>& toolNames);
     void SetContextEngine(std::shared_ptr<ContextEngine> engine);

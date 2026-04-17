@@ -19,6 +19,8 @@ namespace fs = std::filesystem;MarkdownStorage::MarkdownStorage(const std::strin
 
 bool MarkdownStorage::SaveMessage(const Message& msg)
 {
+    // Skip messages with empty content to avoid noise in session file
+    if (msg.content.empty()) return true;
     try {
         std::ofstream file(filePath_, std::ios::app);
         if (!file.is_open()) return false;
@@ -43,7 +45,7 @@ bool MarkdownStorage::LoadHistory(std::vector<Message>& outMessages)
             size_t nextPos = content.find("## ", pos + 3);
             std::string block = content.substr(pos, nextPos == std::string::npos ? std::string::npos : nextPos - pos);
             Message msg = ParseMessageBlock(block);
-            if (!msg.role.empty()) {
+            if (!msg.role.empty() && !msg.content.empty()) {
                 outMessages.push_back(msg);
             }
             if (nextPos == std::string::npos) break;
@@ -79,7 +81,23 @@ Message MarkdownStorage::ParseMessageBlock(const std::string& block) const
     msg.role = block.substr(start + 3, nl - start - 3);
     size_t contentStart = block.find_first_not_of("\r\n ", nl);
     if (contentStart != std::string::npos) {
-        msg.content = block.substr(contentStart);
+        // Check if there's actual content before the next "##"
+        size_t nextHeader = block.find("\n## ", contentStart);
+        std::string rawContent;
+        if (nextHeader != std::string::npos) {
+            rawContent = block.substr(contentStart, nextHeader - contentStart);
+        } else {
+            rawContent = block.substr(contentStart);
+        }
+        // Trim the content
+        size_t first = rawContent.find_first_not_of(" \t\r\n");
+        if (first != std::string::npos) {
+            msg.content = rawContent.substr(first);
+            size_t last = msg.content.find_last_not_of(" \t\r\n");
+            if (last != std::string::npos) {
+                msg.content = msg.content.substr(0, last + 1);
+            }
+        }
     }
     return msg;
 }

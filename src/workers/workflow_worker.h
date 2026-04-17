@@ -16,7 +16,7 @@ struct WorkflowNode {
 class WorkflowAgentWorker : public AgentWorker {
 public:
     WorkflowAgentWorker(AgentConfig config);
-    void Invoke(const std::string& query, std::function<void(const std::string&)> callback) override;
+    std::string Invoke(const std::string& query, std::function<void(const std::string&)> callback) override;
 private:
     std::vector<WorkflowNode> ParseWorkflowConfig();
     std::string ExecuteNode(const WorkflowNode& node, const std::string& input, std::function<void(const std::string&)> callback);

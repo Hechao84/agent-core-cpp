@@ -48,30 +48,23 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
 
 Agent::~Agent() = default;
 
-void Agent::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
+std::string Agent::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
 {
     if (!worker_ || !contextEngine_) {
         callback("Error: Agent not initialized");
-        return;
+        return "Error: Agent not initialized";
     }
 
     // 1. Save User Query to Context BEFORE invoking
     contextEngine_->AddMessage({"user", query});
 
-    // 2. Intercept response to save it to Context
-    std::string accumulatedResponse;
-    auto wrappedCallback = [this, &accumulatedResponse, callback](const std::string& chunk)
-    {
-        accumulatedResponse += chunk;
-        callback(chunk);
-    };
-
-    worker_->Invoke(query, wrappedCallback);
+    // 2. Call worker and get the final answer directly
+    std::string finalAnswer = worker_->Invoke(query, callback);
 
     // 3. Save Assistant Response to Context AFTER invoking
-    // We only save if we got something meaningful (not just error messages if possible,
-    // but for simplicity we save whatever the model returned)
-    contextEngine_->AddMessage({"assistant", accumulatedResponse});
+    contextEngine_->AddMessage({"assistant", finalAnswer});
+
+    return finalAnswer;
 }
 
 void Agent::Cancel()

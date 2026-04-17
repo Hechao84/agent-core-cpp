@@ -15,7 +15,7 @@ class AGENT_API Agent {
 public:
     Agent(AgentConfig config);
     ~Agent();
-    void Invoke(const std::string& query, std::function<void(const std::string&)> callback);
+    std::string Invoke(const std::string& query, std::function<void(const std::string&)> callback);
     void Cancel();
     void AddTools(const std::vector<std::string>& toolNames);
     std::vector<std::string> GetRegisteredTools() const;

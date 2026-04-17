@@ -54,13 +54,13 @@ std::string PlanAndExecuteAgentWorker::SynthesizeResult(const std::string& query
     return fullResponse;
 }
 
-void PlanAndExecuteAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
+std::string PlanAndExecuteAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
 {
     cancelled_.store(false);
     std::vector<std::string> plan = GeneratePlan(query, callback);
     if (cancelled_.load() || plan.empty()) { 
         callback("[STATUS] Cancelled or empty plan"); 
-        return; 
+        return "";
     }
     std::string context;
     for (size_t i = 0; i < plan.size() && !cancelled_.load(); ++i) {
@@ -70,7 +70,7 @@ void PlanAndExecuteAgentWorker::Invoke(const std::string& query, std::function<v
     }
     if (cancelled_.load()) { 
         callback("[STATUS] Cancelled during execution"); 
-        return; 
+        return "";
     }
-    SynthesizeResult(query, context, callback);
+    return SynthesizeResult(query, context, callback);
 }
