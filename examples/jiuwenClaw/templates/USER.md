@@ -4,20 +4,20 @@
 
 - **Name**: (your name)
 - **Timezone**: (your timezone, e.g., UTC+8)
-- **Language**: 中文 (Chinese)
+- **Language**: (preferred language)
 
 ## Preferences
 
 ### Communication Style
 
-- [x] 简洁高效
-- [ ] 详细说明
+- [x] Concise and efficient
+- [ ] Detailed explanations
 
 ### Technical Level
 
-- [ ] 初级
-- [x] 中级
-- [ ] 专家
+- [ ] Beginner
+- [x] Intermediate
+- [ ] Expert
 
 ## Special Instructions
 
