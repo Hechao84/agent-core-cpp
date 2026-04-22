@@ -108,14 +108,31 @@ enum class AgentWorkMode
     WORKFLOW,
 };
 
+// Prompt Resource Type
+enum class PromptResourceType 
+{
+    TEXT,
+    FILE_PATH
+};
+
+// Prompt Resource: Represents a prompt snippet, either inline text or a file to be loaded
+struct PromptResource 
+{
+    PromptResourceType type{PromptResourceType::TEXT};
+    std::string value;
+};
+
 // Context Engine Configuration
 struct ContextConfig 
 {
     int maxContextTokens{4096};
+    int maxMessages{50};
     std::string sessionId;
     std::string storagePath; // For DB: path to file, For File: directory path
     enum class StorageType{ MEMORY_ONLY, MARKDOWN_FILE, DATABASE };
     StorageType storageType{StorageType::MARKDOWN_FILE}; // Default to Markdown file for persistence
+    bool enableSummarization{false};
+    int idleConsolidationSeconds{60};
 };
 
 struct AgentConfig 
@@ -126,7 +143,7 @@ struct AgentConfig
     std::string version;
     AgentWorkMode mode;
     ModelConfig modelConfig;
-    std::unordered_map<std::string, std::string> promptTemplates;
+    std::unordered_map<std::string, PromptResource> promptTemplates;
     ContextConfig contextConfig;
     std::string skillDirectory;
     int maxIterations{10};

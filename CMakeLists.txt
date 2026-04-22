@@ -136,6 +136,7 @@ add_library(agent_framework SHARED
     src/models/anthropic_model.cpp
     src/utils/logger.cpp
     src/utils/data_dir.cpp
+    src/utils/prompt_utils.cpp
 )
 
 target_include_directories(agent_framework PRIVATE 
@@ -183,7 +184,7 @@ target_include_directories(jiuwenClaw PRIVATE
 target_link_libraries(jiuwenClaw PRIVATE agent_framework nlohmann_json::nlohmann_json)
 
 # Optional test targets
-add_executable(unittest unittest/main.cpp unittest/test_types.cpp unittest/test_tool.cpp)
+add_executable(unittest unittest/main.cpp unittest/test_types.cpp unittest/test_tool.cpp unittest/test_context_engine.cpp)
 target_include_directories(unittest PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 
     ${CMAKE_CURRENT_SOURCE_DIR}/include 

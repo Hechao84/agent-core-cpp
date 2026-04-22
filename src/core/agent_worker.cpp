@@ -1,17 +1,23 @@
-
 #include "src/core/agent_worker.h"
 #include <algorithm>
+#include <chrono>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
 #include "src/utils/logger.h"
+#include "src/utils/prompt_utils.h"
 #include "include/model.h"
 #include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
 #include "src/skills/skill_engine.h"
 #include "src/tools/tool_selector.h"
+
+namespace fs = std::filesystem;
 
 AgentWorker::AgentWorker(AgentConfig config) : config_(std::move(config))
 {
@@ -75,30 +81,70 @@ void AgentWorker::CallModelStream(const std::string& prompt, const std::vector<s
 
 std::string AgentWorker::BuildPrompt(const std::string& templateName, const std::string& query, const std::string& context)
 {
+    // 1. Resolve the template content (load from file if configured, or fallback to templates/REACT_SYSTEM.md)
+    std::string promptTemplate;
     auto it = config_.promptTemplates.find(templateName);
-    if (it == config_.promptTemplates.end()) return query;
-    std::string prompt = it->second;
-    auto replaceAll = [&](const std::string& from, const std::string& to)
-    {
-        size_t pos = 0;
-        while ((pos = prompt.find(from, pos)) != std::string::npos) {
-            prompt.replace(pos, from.length(), to); pos += to.length();
-        }
-    };
-
-    // 1. Hot-reload skills to pick up file system changes
-    if (skillEngine_) {
-        skillEngine_->Load(true);
-        replaceAll("{skills}", skillEngine_->GetSkillCatalog());
+    if (it != config_.promptTemplates.end()) {
+        promptTemplate = PromptUtils::ResolvePromptResource(it->second);
     } else {
-        replaceAll("{skills}", "");
+        // Fallback: load from templates/REACT_SYSTEM.md relative to current working directory
+        fs::path fallbackPath = fs::current_path() / "templates" / "REACT_SYSTEM.md";
+        if (fs::exists(fallbackPath)) {
+            std::ifstream file(fallbackPath);
+            if (file.is_open()) {
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                promptTemplate = buffer.str();
+            }
+        }
     }
 
-    // 2. Replace standard placeholders
-    replaceAll("{query}", query);
-    replaceAll("{context}", context);
-    replaceAll("{tools}", GetToolSchemaForQuery(query));
-    return prompt;
+    if (promptTemplate.empty()) return query;
+
+    // 2. Prepare variables for rendering
+    std::unordered_map<std::string, std::string> vars;
+    vars["query"] = query;
+    vars["context"] = context;
+
+    // Runtime context variables
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
+    std::stringstream timeStream;
+    timeStream << std::put_time(std::gmtime(&time), "%Y-%m-%d %H:%M:%S UTC");
+    vars["current_time"] = timeStream.str();
+    vars["session_id"] = config_.contextConfig.sessionId;
+
+    // 3. Resolve sub-templates from config (e.g., {$identity}, {$custom_section})
+    for (const auto& tpl : config_.promptTemplates) {
+        if (tpl.first == templateName) continue;
+        vars[tpl.first] = PromptUtils::ResolvePromptResource(tpl.second);
+    }
+
+    // 4. Hot-reload skills and load into {$skills}
+    if (skillEngine_) {
+        skillEngine_->Load(true);
+        vars["skills"] = skillEngine_->GetSkillCatalog();
+    } else {
+        vars["skills"] = "";
+    }
+
+    // 6. Get tool schema into {$tools}
+    vars["tools"] = GetToolSchemaForQuery(query);
+
+    // 7. Load memory context into {$memory}
+    if (contextEngine_) {
+        std::string memoryContent = contextEngine_->GetMemoryContent();
+        if (!memoryContent.empty()) {
+            vars["memory"] = "# Long-term Memory\n\n" + memoryContent;
+        } else {
+            vars["memory"] = "";
+        }
+    } else {
+        vars["memory"] = "";
+    }
+
+    // 8. Render the prompt with all variables
+    return PromptUtils::RenderPrompt(promptTemplate, vars);
 }
 
 std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::string& input)
@@ -109,14 +155,8 @@ std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::str
         auto tool = ResourceManager::GetInstance().CreateTool(toolName);
         std::string result = tool->Invoke(input);
 
-        // Log output (truncate if too long)
-        if (result.length() > 2000) {
-            LOG(INFO) << "[Tool Result] Tool: " << toolName
-                      << ", Output length: " << result.length()
-                      << ", Preview: " << result.substr(0, 200) << "...";
-        } else {
-            LOG(INFO) << "[Tool Result] Tool: " << toolName << ", Output: " << result;
-        }
+        LOG(INFO) << "[Tool Result] Tool: " << toolName << ", Output length: " << result.length();
+        LOG(INFO) << "[Tool Result Full] Tool: " << toolName << "\n" << result;
 
         return result;
     } catch (const std::exception& e) {

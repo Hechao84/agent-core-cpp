@@ -172,12 +172,33 @@ int main()
     config.modelConfig.extraParams.Set("top_p", 0.0f);
     config.modelConfig.extraParams.Set("tool_choice", std::string("auto"));
     
-    config.promptTemplates["react_system"] = 
-        "You are a reasoning agent. You must reply in the same language as the user's query.\n"
-        "To call a tool, you MUST output a JSON object with the EXACT format: {\"name\": \"tool_name\", \"arguments\": {arg1: val1}}.\n"
-        "Do NOT wrap the JSON in markdown code blocks.\n"
-        "When you need specialized knowledge, use the skill_search tool with action='search' to find relevant skills, then action='load' to get full instructions.\n"
-        "Skills:\n{skills}\nTools:\n{tools}\n{context}";
+    // Configure Prompt Templates using file references to jiuwenClaw config/templates directory
+    config.promptTemplates["react_system"] = PromptResource{
+        PromptResourceType::FILE_PATH,
+        "./examples/jiuwenClaw/templates/REACT_SYSTEM.md"
+    };
+    
+    // Bootstrap configuration files for Jiuwen Claw
+    config.promptTemplates["agents"] = PromptResource{
+        PromptResourceType::FILE_PATH,
+        "./examples/jiuwenClaw/templates/AGENTS.md"
+    };
+    config.promptTemplates["soul"] = PromptResource{
+        PromptResourceType::FILE_PATH,
+        "./examples/jiuwenClaw/templates/SOUL.md"
+    };
+    config.promptTemplates["user"] = PromptResource{
+        PromptResourceType::FILE_PATH,
+        "./examples/jiuwenClaw/templates/USER.md"
+    };
+    config.promptTemplates["tools_md"] = PromptResource{
+        PromptResourceType::FILE_PATH,
+        "./examples/jiuwenClaw/templates/TOOLS.md"
+    };
+    config.promptTemplates["heartbeat"] = PromptResource{
+        PromptResourceType::FILE_PATH,
+        "./examples/jiuwenClaw/templates/HEARTBEAT.md"
+    };
            
     Agent agent(config);
     
@@ -201,6 +222,28 @@ int main()
         
         query = LocalToUTF8(query);
         query = FixUTF8(query);
+        
+        // Remove backspace control characters (0x08 and 0x7F)
+        std::string cleaned;
+        for (char c : query) {
+            if (c != '\b' && c != '\x7f') {
+                cleaned += c;
+            }
+        }
+        query = cleaned;
+        
+        // Trim whitespace
+        size_t start = query.find_first_not_of(" \t\r\n");
+        if (start == std::string::npos) {
+            continue;
+        }
+        size_t end = query.find_last_not_of(" \t\r\n");
+        query = query.substr(start, end - start + 1);
+        
+        if (query.empty()) {
+            continue;
+        }
+        
         std::cout << "Processing...\n";
         
         bool is_streaming = false;
