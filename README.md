@@ -23,7 +23,7 @@ After building, the following artifacts are produced:
 - OpenAI-compatible API format
 - Anthropic API format
 
-### Built-in Tools (11)
+### Built-in Tools (12)
 | Tool | Purpose |
 |------|---------|
 | `time_info` | Get current time/date |
@@ -37,13 +37,14 @@ After building, the following artifacts are produced:
 | `grep` | Content search in files |
 | `exec` | Execute shell commands |
 | `skill_search` | Search and load skill instructions |
+| `file_state` | Track file state changes |
 
 ### jiuwenClaw Demo-specific Tools (3)
 | Tool | Purpose |
 |------|---------|
+| `cron` | Schedule, list, and remove reminders |
+| `notify` | Cross-platform desktop notifications |
 | `notebook_edit` | Edit Jupyter notebooks |
-| `file_state` | Track file state changes |
-| `cron` | Scheduled task management |
 
 ### MCP Integration
 - Model Context Protocol support with STDIO, SSE, and Streamable HTTP transports
@@ -202,6 +203,7 @@ jiuwen-lite/
 │   ├── workers/         # ReAct, Plan-and-Execute, Workflow workers
 │   ├── models/          # OpenAI and Anthropic model implementations
 │   ├── tools/           # Built-in tools (framework) and MCP integration
+│   │   └── builtin_tools/
 │   ├── protocol/        # MCP JSON-RPC client
 │   ├── context_engine/  # Context storage backends
 │   │   ├── storage_base.h/cpp # Common storage logic
@@ -212,7 +214,10 @@ jiuwen-lite/
 ├── examples/
 │   └── jiuwenClaw/      # Sample application (how to use the framework)
 │       ├── main.cpp
-│       └── tools/       # Demo-specific tools
+│       ├── cron_watcher.h/cpp  # Independent cron task module
+│       ├── heartbeat_manager.h/cpp
+│       ├── templates/          # Prompt templates
+│       └── tools/              # Demo-specific tools
 ├── unittest/            # Unit tests
 ├── testcases/           # Functional tests
 ├── cmake/               # CMake helper modules
