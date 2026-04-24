@@ -13,7 +13,6 @@ private:
                             const std::string& cronExpr, const std::string& tz);
     std::string ListReminders();
     std::string RemoveReminder(const std::string& jobId);
-    std::string CheckReminders();
 
     std::string GetDataFile() const;
 };

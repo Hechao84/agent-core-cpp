@@ -58,6 +58,12 @@ Agent::~Agent()
 
 std::string Agent::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
 {
+    std::unique_lock<std::mutex> lock(invokeMutex_, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        callback("Agent is busy, please wait...");
+        return "Agent is busy";
+    }
+
     if (!worker_ || !contextEngine_) {
         callback("Error: Agent not initialized");
         return "Error: Agent not initialized";

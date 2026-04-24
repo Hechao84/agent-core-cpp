@@ -12,6 +12,7 @@
 // Builtin Tools
 #include "src/tools/builtin_tools/edit_file_tool.h"
 #include "src/tools/builtin_tools/exec_tool.h"
+#include "src/tools/builtin_tools/file_state_tool.h"
 #include "src/tools/builtin_tools/glob_tool.h"
 #include "src/tools/builtin_tools/grep_tool.h"
 #include "src/tools/builtin_tools/list_dir_tool.h"
@@ -45,6 +46,7 @@ void ResourceManager::RegisterBuiltinTools()
     RegisterTool("read_file", []() { return std::make_unique<ReadFileTool>(); });
     RegisterTool("write_file", []() { return std::make_unique<WriteFileTool>(); });
     RegisterTool("edit_file", []() { return std::make_unique<EditFileTool>(); });
+    RegisterTool("file_state", []() { return std::make_unique<FileStateTool>(); });
     RegisterTool("list_dir", []() { return std::make_unique<ListDirTool>(); });
     RegisterTool("glob", []() { return std::make_unique<GlobTool>(); });
     RegisterTool("grep", []() { return std::make_unique<GrepTool>(); });

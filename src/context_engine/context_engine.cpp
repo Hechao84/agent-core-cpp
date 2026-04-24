@@ -162,7 +162,7 @@ int ContextEngine::EstimateTokens(const std::string& text)
 
 std::string ContextEngine::LoadMemoryContext() const
 {
-    static const std::string memoryFile = "MEMORY.md";
+    static const std::string memoryFile = "./data/MEMORY.md";
     fs::path filePath = fs::current_path() / memoryFile;
     
     if (fs::exists(filePath) && fs::is_regular_file(filePath)) {
@@ -209,7 +209,7 @@ std::vector<Message> ContextEngine::BuildMessagesForLLM(
 
 void ContextEngine::UpdateMemory(const std::string& keyFacts)
 {
-    static const std::string memoryFile = "MEMORY.md";
+    static const std::string memoryFile = "./data/MEMORY.md";
     fs::path filePath = fs::current_path() / memoryFile;
     
     std::string existingContent;
@@ -238,7 +238,7 @@ void ContextEngine::UpdateMemory(const std::string& keyFacts)
 
 void ContextEngine::OverwriteMemory(const std::string& fullContent)
 {
-    static const std::string memoryFile = "MEMORY.md";
+    static const std::string memoryFile = "./data/MEMORY.md";
     fs::path filePath = fs::current_path() / memoryFile;
     
     std::ofstream outFile(filePath, std::ios::out | std::ios::trunc);
@@ -250,7 +250,7 @@ void ContextEngine::OverwriteMemory(const std::string& fullContent)
 
 void ContextEngine::ClearMemory()
 {
-    static const std::string memoryFile = "MEMORY.md";
+    static const std::string memoryFile = "./data/MEMORY.md";
     fs::path filePath = fs::current_path() / memoryFile;
     
     if (fs::exists(filePath) && fs::is_regular_file(filePath)) {

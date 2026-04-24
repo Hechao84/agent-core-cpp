@@ -39,6 +39,7 @@ private:
     std::condition_variable cv_;
     std::atomic<bool> running_{true};
     std::atomic<bool> isActive_{false};
+    std::mutex invokeMutex_;
     
     void ConsolidateMemory();
     void ConsolidationLoop();

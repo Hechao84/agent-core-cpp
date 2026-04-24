@@ -29,10 +29,6 @@ if(EXISTS "${TP_INCLUDE_DIR}/nlohmann/json.hpp")
     message(STATUS "Using pre-built third-party includes from src/3rd-party/")
 endif()
 
-# DEBUG: Print variables to diagnose vcpkg integration
-message(STATUS "[DEBUG] CMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
-message(STATUS "[DEBUG] VCPKG_TARGET_TRIPLET=${VCPKG_TARGET_TRIPLET}")
-
 # System/system dependencies
 find_package(CURL REQUIRED)
 set(CURL_LIB CURL::libcurl)
@@ -131,6 +127,7 @@ add_library(agent_framework SHARED
     src/tools/builtin_tools/grep_tool.cpp
     src/tools/builtin_tools/exec_tool.cpp
     src/tools/builtin_tools/skill_search_tool.cpp
+    src/tools/builtin_tools/file_state_tool.cpp
     src/models/model.cpp
     src/models/openai_model.cpp
     src/models/anthropic_model.cpp
@@ -172,9 +169,11 @@ endif()
 # ============================================================
 add_executable(jiuwenClaw 
     examples/jiuwenClaw/main.cpp
+    examples/jiuwenClaw/heartbeat_manager.cpp
+    examples/jiuwenClaw/cron_watcher.cpp
     examples/jiuwenClaw/tools/notebook_edit_tool.cpp
-    examples/jiuwenClaw/tools/file_state_tool.cpp
     examples/jiuwenClaw/tools/cron_tool.cpp
+    examples/jiuwenClaw/tools/notify_tool.cpp
 )
 target_include_directories(jiuwenClaw PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 

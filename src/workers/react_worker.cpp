@@ -35,6 +35,75 @@ static std::string ExtractJson(const std::string& text, size_t startPos)
     return "";
 }
 
+struct ToolCall {
+    std::string name;
+    std::string arguments;
+};
+
+// Extract all JSON objects that contain "name" and "arguments" fields
+static std::vector<ToolCall> ExtractAllToolCalls(const std::string& response)
+{
+    std::vector<ToolCall> calls;
+    size_t searchPos = 0;
+
+    while (searchPos < response.length()) {
+        size_t jsonStart = response.find('{', searchPos);
+        if (jsonStart == std::string::npos) break;
+
+        std::string jsonStr = ExtractJson(response, jsonStart);
+        if (jsonStr.empty()) {
+            searchPos = jsonStart + 1;
+            continue;
+        }
+
+        // Check if this JSON has "name" and "arguments" fields
+        size_t nameKey = jsonStr.find("\"name\"");
+        size_t argsKey = jsonStr.find("\"arguments\"");
+        if (nameKey != std::string::npos && argsKey != std::string::npos) {
+            ToolCall call;
+            call.arguments = "{}";
+
+            // Extract name value
+            size_t colon = jsonStr.find(':', nameKey + 6);
+            size_t valStart = jsonStr.find_first_not_of(" \t", colon + 1);
+            if (valStart != std::string::npos && jsonStr[valStart] == '"') {
+                size_t valEnd = jsonStr.find('"', valStart + 1);
+                if (valEnd != std::string::npos) {
+                    call.name = jsonStr.substr(valStart + 1, valEnd - valStart - 1);
+                }
+            }
+
+            // Extract arguments value
+            colon = jsonStr.find(':', argsKey + 11);
+            valStart = jsonStr.find_first_not_of(" \t", colon + 1);
+            if (valStart != std::string::npos && valStart < jsonStr.length()) {
+                if (jsonStr[valStart] == '{') {
+                    std::string argsObj = ExtractJson(jsonStr, valStart);
+                    if (!argsObj.empty()) {
+                        call.arguments = argsObj;
+                    }
+                } else if (jsonStr[valStart] == '"') {
+                    size_t aEnd = jsonStr.find('"', valStart + 1);
+                    if (aEnd != std::string::npos) {
+                        call.arguments = "\"" + jsonStr.substr(valStart + 1, aEnd - valStart - 1) + "\"";
+                    }
+                }
+            }
+
+            // Validate name
+            if (!call.name.empty() && call.name.length() < 50 &&
+                call.name.find('{') == std::string::npos &&
+                call.name.find('}') == std::string::npos) {
+                calls.push_back(call);
+            }
+        }
+
+        searchPos = jsonStart + jsonStr.length();
+    }
+
+    return calls;
+}
+
 // Parse tool call from model response. Handles both:
 // 1. JSON format: {"name": "weather", "arguments": {"city": "Beijing"}}
 // 2. ReAct format: Action: weather\nAction Input: {"city": "Beijing"}
@@ -184,7 +253,7 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, std::function<
             [](const std::string& complete) { (void)complete; });
 
         LOG(INFO) << "[React] Model returned " << fullResponse.length() << " chars. Content preview: "
-                  << (fullResponse.length() > 200 ? fullResponse.substr(0, 200) + "..." : fullResponse);
+                  << fullResponse;
 
         if (fullResponse.empty()) {
             LOG(WARNING) << "[React] Model returned empty response. Loop stopped.";
@@ -197,10 +266,9 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, std::function<
             return finalAnswer;
         }
 
-        std::string actionInput;
-        std::string action = ParseAction(fullResponse, actionInput);
+        std::vector<ToolCall> toolCalls = ExtractAllToolCalls(fullResponse);
 
-        if (action.empty()) {
+        if (toolCalls.empty()) {
             // Final response, add to history and return
             msgHistory.push_back({"assistant", fullResponse});
             LOG(INFO) << "No tool action parsed, treating as final response.";
@@ -211,22 +279,33 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, std::function<
             return cleanAnswer;
         }
 
-        LOG(INFO) << "Parsed tool call: " << action << " with input: " << actionInput;
-        callback("\n[TOOL_CALLS] {\"name\": \"" + action + "\", \"arguments\": " + actionInput + "}\n");
-        callback("\n[STATUS] Tool Called: " + action + "\n");
+        // Execute all tool calls and collect observations
+        std::string combinedObservation;
+        for (const auto& toolCall : toolCalls) {
+            LOG(INFO) << "Parsed tool call: " << toolCall.name << " with input: " << toolCall.arguments;
+            callback("\n[TOOL_CALLS] {\"name\": \"" + toolCall.name + "\", \"arguments\": " + toolCall.arguments + "}\n");
+            callback("\n[STATUS] Tool Called: " + toolCall.name + "\n");
 
-        std::string observation = ExecuteTool(action, actionInput);
-        LOG(INFO) << "[React] Tool observation length: " << observation.length();
-        callback("\n[TOOL_RESPONSE]" + observation + "\n");
+            std::string observation = ExecuteTool(toolCall.name, toolCall.arguments);
+            LOG(INFO) << "[React] Tool observation length: " << observation.length();
+            callback("\n[TOOL_RESPONSE]" + observation + "\n");
 
-        // Build a concise assistant message for history: just the tool call JSON + result
-        std::string assistantMsg = "{\"name\": \"" + action + "\", \"arguments\": " + actionInput + "}";
-        msgHistory.push_back({"assistant", assistantMsg});
-        msgHistory.push_back({"tool", observation});
+            std::string assistantMsg = "{\"name\": \"" + toolCall.name + "\", \"arguments\": " + toolCall.arguments + "}";
+            msgHistory.push_back({"assistant", assistantMsg});
+            // Add tool output to history so the model sees the result (or error)
+            msgHistory.push_back({"tool", observation + "\nInput was: " + toolCall.arguments});
 
-        scratchpad += "\nThought: [Streamed]\nAction: " + action +
-                      "\nAction Input: " + actionInput +
-                      "\nObservation: " + observation + "\n";
+            if (!combinedObservation.empty()) {
+                combinedObservation += "\n\n---\n\n";
+            }
+            combinedObservation += "Tool: " + toolCall.name + "\nInput: " + toolCall.arguments + "\nResult: " + observation;
+        }
+
+        scratchpad += "\nThought: [Streamed]\n";
+        for (const auto& toolCall : toolCalls) {
+            scratchpad += "Action: " + toolCall.name + "\nAction Input: " + toolCall.arguments + "\n";
+        }
+        scratchpad += "Observation: " + combinedObservation + "\n";
     }
 
     if (!cancelled_.load()) {

@@ -8,61 +8,9 @@
 #include <vector>
 #include "src/3rd-party/include/nlohmann/json.hpp"
 #include "src/utils/data_dir.h"
+#include "src/utils/logger.h"
 
 namespace fs = std::filesystem;
-
-// Simple non-cron-parser: parse "min hour day month weekday" format to check if it matches
-static bool MatchesCronExpression(const std::string& cronExpr, const std::tm& tm, int currentEpoch)
-{
-    (void)currentEpoch;
-    // Only supports basic format: "min hour * * *" for now
-    std::istringstream iss(cronExpr);
-    std::string minStr, hourStr, dayStr, monthStr, weekdayStr;
-
-    if (!(iss >> minStr >> hourStr >> dayStr >> monthStr >> weekdayStr)) {
-        return false;
-    }
-
-    // Minute check
-    if (minStr != "*") {
-        int cronMin = std::stoi(minStr);
-        if (tm.tm_min != cronMin) return false;
-    }
-
-    // Hour check
-    if (hourStr != "*") {
-        int cronHour = std::stoi(hourStr);
-        if (tm.tm_hour != cronHour) return false;
-    }
-
-    // Day check (simplified)
-    if (dayStr != "*" && dayStr != "?") {
-        int cronDay = std::stoi(dayStr);
-        if (tm.tm_mday != cronDay) return false;
-    }
-
-    // Month check
-    if (monthStr != "*") {
-        int cronMonth = std::stoi(monthStr);
-        if (tm.tm_mon + 1 != cronMonth) return false;
-    }
-
-    // Weekday check
-    if (weekdayStr != "*") {
-        if (weekdayStr.find('-') != std::string::npos) {
-            // Range like 1-5
-            size_t dashPos = weekdayStr.find('-');
-            int start = std::stoi(weekdayStr.substr(0, dashPos));
-            int end = std::stoi(weekdayStr.substr(dashPos + 1));
-            if (tm.tm_wday < start || tm.tm_wday > end) return false;
-        } else {
-            int cronWday = std::stoi(weekdayStr);
-            if (tm.tm_wday != cronWday) return false;
-        }
-    }
-
-    return true;
-}
 
 // Generate a simple job ID based on timestamp
 static std::string GenerateJobId()
@@ -72,28 +20,54 @@ static std::string GenerateJobId()
     return "job_" + std::to_string(epoch);
 }
 
-// Parse ISO datetime string (simplified: handles "YYYY-MM-DDTHH:MM:SS")
-static time_t ParseISOTime(const std::string& iso)
+// Parse ISO datetime string to epoch seconds.
+// Handles both UTC (Z suffix) and local time formats.
+// If isUTC is true, treats the input as UTC; otherwise as local time.
+static time_t ParseISOTime(const std::string& iso, bool isUTC)
 {
     std::tm tm = {};
-    std::istringstream iss(iso);
+    std::string input = iso;
+
+    // Check for Z suffix (UTC)
+    if (!input.empty() && input.back() == 'Z') {
+        isUTC = true;
+        input.pop_back();
+    }
+
+    // Parse the datetime
+    std::istringstream iss(input);
     iss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
     if (iss.fail()) {
         iss.clear();
-        iss.str(iso);
+        iss.str(input);
         iss >> std::get_time(&tm, "%Y-%m-%d %H:%M:%S");
     }
     if (iss.fail()) return 0;
-    return mktime(&tm);
+
+    // Normalize tm fields not set by get_time
+    tm.tm_isdst = -1;
+
+    // Convert to epoch
+    if (isUTC) {
+#ifdef _WIN32
+        return _mkgmtime(&tm);
+#else
+        time_t result = timegm(&tm);
+        if (result == (time_t)-1) result = 0;
+        return result;
+#endif
+    } else {
+        return mktime(&tm);
+    }
 }
 
-CronTool::CronTool() : Tool("cron", "Schedule, list, check, and remove reminders. Use when user asks to set a reminder, list scheduled tasks, or check if any reminders are due.", {
-    ToolParam{"action", "Action: 'add', 'list', 'check', or 'remove'", "string", true},
+CronTool::CronTool() : Tool("cron", "Schedule, list, and remove reminders. Use when user asks to set a reminder, list scheduled tasks, or remove a scheduled task.", {
+    ToolParam{"action", "Action: 'add', 'list', or 'remove'", "string", true},
     ToolParam{"message", "Reminder message", "string", false},
     ToolParam{"every_seconds", "Interval in seconds for recurring reminders", "integer", false},
     ToolParam{"at", "ISO datetime for one-time reminders (e.g. 2026-01-15T14:00:00)", "string", false},
     ToolParam{"cron_expr", "Cron expression (e.g. \"0 9 * * 1-5\" for weekdays at 9am)", "string", false},
-    ToolParam{"job_id", "Job ID to remove (from list/check output)", "string", false},
+    ToolParam{"job_id", "Job ID to remove (from list output)", "string", false},
     ToolParam{"timezone", "IANA timezone name (e.g. Asia/Shanghai). Default: local timezone", "string", false}
 })
 {
@@ -136,9 +110,28 @@ std::string CronTool::AddReminder(const std::string& message, double everySecond
         job["every_seconds"] = everySeconds;
         job["next_fire"] = std::time(nullptr) + static_cast<time_t>(everySeconds);
     } else if (!atTime.empty()) {
-        time_t targetTime = ParseISOTime(atTime);
+        // Determine timezone interpretation mode
+        bool isUTC = false;
+        bool hasZ = (!atTime.empty() && atTime.back() == 'Z');
+        // Check for explicit UTC offset (e.g. +08:00, -05:00)
+        bool hasOffset = (atTime.find('+', 11) != std::string::npos || atTime.find('-', 11) != std::string::npos);
+
+        if (hasZ) {
+            isUTC = true;
+        } else if (!hasOffset && tz.empty()) {
+            // No timezone indicator provided.
+            // Default assumption: LLMs typically output UTC time when no timezone is specified.
+            // If we treated this as local time, it might be interpreted as "in the past".
+            isUTC = true;
+        } else {
+            // Fallback to local time if tz param is provided (assuming tz matches system local)
+            // Or if offset is present (though offset parsing isn't fully implemented here)
+            isUTC = false;
+        }
+
+        time_t targetTime = ParseISOTime(atTime, isUTC);
         if (targetTime == 0) {
-            return "Error: Invalid datetime format for 'at'. Use ISO format like 2026-01-15T14:00:00";
+            return "Error: Invalid datetime format for 'at'. Use ISO format like 2026-01-15T14:00:00Z";
         }
         if (targetTime <= std::time(nullptr)) {
             return "Error: The specified time '" + atTime + "' is in the past.";
@@ -156,6 +149,9 @@ std::string CronTool::AddReminder(const std::string& message, double everySecond
     }
 
     jobs.push_back(job);
+
+    std::string jobLog = "Added " + job["type"].get<std::string>() + " job id=" + jobId + " msg=" + message;
+    LOG(INFO) << "[CronTool] " << jobLog;
 
     // Save
     std::ofstream ofs(dataFile);
@@ -260,75 +256,6 @@ std::string CronTool::RemoveReminder(const std::string& jobId)
     }
 }
 
-std::string CronTool::CheckReminders()
-{
-    std::string dataFile = GetDataFile();
-    if (!fs::exists(dataFile)) {
-        return "No reminders to check.";
-    }
-
-    try {
-        std::ifstream ifs(dataFile);
-        nlohmann::json jobs = nlohmann::json::parse(ifs);
-        if (!jobs.is_array() || jobs.empty()) {
-            return "No reminders to check.";
-        }
-
-        time_t now = std::time(nullptr);
-        std::tm localTm = *std::localtime(&now);
-
-        bool anyFired = false;
-        std::string result = "Triggered reminders:\n\n";
-
-        for (auto& job : jobs) {
-            if (job.value("fired", false) || job.value("removed", false)) continue;
-
-            bool shouldFire = false;
-            std::string type = job.value("type", "");
-
-            if (type == "one-time") {
-                time_t at = job.value("at", 0);
-                if (at > 0 && now >= at) {
-                    shouldFire = true;
-                }
-            } else if (type == "recurring") {
-                double interval = job.value("every_seconds", 0.0);
-                time_t nextFire = job.value("next_fire", 0);
-                if (interval > 0 && now >= nextFire) {
-                    shouldFire = true;
-                    // Update next fire time
-                    job["next_fire"] = nextFire + static_cast<time_t>(interval);
-                }
-            } else if (type == "cron") {
-                std::string expr = job.value("cron_expr", "");
-                if (!expr.empty() && MatchesCronExpression(expr, localTm, now)) {
-                    shouldFire = true;
-                    job["next_fire"] = now + 60;
-                }
-            }
-
-            if (shouldFire) {
-                job["fired"] = true;
-                anyFired = true;
-                result += "* " + job.value("message", "Reminder") + "\n";
-                result += "  (Job ID: " + job.value("id", "unknown") + ")\n\n";
-            }
-        }
-
-        // Save updated state
-        std::ofstream ofs(dataFile);
-        ofs << jobs.dump(2);
-        ofs.close();
-
-        if (!anyFired) {
-            return "No reminders triggered yet.";
-        }
-        return result;
-    } catch (const std::exception& e) {
-        return "Error checking reminders: " + std::string(e.what());
-    }
-}
-
 std::string CronTool::Invoke(const std::string& input)
 {
     std::string action;
@@ -349,25 +276,23 @@ std::string CronTool::Invoke(const std::string& input)
         tz = j.value("timezone", "");
         jobId = j.value("job_id", "");
     } catch (const std::exception& e) {
-        return "Error: Invalid JSON input. Expected: {\"action\": \"add|list|check|remove\", ...}\nDetails: " + std::string(e.what());
+        return "Error: Invalid JSON input. Expected: {\"action\": \"add|list|remove\", ...}\nDetails: " + std::string(e.what());
     }
 
     if (action.empty()) {
-        return "Error: 'action' parameter is required. Use 'add', 'list', 'check', or 'remove'.";
+        return "Error: 'action' parameter is required. Use 'add', 'list', or 'remove'.";
     }
 
     if (action == "add") {
         return AddReminder(message, everySeconds, atTime, cronExpr, tz);
     } else if (action == "list") {
         return ListReminders();
-    } else if (action == "check") {
-        return CheckReminders();
     } else if (action == "remove") {
         if (jobId.empty()) {
             return "Error: 'job_id' parameter is required for remove action.";
         }
         return RemoveReminder(jobId);
     } else {
-        return "Error: Invalid action '" + action + "'. Use 'add', 'list', 'check', or 'remove'.";
+        return "Error: Invalid action '" + action + "'. Use 'add', 'list', or 'remove'.";
     }
 }

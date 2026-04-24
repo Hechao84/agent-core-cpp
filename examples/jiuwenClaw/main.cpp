@@ -4,10 +4,14 @@
 #include <vector>
 #include "include/agent.h"
 #include "include/resource_manager.h"
-// Demo-specific tools (not part of the framework)
+// Demo-specific tools
 #include "tools/notebook_edit_tool.h"
-#include "tools/file_state_tool.h"
 #include "tools/cron_tool.h"
+#include "tools/notify_tool.h"
+// Heartbeat management module
+#include "heartbeat_manager.h"
+#include "cron_watcher.h"
+
 #ifdef _WIN32
     #include <windows.h>
 #else
@@ -15,14 +19,121 @@
 #endif
 #include "src/3rd-party/include/nlohmann/json.hpp"
 
+// Helper function to sanitize user input.
+// 1. Simulates Backspace (deletes previous UTF-8 char).
+// 2. Strips ANSI Escapes (Arrows, Home, End).
+// 3. Filters non-printable control characters.
+std::string CleanInput(const std::string& input)
+{
+    std::string buffer;
+    buffer.reserve(input.length());
+
+    for (size_t i = 0; i < input.length(); ++i) {
+        unsigned char c = static_cast<unsigned char>(input[i]);
+
+        // 1. Handle Backspace (0x08) and DEL (0x7F)
+        // Simulates the terminal backspace behavior: remove the last character added
+        if (c == 0x08 || c == 0x7F) {
+            if (!buffer.empty()) {
+                // Find the start of the last UTF-8 character to delete it properly
+                size_t idx = buffer.length() - 1;
+                // Scan backwards: UTF-8 continuation bytes start with 10xxxxxx
+                while (idx > 0 && (buffer[idx] & 0xC0) == 0x80) {
+                    idx--;
+                }
+                // Erase from the start of the char to the end
+                buffer.erase(idx);
+            }
+            continue;
+        }
+
+        // 2. Skip ANSI Escape Sequences (Arrows, etc.)
+        // Standard sequence: ESC [ ...
+        if (c == 0x1B) {
+            if (i + 1 < input.length() && input[i+1] == '[') {
+                i++; // Skip '['
+                // Continue skipping until we hit the command byte (A-Z, a-z, @)
+                while (i + 1 < input.length()) {
+                    i++;
+                    unsigned char next = static_cast<unsigned char>(input[i]);
+                    // Command bytes are typically letters
+                    if ((next >= 'A' && next <= 'z') || next == '@') break;
+                }
+            }
+            continue;
+        }
+
+        // 3. Skip other control characters (< 0x20) except valid whitespace
+        if (c < 0x20 && c != '\r' && c != '\n' && c != '\t') {
+            continue;
+        }
+
+        // 4. Append valid printable characters
+        buffer += static_cast<char>(c);
+    }
+
+    return buffer;
+}
+
 // Helper function to validate and fix UTF-8 encoding
-// Replaces invalid UTF-8 bytes with the Unicode replacement character (U+FFFD)
+// Modified to SILENTLY SKIP invalid bytes to avoid garbage symbols in logs
 std::string FixUTF8(const std::string& str)
 {
     std::string result;
+    result.reserve(str.length());
     size_t i = 0;
     while (i < str.length()) {
         unsigned char c = static_cast<unsigned char>(str[i]);
+        int expectedLength = 0;
+        
+        if ((c & 0x80) == 0) {
+            expectedLength = 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            expectedLength = 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            expectedLength = 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            expectedLength = 4;
+        } else {
+            // Invalid leading byte -> Skip silently (don't add replacement char)
+            i++;
+            continue;
+        }
+        
+        if (i + expectedLength > str.length()) {
+            break; // Truncated char at end -> Stop
+        }
+        
+        bool valid = true;
+        for (int j = 1; j < expectedLength; ++j) {
+            if ((str[i + j] & 0xC0) != 0x80) {
+                valid = false;
+                break;
+            }
+        }
+        
+        if (valid) {
+            result.append(str.substr(i, expectedLength));
+            i += expectedLength;
+        } else {
+            // Invalid continuation -> Skip this leading byte, try next
+            i++;
+        }
+    }
+    return result;
+}
+
+// Stateful UTF-8 fixer for streaming output.
+// Accumulates incomplete trailing UTF-8 bytes and carries them over to the next chunk.
+std::string FixUTF8Streaming(const std::string& str, std::string& carryBuffer)
+{
+    std::string fullInput = carryBuffer + str;
+    carryBuffer.clear();
+    
+    std::string result;
+    size_t i = 0;
+    while (i < fullInput.length()) {
+        unsigned char c = static_cast<unsigned char>(fullInput[i]);
         int expectedLength = 0;
         
         if ((c & 0x80) == 0) {
@@ -39,21 +150,21 @@ std::string FixUTF8(const std::string& str)
             continue;
         }
         
-        if (i + expectedLength > str.length()) {
-            result += "\xEF\xBF\xBD";
+        if (i + expectedLength > fullInput.length()) {
+            carryBuffer = fullInput.substr(i);
             break;
         }
         
         bool valid = true;
         for (int j = 1; j < expectedLength; ++j) {
-            if ((str[i + j] & 0xC0) != 0x80) {
+            if ((fullInput[i + j] & 0xC0) != 0x80) {
                 valid = false;
                 break;
             }
         }
         
         if (valid) {
-            result.append(str.substr(i, expectedLength));
+            result.append(fullInput.substr(i, expectedLength));
         } else {
             result += "\xEF\xBF\xBD";
         }
@@ -62,7 +173,7 @@ std::string FixUTF8(const std::string& str)
     return result;
 }
 
-//Helper function to convert local encoding (GBK/ACP) to UTF-8 (Input)
+// Helper function to convert local encoding (GBK/ACP) to UTF-8 (Input)
 std::string LocalToUTF8(const std::string& str)
 {
 #ifdef _WIN32
@@ -76,7 +187,7 @@ std::string LocalToUTF8(const std::string& str)
         if (len <= 0) return str;
         std::string result(len, 0);
         WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &result[0], len, NULL, NULL);
-        if (!result.empty()) result.pop_back(); // Remove null terminator
+        if (!result.empty()) result.pop_back();
         return result;
     } catch (...) {
         return str;
@@ -100,7 +211,7 @@ std::string UTF8ToLocal(const std::string& str)
         if (len <= 0) return str;
         std::string result(len, 0);
         WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, &result[0], len, NULL, NULL);
-        if (!result.empty()) result.pop_back(); // Remove null terminator
+        if (!result.empty()) result.pop_back();
         return result;
     } catch (...) {
         return str;
@@ -112,18 +223,18 @@ std::string UTF8ToLocal(const std::string& str)
 
 int main()
 {
-    std::cout << "Agent Framework Demo\n====================\n" << std::flush;
+    std::cout << "jiuwenClaw is an Agent powered by jiuwen-lite Agent Framework\n====================\n" << std::flush;
 
     auto& rm = ResourceManager::GetInstance();
 
+    // --- Register Tools ---
+    
     // Register demo-specific tools (not part of the framework)
     rm.RegisterTool("notebook_edit", []() { return std::make_unique<NotebookEditTool>(); });
-    rm.RegisterTool("file_state", []() { return std::make_unique<FileStateTool>(); });
     rm.RegisterTool("cron", []() { return std::make_unique<CronTool>(); });
+    rm.RegisterTool("notify", []() { return std::make_unique<NotifyTool>(); });
 
     // --- MCP Server Verification: Amap MCP Server ---
-    // Using Streamable HTTP transport to connect to Amap's official hosted MCP server.
-    // Replace <your amap key> with your actual API key.
     std::cout << "\nInitializing Amap MCP Server (Streamable HTTP)...\n" << std::flush;
     try {
         std::string amapJson = R"({
@@ -144,21 +255,20 @@ int main()
     } catch (const std::exception& e) {
         std::cout << "[WARN] MCP Server initialization failed: " << e.what() << "\n" << std::flush;
     }
-    // ------------------------------------------------
 
     AgentConfig config;
     config.id = "demo-agent";
     config.name = "Demo Agent";
     config.mode = AgentWorkMode::REACT;
-    config.maxIterations = 5;
+    config.maxIterations = 50;
 
-    // 1. Context Config: Use Markdown file storage
+    // 1. Context Config
     config.contextConfig.sessionId = "session_01";
     config.contextConfig.storageType = ContextConfig::StorageType::MARKDOWN_FILE;
     config.contextConfig.storagePath = "./data/context";
     
-    // 2. Skill Config: Enable Skills from directory
-    config.skillDirectory = "./my_skills"; // Relative path for demo purposes
+    // 2. Skill Config
+    config.skillDirectory = "./my_skills";
 
     // 3. Model Config
     config.modelConfig.baseUrl = "<your llm endpoint>/v1";
@@ -166,19 +276,18 @@ int main()
     config.modelConfig.modelName = "Qwen3.6-Plus";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
     
-    // 4. Extended Model Params (ConfigNode)
+    // 4. Extended Model Params
     config.modelConfig.extraParams.Set("max_tokens", 4096);
     config.modelConfig.extraParams.Set("temperature", 0.0f);
     config.modelConfig.extraParams.Set("top_p", 0.0f);
     config.modelConfig.extraParams.Set("tool_choice", std::string("auto"));
     
-    // Configure Prompt Templates using file references to jiuwenClaw config/templates directory
+    // Configure Prompt Templates
     config.promptTemplates["react_system"] = PromptResource{
         PromptResourceType::FILE_PATH,
         "./examples/jiuwenClaw/templates/REACT_SYSTEM.md"
     };
     
-    // Bootstrap configuration files for Jiuwen Claw
     config.promptTemplates["agents"] = PromptResource{
         PromptResourceType::FILE_PATH,
         "./examples/jiuwenClaw/templates/AGENTS.md"
@@ -195,14 +304,18 @@ int main()
         PromptResourceType::FILE_PATH,
         "./examples/jiuwenClaw/templates/TOOLS.md"
     };
-    config.promptTemplates["heartbeat"] = PromptResource{
-        PromptResourceType::FILE_PATH,
-        "./examples/jiuwenClaw/templates/HEARTBEAT.md"
-    };
            
     Agent agent(config);
     
-    // Register all available tools (including MCP and demo-specific)
+    HeartbeatManager heartbeat(
+        "./data/HEARTBEAT.md", 
+        agent, 
+        config.modelConfig, 
+        300
+    );
+
+    CronWatcher cronWatcher("./data", agent, config.modelConfig, 60);
+    
     auto allTools = rm.GetAvailableTools();
     agent.AddTools(allTools);
     
@@ -219,20 +332,11 @@ int main()
         if (query.empty()) {
             continue;
         }
-        
+                
         query = LocalToUTF8(query);
+        query = CleanInput(query);
         query = FixUTF8(query);
-        
-        // Remove backspace control characters (0x08 and 0x7F)
-        std::string cleaned;
-        for (char c : query) {
-            if (c != '\b' && c != '\x7f') {
-                cleaned += c;
-            }
-        }
-        query = cleaned;
-        
-        // Trim whitespace
+
         size_t start = query.find_first_not_of(" \t\r\n");
         if (start == std::string::npos) {
             continue;
@@ -246,36 +350,58 @@ int main()
         
         std::cout << "Processing...\n";
         
-        bool is_streaming = false;
-        agent.Invoke(query, [&](const std::string& resp) {
+        std::string utf8Carry;
+
+        std::string fullResponse = agent.Invoke(query, [&](const std::string& resp) {
             std::string s = resp;
+
             std::vector<std::string> streamTags = {"[STREAM] ", "[STREAM]"};
-            bool foundStream = false;
             for (const auto& st : streamTags) {
                 size_t p = s.find(st);
-                if (p != std::string::npos) foundStream = true;
                 while (p != std::string::npos) {
                     s.erase(p, st.length());
                     p = s.find(st, p);
                 }
             }
-            if (foundStream) is_streaming = true;
 
-            std::vector<std::string> controlTags = {"[STATUS]", "[THOUGHT]", "[ACTION]", "[TOOL_CALLS]", "[TOOL_RESPONSE]", "[RESPONSE]", "[FINAL]", "[ERROR]"};
-            for (const auto& tag : controlTags) {
+            std::vector<std::string> hiddenTags = {"[STATUS]", "[THOUGHT]", "[ACTION]",
+                                                   "[TOOL_CALLS]", "[TOOL_RESPONSE]",
+                                                   "[RESPONSE]", "[FINAL]", "[ERROR]"};
+            for (const auto& tag : hiddenTags) {
                 size_t pos = s.find(tag);
                 while (pos != std::string::npos) {
-                    is_streaming = false;
-                    if (pos > 0 && s[pos-1] != '\n') {
-                        s.insert(pos, "\n");
-                        pos += tag.length() + 1;
-                    } else {
-                        pos += tag.length();
+                    size_t contentStart = s.find('{', pos);
+                    size_t endPos = std::string::npos;
+
+                    if (contentStart != std::string::npos && contentStart < pos + tag.length() + 2) {
+                        int depth = 1;
+                        for (size_t i = contentStart + 1; i < s.length() && depth > 0; i++) {
+                            if (s[i] == '{') depth++;
+                            else if (s[i] == '}') depth--;
+                            if (depth == 0) endPos = i + 1;
+                        }
                     }
-                    pos = s.find(tag, pos);
+
+                    if (endPos == std::string::npos) {
+                        size_t nextTagPos = std::string::npos;
+                        for (const auto& ht : hiddenTags) {
+                            size_t p2 = s.find(ht, pos + tag.length());
+                            if (p2 != std::string::npos && (nextTagPos == std::string::npos || p2 < nextTagPos)) {
+                                nextTagPos = p2;
+                            }
+                        }
+                        endPos = (nextTagPos != std::string::npos) ? nextTagPos : s.length();
+                    }
+
+                    s.erase(pos, endPos - pos);
+                    pos = s.find(tag);
                 }
             }
-            std::cout << UTF8ToLocal(FixUTF8(s)) << std::flush;
+
+            if (!s.empty()) {
+                std::string fixed = FixUTF8Streaming(s, utf8Carry);
+                std::cout << UTF8ToLocal(fixed) << std::flush;
+            }
         });
         std::cout << "\n";
     }

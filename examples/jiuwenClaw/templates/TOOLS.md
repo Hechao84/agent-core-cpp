@@ -1,18 +1,39 @@
-# Tool Usage Guidelines
+# Tool Usage Notes
 
-## Critical Rules
+Tool signatures are provided automatically via function calling.
+This file documents non-obvious constraints and usage patterns.
 
-- **Safety**: Do not run destructive commands (like `rm -rf`) via `exec`.
-- **Search Strategy**: Use `grep` for content and `glob` for file discovery. Do **not** use `exec` for search operations.
-- **Efficiency**: `grep` supports output modes like `count` to size up data and `context` to see surroundings. Use these before reading full content.
-- **Big Files**: Tool outputs may be truncated. If a file is too large, use `grep` with patterns to extract specific lines.
+## exec — Safety Limits
 
-## Specialized Tools
+- Commands have a configurable timeout (default 60s)
+- Dangerous commands are blocked (rm -rf, format, dd, shutdown, etc.)
+- Output is truncated at 10,000 characters
+- `restrictToWorkspace` config can limit file access to the workspace
 
-- **Reminders**: Use `cron` tool for scheduled tasks; do not rely on memory files.
-- **Notes**: Use `notebook_edit` to maintain user notes.
-- **Skills**: Use `skill_search` (action=search/load) to find expert guidance for complex tasks.
+## glob — File Discovery
 
+- Use `glob` to find files by pattern before falling back to shell commands
+- Simple patterns like `*.py` match recursively by filename
+- Use `entry_type="dirs"` when you need matching directories instead of files
+- Use `head_limit` and `offset` to page through large result sets
+- Prefer this over `exec` when you only need file paths
+
+## grep — Content Search
+
+- Use `grep` to search file contents inside the workspace
+- Default behavior returns only matching file paths (`output_mode="files_with_matches"`)
+- Supports optional `glob` filtering plus `context_before` / `context_after`
+- Supports `type="py"`, `type="ts"`, `type="md"` and similar shorthand filters
+- Use `fixed_strings=true` for literal keywords containing regex characters
+- Use `output_mode="files_with_matches"` to get only matching file paths
+- Use `output_mode="count"` to size a search before reading full matches
+- Use `head_limit` and `offset` to page across results
+- Prefer this over `exec` for code and history searches
+- Binary or oversized files may be skipped to keep results readable
+
+## cron — Scheduled Reminders
+
+- Please refer to cron skill for usage.
 
 ## Tool Usage Instructions
 
@@ -21,4 +42,3 @@ To call a tool, you MUST output a JSON object with the EXACT format:
 
 - Do NOT wrap the JSON in markdown code blocks.
 - Reply directly with tool calls when needed, or with plain text for conversational responses.
-- You must reply in the same language as the user's query.

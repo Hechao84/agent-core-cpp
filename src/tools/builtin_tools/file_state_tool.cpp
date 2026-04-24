@@ -1,6 +1,6 @@
 
-
-#include "file_state_tool.h"
+#include "src/tools/builtin_tools/file_state_tool.h"
+#include "src/utils/data_dir.h"
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -8,7 +8,10 @@
 #include "ctime"
 #include "filesystem"
 
-namespace fs = std::filesystem;static std::string ParseStringField(const std::string& json, const std::string& key)
+namespace fs = std::filesystem;
+
+// Helper to parse string from JSON input
+static std::string ParseStringField(const std::string& json, const std::string& key)
 {
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
@@ -27,6 +30,7 @@ namespace fs = std::filesystem;static std::string ParseStringField(const std::st
     return json.substr(valStart + 1, valEnd - valStart - 1);
 }
 
+// Helper to parse int from JSON input
 static int ParseIntField(const std::string& json, const std::string& key, int defaultVal)
 {
     std::string searchKey = "\"" + key + "\"";
@@ -50,8 +54,12 @@ FileStateTool::FileStateTool()
          "clear (clear all state). "
          "Input: JSON with 'action' (required), 'path' (for check/record_read/record_write).",
           {{"action", "Action: check, record_read, record_write, or clear", "string", true},
-           {"path", "File path to track", "string", false}}) {} 
-           
+           {"path", "File path to track", "string", false}}) 
+{
+    // Set default state file relative to data directory
+    stateFile_ = GetDataDir().GetBasePath() + "/file_state.dat";
+}
+
 void FileStateTool::SetStateFile(const std::string& path) 
 {
      stateFile_ = path; 
@@ -135,7 +143,7 @@ std::string FileStateTool::Invoke(const std::string& input)
 void FileStateTool::LoadState()
 {
     stateMap_.clear();
-    if (!fs::exists(stateFile_)) return;
+    if (stateFile_.empty() || !fs::exists(stateFile_)) return;
 
     std::ifstream file(stateFile_);
     if (!file.is_open()) return;
