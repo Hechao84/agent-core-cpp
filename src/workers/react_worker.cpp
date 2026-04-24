@@ -256,7 +256,7 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, std::function<
                   << fullResponse;
 
         if (fullResponse.empty()) {
-            LOG(WARNING) << "[React] Model returned empty response. Loop stopped.";
+            LOG(WARN) << "[React] Model returned empty response. Loop stopped.";
             callback("\n[STATUS] Model returned empty response\n");
             return "";
         }

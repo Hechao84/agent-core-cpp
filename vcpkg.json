@@ -1,1 +1,1 @@
-{"name":"jiuwen-lite","version":"0.1.0","dependencies":[{"name":"curl"}]}
+{"name":"jiuwen-lite","version":"0.1.0","builtin-baseline":"b83a134447208c35f740e4b6faf1263b0d6e860e","dependencies":[{"name": "curl" }]}

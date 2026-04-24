@@ -6,14 +6,16 @@
 #include <sstream>
 #include <string>
 
-enum LogLevel {
-    DEBUG = 0,
+#include "agent_export.h"
+
+enum AGENT_API LogLevel {
+    DBG = 0,
     INFO = 1,
-    WARNING = 2,
-    ERROR = 3
+    WARN = 2,
+    ERR = 3
 };
 
-class LogStream {
+class AGENT_API LogStream {
     public:
         LogStream(const char* file, int line, LogLevel level);
         ~LogStream();
@@ -35,7 +37,7 @@ class LogStream {
         LogLevel level_;
 };
 
-class Logger {
+class AGENT_API Logger {
     public:
         static void SetGlobalLevel(LogLevel level);
         static LogLevel GetGlobalLevel();

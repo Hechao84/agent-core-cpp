@@ -66,7 +66,7 @@ CronWatcher::CronWatcher(const std::string& dataDir, Agent& agent, const ModelCo
         LOG(INFO) << "[CronWatcher] Initialized, dataDir=" << dataDir_ << ", interval=" << intervalSeconds_ << "s";
         thread_ = std::thread(&CronWatcher::Run, this);
     } catch (const std::exception& e) {
-        LOG(ERROR) << "[CronWatcher] Init Error: " << e.what();
+        LOG(ERR) << "[CronWatcher] Init Error: " << e.what();
     }
 }
 
@@ -156,7 +156,7 @@ void CronWatcher::Run() {
 }
 
 void CronWatcher::CheckAndFireCrons() {
-    std::string jobsPath = fs::path(dataDir_) / "cron" / "jobs.json";
+    std::string jobsPath = (fs::path(dataDir_) / "cron" / "jobs.json").string();
     if (!fs::exists(jobsPath)) return;
 
     try {
@@ -245,7 +245,7 @@ void CronWatcher::CheckAndFireCrons() {
         }
 
     } catch (const std::exception& e) {
-        LOG(ERROR) << "[CronWatcher] Error processing jobs: " << e.what();
+        LOG(ERR) << "[CronWatcher] Error processing jobs: " << e.what();
         std::cerr << "\n[CRON WATCHER] Error: " << e.what() << "\n" << std::flush;
     }
 }

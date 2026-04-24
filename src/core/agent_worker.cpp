@@ -161,7 +161,7 @@ std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::str
         return result;
     } catch (const std::exception& e) {
         std::string errMsg = "Error executing tool '" + toolName + "': " + e.what();
-        LOG(ERROR) << "[Tool Error] " << errMsg;
+        LOG(ERR) << "[Tool Error] " << errMsg;
         return errMsg;
     }
 }
@@ -176,7 +176,7 @@ std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
         try {
             schema += rm.CreateTool(name)->GetSchema() + "\n\n";
         } catch (const std::exception& e) {
-            LOG(ERROR) << "Failed to get schema for tool: " << name;
+            LOG(ERR) << "Failed to get schema for tool: " << name;
         }
     }
     return schema;

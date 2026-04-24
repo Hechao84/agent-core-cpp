@@ -27,10 +27,10 @@ bool Logger::ShouldLog(LogLevel level)
 static const char* GetLevelName(LogLevel level)
 {
     switch (level) {
-        case DEBUG: return "DEBUG";
+        case DBG: return "DEBUG";
         case INFO: return "INFO";
-        case WARNING: return "WARN";
-        case ERROR: return "ERROR";
+        case WARN: return "WARN";
+        case ERR: return "ERROR";
         default: return "UNKNOWN";
     }
 }

@@ -62,6 +62,9 @@ cd /d "%BUILD_DIR%"
 echo --- Running CMake...
 
 REM Auto-detect vcpkg toolchain if VCPKG_ROOT is set
+REM Please replace with your own vcpkg path
+set VCPKG_ROOT=D:\code\vcpkg
+@REM set PATH=%VCPKG_ROOT%;%PATH%
 set "VP_TOOLCHAIN_PATH="
 if defined VCPKG_ROOT (
     set "VP_TOOLCHAIN_PATH=!VCPKG_ROOT!\scripts\buildsystems\vcpkg.cmake"
@@ -120,6 +123,9 @@ if exist "%BUILD_DIR%\Release\agent_framework.lib" (
 REM Copy SQLite DLL if it exists
 if exist "%SCRIPT_DIR%\libs\sqlite3.dll" (
     copy "%SCRIPT_DIR%\libs\sqlite3.dll" "%SCRIPT_DIR%\dist\windows\" >nul
+)
+if exist "%SCRIPT_DIR%\libs\sqlite3.lib" (
+    copy "%SCRIPT_DIR%\libs\sqlite3.lib" "%SCRIPT_DIR%\dist\windows\" >nul
 )
 
 REM Copy vcpkg DLLs (CURL, OpenSSL, zlib, etc.)
