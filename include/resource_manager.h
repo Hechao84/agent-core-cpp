@@ -21,6 +21,7 @@ public:
     void RegisterMCPServer(const std::string& name, const std::string& jsonConfig);
 
     std::unique_ptr<Tool> CreateTool(const std::string& name);
+    std::string GetToolSchema(const std::string& name);
     std::unique_ptr<Model> CreateModel(const ModelConfig& config);
     std::shared_ptr<MCPServer> GetMCPServer(const std::string& name);
 
@@ -38,6 +39,7 @@ private:
     void RegisterBuiltinModels();
 
     std::unordered_map<std::string, std::function<std::unique_ptr<Tool>()>> toolFactories_;
+    std::unordered_map<std::string, std::string> toolSchemas_;
     std::unordered_map<ModelFormatType, std::function<std::unique_ptr<Model>(const ModelConfig&)>> modelFactories_;
     std::unordered_map<std::string, std::shared_ptr<MCPServer>> mcpServers_;
 };

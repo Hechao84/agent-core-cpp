@@ -176,7 +176,7 @@ std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
     std::string schema;
     for (const auto& name : toolNames_) {
         try {
-            schema += rm.CreateTool(name)->GetSchema() + "\n\n";
+            schema += rm.GetToolSchema(name) + "\n\n";
         } catch (const std::exception& e) {
             LOG(ERR) << "Failed to get schema for tool: " << name;
         }

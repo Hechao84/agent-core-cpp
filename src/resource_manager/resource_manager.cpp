@@ -66,6 +66,7 @@ void ResourceManager::RegisterBuiltinModels()
 void ResourceManager::RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory)
 {
     toolFactories_[name] = std::move(factory);
+    toolSchemas_.erase(name);
 }
 
 void ResourceManager::RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory)
@@ -152,6 +153,17 @@ std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
     if (it != toolFactories_.end()) return it->second();
     LOG(INFO) << "Tool not found in factories: " << name;
     throw std::runtime_error("Tool not found: " + name);
+}
+
+std::string ResourceManager::GetToolSchema(const std::string& name)
+{
+    auto it = toolSchemas_.find(name);
+    if (it != toolSchemas_.end()) return it->second;
+
+    auto tool = CreateTool(name);
+    std::string schema = tool->GetSchema();
+    toolSchemas_[name] = schema;
+    return schema;
 }
 
 std::unique_ptr<Model> ResourceManager::CreateModel(const ModelConfig& config)
