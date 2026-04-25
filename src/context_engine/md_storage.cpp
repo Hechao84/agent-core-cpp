@@ -69,7 +69,13 @@ void MarkdownStorage::Clear()
 
 std::string MarkdownStorage::FormatMessage(const Message& msg) const
 {
-    return "\n## " + msg.role + "\n\n" + CleanMessageContent(msg.content) + "\n";
+    // Ensure role is clean (no \r or trailing whitespace) before writing
+    std::string cleanRole = msg.role;
+    size_t r1 = cleanRole.find_first_not_of(" \t\r\n");
+    if (r1 != std::string::npos) cleanRole.erase(0, r1);
+    size_t r2 = cleanRole.find_last_not_of(" \t\r\n");
+    if (r2 != std::string::npos) cleanRole.erase(r2 + 1);
+    return "\n## " + cleanRole + "\n\n" + CleanMessageContent(msg.content) + "\n";
 }
 
 Message MarkdownStorage::ParseMessageBlock(const std::string& block) const
@@ -81,6 +87,12 @@ Message MarkdownStorage::ParseMessageBlock(const std::string& block) const
     if (nl == std::string::npos) return msg;
 
     msg.role = block.substr(start + 3, nl - start - 3);
+    // Trim \r and whitespace from role (handles Windows \r\n line endings)
+    size_t r1 = msg.role.find_first_not_of(" \t\r\n");
+    if (r1 != std::string::npos) msg.role.erase(0, r1);
+    size_t r2 = msg.role.find_last_not_of(" \t\r\n");
+    if (r2 != std::string::npos) msg.role.erase(r2 + 1);
+    if (msg.role.empty()) return msg;
     size_t contentStart = block.find_first_not_of("\r\n ", nl);
     if (contentStart != std::string::npos) {
         size_t nextHeader = block.find("\n## ", contentStart);

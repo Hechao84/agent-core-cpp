@@ -44,6 +44,9 @@ bool ContextEngine::Initialize()
 
 void ContextEngine::AddMessage(const Message& message)
 {
+    // Reject empty messages at the engine level; they corrupt context history
+    if (message.content.empty()) return;
+
     memoryBuffer_.push_back(message);
     if (storage_) {
         storage_->SaveMessage(message);
