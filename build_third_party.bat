@@ -84,18 +84,33 @@ if exist "%LIBS_DIR%\sqlite3.dll" (
     )
     
     echo Compiling sqlite3.dll...
-    cl /LD /O2 /DSQLITE_API=__declspec^(dllexport^) /Fe"%LIBS_DIR%\sqlite3.dll" "%TP_SRC%\sqlite3-src\sqlite3.c"
+    
+    set ARCH_FLAGS=
+    if "%VSCMD_ARG_TGT_ARCH%"=="x64" (
+        echo Detected target architecture: x64
+        set ARCH_FLAGS=/DWIN64
+    ) else if "%VSCMD_ARG_TGT_ARCH%"=="arm64" (
+        echo Detected target architecture: arm64
+        set ARCH_FLAGS=/DWIN64
+    ) else if "%VSCMD_ARG_TGT_ARCH%"=="x86" (
+        echo Detected target architecture: x86
+    ) else (
+        echo WARNING: Unknown architecture. Defaulting to x64.
+        set ARCH_FLAGS=/DWIN64
+    )
+
+    cl /LD %ARCH_FLAGS% /O2 /DSQLITE_API=__declspec^(dllexport^) /Fe"%LIBS_DIR%\sqlite3.dll" "%TP_SRC%\sqlite3-src\sqlite3.c"
     
     if errorlevel 1 (
         echo ERROR: Failed to compile sqlite3.dll
         exit /b 1
     )
     
+    if exist sqlite3.obj (
+        del sqlite3.obj >nul 2>nul
+    )
     if exist "%LIBS_DIR%\sqlite3.exp" (
         del "%LIBS_DIR%\sqlite3.exp" >nul 2>nul
-    )
-    if exist "%LIBS_DIR%\sqlite3.obj" (
-        del "%LIBS_DIR%\sqlite3.obj" >nul 2>nul
     )
     
     echo sqlite3.dll built successfully.

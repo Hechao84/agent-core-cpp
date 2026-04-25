@@ -102,7 +102,7 @@ The Windows build scripts are designed to handle most of the complexity for you,
     - *Note: If you do not have vcpkg installed yet, clone it and run `bootstrap-vcpkg.bat`.*
 
 3.  **Building**
-    - **IMPORTANT:** Always run the build script from a **"Developer Command Prompt for VS"** (or VS20xx x64 Native Tools Command Prompt) because the script requires `cl.exe` and standard MSVC environment variables.
+    - **IMPORTANT:** Always run the build script from a **"Developer Command Prompt for VS"** (or VS20xx **"x64 Native Tools Command Prompt"**) because the script requires `cl.exe` and standard MSVC environment variables.
 
 ## Building
 
