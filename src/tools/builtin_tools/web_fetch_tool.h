@@ -3,6 +3,8 @@
 #include <string>
 #include "include/tool.h"
 
+namespace jiuwen {
+
 class WebFetcherTool : public Tool {
 public:
     WebFetcherTool();
@@ -10,3 +12,5 @@ public:
 private:
     std::string FetchUrl(const std::string& url);
 };
+
+} // namespace jiuwen

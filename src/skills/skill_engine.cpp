@@ -10,6 +10,8 @@
 
 namespace fs = std::filesystem;
 
+namespace jiuwen {
+
 SkillEngine::SkillEngine(const std::string& rootDir) : rootDir_(rootDir)
 {
 }
@@ -222,3 +224,5 @@ std::vector<std::string> SkillEngine::GetSkillIds() const
     }
     return ids;
 }
+
+} // namespace jiuwen

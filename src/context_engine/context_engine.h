@@ -6,6 +6,8 @@
 #include "include/model.h"
 #include "include/types.h"
 
+namespace jiuwen {
+
 class ContextStorageBase; // Forward declaration
 
 class ContextEngine {
@@ -44,3 +46,5 @@ private:
     std::string LoadMemoryContext() const;
     static std::string MergeMessageContent(const std::string& left, const std::string& right);
 };
+
+} // namespace jiuwen

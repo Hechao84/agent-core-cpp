@@ -3,6 +3,8 @@
 #include <string>
 #include "include/tool.h"
 
+namespace jiuwen {
+
 class ExecTool : public Tool {
 public:
     ExecTool();
@@ -18,3 +20,5 @@ private:
     std::string GuardCommand(const std::string& command);
     std::string TruncateOutput(const std::string& output);
 };
+
+} // namespace jiuwen

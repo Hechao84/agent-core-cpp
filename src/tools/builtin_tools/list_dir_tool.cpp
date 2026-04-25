@@ -2,14 +2,16 @@
 
 #include "src/tools/builtin_tools/list_dir_tool.h"
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <set>
 #include <sstream>
 #include <string>
 #include <vector>
-#include "filesystem"
 
 namespace fs = std::filesystem;
+
+namespace jiuwen {
 
 static const std::set<std::string> kIgnoreDirs = {
     ".git", "node_modules", "__pycache__", ".venv", "venv",
@@ -142,3 +144,5 @@ ListDirTool::ListDirTool()
     }
     return oss.str();
 }
+
+} // namespace jiuwen

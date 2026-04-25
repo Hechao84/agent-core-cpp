@@ -6,7 +6,9 @@
 #include <vector>
 #include "include/tool.h"
 #include "src/protocol/mcp_client.h"
-#include "src/3rd-party/include/nlohmann/json.hpp"
+#include "third_party/include/nlohmann/json.hpp"
+
+namespace jiuwen {
 
 enum class MCPTransportType {
     STDIO,
@@ -54,3 +56,5 @@ public:
 private:
     std::shared_ptr<MCPServer> server_;
 };
+
+} // namespace jiuwen

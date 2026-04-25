@@ -13,7 +13,7 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 # All third-party pre-built libs
-set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/3rd-party")
+set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 set(TP_LIBS_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/libs")
 set(TP_INCLUDE_DIR  "${THIRD_PARTY_DIR}/include")
 set(TP_SRC_DIR      "${THIRD_PARTY_DIR}/src")
@@ -26,7 +26,7 @@ include(FindPackageHandleStandardArgs)
 set(USE_PREBUILT_THIRD_PARTY OFF)
 if(EXISTS "${TP_INCLUDE_DIR}/nlohmann/json.hpp")
     set(USE_PREBUILT_THIRD_PARTY ON)
-    message(STATUS "Using pre-built third-party includes from src/3rd-party/")
+    message(STATUS "Using pre-built third-party includes from third_party/")
 endif()
 
 # System/system dependencies
@@ -174,6 +174,7 @@ add_executable(jiuwenClaw
     examples/jiuwenClaw/tools/notebook_edit_tool.cpp
     examples/jiuwenClaw/tools/cron_tool.cpp
     examples/jiuwenClaw/tools/notify_tool.cpp
+    examples/jiuwenClaw/utils/logger.cpp
 )
 target_include_directories(jiuwenClaw PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 

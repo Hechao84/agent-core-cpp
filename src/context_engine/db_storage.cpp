@@ -1,11 +1,11 @@
-
-
 #include "src/context_engine/db_storage.h"
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
-#include "src/3rd-party/include/sqlite3.h"
+#include "third_party/include/sqlite3.h"
+
+namespace jiuwen {
 
 DbStorage::DbStorage(const std::string& dbPath, const std::string& sessionId)
     : ContextStorageBase(sessionId)
@@ -117,3 +117,5 @@ void DbStorage::LogError(const char* msg)
 {
     std::cerr << "DbStorage: " << msg << " - " << (db_ ? sqlite3_errmsg(db_) : "No DB") << std::endl;
 }
+
+} // namespace jiuwen

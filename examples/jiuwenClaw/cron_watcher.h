@@ -7,6 +7,10 @@
 #include "include/agent.h"
 #include "include/types.h"
 
+using namespace jiuwen;
+
+namespace jiuwenClaw {
+
 struct CronTriggerEvent {
     std::string message;
     std::string jobId;
@@ -36,3 +40,5 @@ private:
     std::atomic<bool> running_;
     std::thread thread_;
 };
+
+} // namespace jiuwenClaw

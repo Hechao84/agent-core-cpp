@@ -1,8 +1,9 @@
-
 #include "src/tools/builtin_tools/web_search_tool.h"
 #include <iostream>
 #include <string>
-#include "src/3rd-party/include/curl/curl.h"
+#include "third_party/include/curl/curl.h"
+
+namespace jiuwen {
 
 static size_t SearchWriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
 {
@@ -70,3 +71,5 @@ std::string WebSearchTool::Invoke(const std::string& input)
     }
     return Search(query);
 }
+
+} // namespace jiuwen

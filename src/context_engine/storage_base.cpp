@@ -1,5 +1,6 @@
-
 #include "src/context_engine/storage_base.h"
+
+namespace jiuwen {
 
 ContextStorageBase::ContextStorageBase(const std::string& sessionId)
     : sessionId_(sessionId)
@@ -50,3 +51,5 @@ std::string ContextStorageBase::CleanMessageContent(const std::string& input)
 
     return output;
 }
+
+} // namespace jiuwen

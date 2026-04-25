@@ -7,6 +7,8 @@
 #include "include/types.h"
 #include "src/core/agent_worker.h"
 
+namespace jiuwen {
+
 struct WorkflowNode {
     std::string name;
     std::string promptTemplate;
@@ -21,3 +23,5 @@ private:
     std::vector<WorkflowNode> ParseWorkflowConfig();
     std::string ExecuteNode(const WorkflowNode& node, const std::string& input, std::function<void(const std::string&)> callback);
 };
+
+} // namespace jiuwen

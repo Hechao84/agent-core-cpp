@@ -1,8 +1,8 @@
-
-
 #include <string>
 #include <vector>
 #include "include/model.h"
+
+namespace jiuwen {
 
 class OpenAIModel : public Model {public:
     OpenAIModel(ModelConfig config) : Model(std::move(config)){} 
@@ -10,3 +10,5 @@ class OpenAIModel : public Model {public:
     std::string Invoke(const std::string& formattedInput, std::function<void(const std::string&)> onChunk) override;
     ModelResponse ParseResponse(const std::string& rawResponse) override;
 };
+
+} // namespace jiuwen

@@ -8,6 +8,8 @@
 #include "src/context_engine/md_storage.h"
 #include "test_runner.h"
 
+using namespace jiuwen;
+
 namespace fs = std::filesystem;
 
 TEST(context_engine, MemoryOnlyInit)

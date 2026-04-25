@@ -1,26 +1,27 @@
-#include "src/utils/logger.h"
+#include "logger.h"
+
 #include <ctime>
 #include <cstring>
 #include <fstream>
 #include <mutex>
 
 namespace {
-    jiuwen::LogLevel g_globalLevel = jiuwen::INFO;
+    jiuwenClaw::LogLevel g_globalLevel = jiuwenClaw::INFO;
     std::mutex g_logMutex;
 
-    const char* GetLevelName(jiuwen::LogLevel level)
+    const char* GetLevelName(jiuwenClaw::LogLevel level)
     {
         switch (level) {
-            case jiuwen::DBG: return "DEBUG";
-            case jiuwen::INFO: return "INFO";
-            case jiuwen::WARN: return "WARN";
-            case jiuwen::ERR: return "ERROR";
+            case jiuwenClaw::DBG: return "DEBUG";
+            case jiuwenClaw::INFO: return "INFO";
+            case jiuwenClaw::WARN: return "WARN";
+            case jiuwenClaw::ERR: return "ERROR";
             default: return "UNKNOWN";
         }
     }
 } // namespace
 
-namespace jiuwen {
+namespace jiuwenClaw {
 
 void Logger::SetGlobalLevel(LogLevel level)
 {
@@ -67,7 +68,7 @@ LogStream::~LogStream()
     if (tmPtr) {
         char timeStr[20];
         std::strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", tmPtr);
-        
+
         std::ofstream logFile("jiuwen-lite.log", std::ios::app);
         if (logFile.is_open()) {
             logFile << "[" << timeStr << "] [" << GetLevelName(level_) << "] ["
@@ -77,4 +78,4 @@ LogStream::~LogStream()
     }
 }
 
-} // namespace jiuwen
+} // namespace jiuwenClaw

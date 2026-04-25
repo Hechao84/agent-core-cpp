@@ -1,7 +1,8 @@
-
 #include "src/tools/builtin_tools/time_info_tool.h"
+#include <ctime>
 #include <string>
-#include "ctime"
+
+namespace jiuwen {
 
 TimeInfoTool::TimeInfoTool() : Tool("time_info", "Get the current date and time", {}){} std::string TimeInfoTool::Invoke(const std::string& /*input*/)
 {
@@ -11,3 +12,5 @@ TimeInfoTool::TimeInfoTool() : Tool("time_info", "Get the current date and time"
     std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S (Local Time)", t);
     return std::string(buf);
 }
+
+} // namespace jiuwen

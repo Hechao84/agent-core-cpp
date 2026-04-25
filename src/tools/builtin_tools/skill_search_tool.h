@@ -3,6 +3,8 @@
 #include <string>
 #include "include/tool.h"
 
+namespace jiuwen {
+
 class SkillEngine;
 
 class SkillSearchTool : public Tool {
@@ -16,3 +18,5 @@ public:
 private:
     static SkillEngine* engine_;
 };
+
+} // namespace jiuwen

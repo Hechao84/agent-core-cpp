@@ -11,6 +11,8 @@
 #include "include/agent_export.h"
 #include "include/types.h"
 
+namespace jiuwen {
+
 class AgentWorker;
 class ContextEngine; // Forward declaration
 class SkillEngine;   // Forward declaration
@@ -44,3 +46,5 @@ private:
     void ConsolidateMemory();
     void ConsolidationLoop();
 };
+
+} // namespace jiuwen

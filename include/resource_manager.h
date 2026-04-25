@@ -8,6 +8,8 @@
 #include "include/model.h"
 #include "include/tool.h"
 
+namespace jiuwen {
+
 class MCPServer;
 
 class AGENT_API ResourceManager {
@@ -39,3 +41,5 @@ private:
     std::unordered_map<ModelFormatType, std::function<std::unique_ptr<Model>(const ModelConfig&)>> modelFactories_;
     std::unordered_map<std::string, std::shared_ptr<MCPServer>> mcpServers_;
 };
+
+} // namespace jiuwen

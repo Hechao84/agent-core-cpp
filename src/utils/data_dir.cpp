@@ -4,6 +4,8 @@
 
 namespace fs = std::filesystem;
 
+namespace jiuwen {
+
 DataDir::DataDir() : basePath_("./data")
 {
     EnsureDirectory(basePath_);
@@ -62,3 +64,5 @@ void InitDataDir(const std::string& basePath)
     delete g_dataDir;
     g_dataDir = new DataDir(basePath);
 }
+
+} // namespace jiuwen

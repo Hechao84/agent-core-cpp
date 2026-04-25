@@ -6,7 +6,7 @@
 
 namespace fs = std::filesystem;
 
-namespace PromptUtils {
+namespace jiuwen {
 
 std::string ReadFileContent(const std::string& filePath)
 {
@@ -53,4 +53,4 @@ std::string RenderPrompt(const std::string& templateStr, const std::unordered_ma
     return result;
 }
 
-} // namespace PromptUtils
+} // namespace jiuwen

@@ -3,8 +3,12 @@
 #include <string>
 #include "include/tool.h"
 
+namespace jiuwen {
+
 class GlobTool : public Tool {
 public:
     GlobTool();
     std::string Invoke(const std::string& input) override;
 };
+
+} // namespace jiuwen

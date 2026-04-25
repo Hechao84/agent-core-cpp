@@ -5,6 +5,8 @@
 #include "src/core/agent_worker.h"
 #include "test_runner.h"
 
+using namespace jiuwen;
+
 TEST(agent_worker_factory, CreatesReactWorker)
 {
     AgentConfig config;

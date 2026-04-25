@@ -1,12 +1,14 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
-#include "atomic"
 #include "include/types.h"
 #include "src/tools/tool_selector.h"
+
+namespace jiuwen {
 
 class ContextEngine; // Forward declaration
 class SkillEngine;   // Forward declaration
@@ -36,3 +38,5 @@ protected:
 };
 
 std::unique_ptr<AgentWorker> CreateAgentWorker(AgentConfig config);
+
+} // namespace jiuwen

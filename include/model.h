@@ -7,6 +7,8 @@
 #include "include/agent_export.h"
 #include "include/types.h"
 
+namespace jiuwen {
+
 struct Message 
 {
     std::string role;
@@ -31,3 +33,5 @@ public:
 protected:
     ModelConfig config_;
 };
+
+} // namespace jiuwen

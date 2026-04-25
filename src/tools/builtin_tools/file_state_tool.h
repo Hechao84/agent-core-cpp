@@ -1,10 +1,12 @@
 #pragma once
 
-#include <string>
-#include <map>
 #include <ctime>
 #include <filesystem>
+#include <string>
+#include <map>
 #include "include/tool.h"
+
+namespace jiuwen {
 
 struct FileState {
     long long lastMtime = 0;
@@ -28,3 +30,5 @@ private:
     void LoadState();
     void SaveState();
 };
+
+} // namespace jiuwen

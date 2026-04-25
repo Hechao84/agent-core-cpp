@@ -5,6 +5,8 @@
 #include "include/tool.h"
 #include "test_runner.h"
 
+using namespace jiuwen;
+
 class DummyTool : public Tool {
 public:
     DummyTool() : Tool("dummy", "A dummy tool for testing",

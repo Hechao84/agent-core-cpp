@@ -1,14 +1,16 @@
 #include "src/tools/builtin_tools/grep_tool.h"
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
 #include <vector>
-#include "filesystem"
-#include "regex"
 
 namespace fs = std::filesystem;
+
+namespace jiuwen {
 
 static const int kDefaultHeadLimit = 250;
 static const int kMaxResultChars = 128000;
@@ -313,3 +315,5 @@ void GrepTool::ProcessFile(const fs::path& filePath, const fs::path& root,
         }
     }
 }
+
+} // namespace jiuwen

@@ -1,7 +1,7 @@
-
 #include "include/resource_manager.h"
 #include <algorithm>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -23,8 +23,9 @@
 #include "src/tools/builtin_tools/web_search_tool.h"
 #include "src/tools/builtin_tools/write_file_tool.h"
 #include "src/tools/mcp_tool.h"
-#include "stdexcept"
-#include "src/3rd-party/include/nlohmann/json.hpp"
+#include "third_party/include/nlohmann/json.hpp"
+
+namespace jiuwen {
 
 ResourceManager& ResourceManager::GetInstance()
 {
@@ -208,3 +209,5 @@ bool ResourceManager::HasMCPServer(const std::string& name) const
 { 
     return mcpServers_.count(name) > 0; 
 }
+
+} // namespace jiuwen

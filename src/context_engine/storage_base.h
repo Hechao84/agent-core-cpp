@@ -4,6 +4,8 @@
 #include <vector>
 #include "include/model.h"
 
+namespace jiuwen {
+
 class ContextStorageBase {
 public:
     explicit ContextStorageBase(const std::string& sessionId);
@@ -19,3 +21,5 @@ protected:
     static bool IsValidMessage(const Message& msg);
     static std::string CleanMessageContent(const std::string& input);
 };
+
+} // namespace jiuwen

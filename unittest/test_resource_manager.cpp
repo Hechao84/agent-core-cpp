@@ -10,6 +10,8 @@
 #include "src/core/agent_worker.h"
 #include "test_runner.h"
 
+using namespace jiuwen;
+
 class TestTool : public Tool {public:
     TestTool() : Tool("test_tool", "A test tool", {{"input", "Input", "string", true}}){} 
     std::string Invoke(const std::string& input) override 

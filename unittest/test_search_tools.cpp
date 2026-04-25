@@ -8,6 +8,8 @@
 #include "src/tools/builtin_tools/list_dir_tool.h"
 #include "test_runner.h"
 
+using namespace jiuwen;
+
 namespace fs = std::filesystem;
 
 static std::string GetTestDir() 

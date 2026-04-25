@@ -1,16 +1,17 @@
-
 #include "src/tools/builtin_tools/file_state_tool.h"
 #include "src/utils/data_dir.h"
+#include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <sstream>
 #include <string>
-#include "ctime"
-#include "filesystem"
 
 namespace fs = std::filesystem;
 
 // Helper to parse string from JSON input
+namespace jiuwen {
+
 static std::string ParseStringField(const std::string& json, const std::string& key)
 {
     std::string searchKey = "\"" + key + "\"";
@@ -202,3 +203,5 @@ void FileStateTool::SaveState()
     }
     file.close();
 }
+
+} // namespace jiuwen

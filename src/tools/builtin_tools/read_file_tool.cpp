@@ -1,13 +1,13 @@
-
-
 #include "src/tools/builtin_tools/read_file_tool.h"
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
-#include "filesystem"
 
 namespace fs = std::filesystem;
+
+namespace jiuwen {
 
 static const int kMaxChars = 128000;
 static const int kDefaultLimit = 2000;static std::string ParseStringField(const std::string& json, const std::string& key)
@@ -125,3 +125,5 @@ ReadFileTool::ReadFileTool()
 
     return oss.str();
 }
+
+} // namespace jiuwen

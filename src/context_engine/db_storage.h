@@ -4,7 +4,9 @@
 #include <vector>
 #include "src/context_engine/storage_base.h"
 
-struct sqlite3; // Forward declaration
+struct sqlite3; // Forward declaration - must be in global scope
+
+namespace jiuwen {
 
 class DbStorage : public ContextStorageBase {
 public:
@@ -22,3 +24,5 @@ private:
     bool CreateTable();
     void LogError(const char* msg);
 };
+
+} // namespace jiuwen

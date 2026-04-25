@@ -1,13 +1,19 @@
-
-
 #include "notebook_edit_tool.h"
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
-#include "filesystem"
 
-namespace fs = std::filesystem;static std::string ParseStringField(const std::string& json, const std::string& key)
+using namespace jiuwen;
+
+namespace fs = std::filesystem;
+
+namespace jiuwenClaw {
+
+namespace {
+
+static std::string ParseStringField(const std::string& json, const std::string& key)
 {
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
@@ -19,9 +25,9 @@ namespace fs = std::filesystem;static std::string ParseStringField(const std::st
     if (json[valStart] != '"') return "";
     size_t valEnd = valStart + 1;
     while (valEnd < json.length()) {
-        if (json[valEnd] == '\\' && valEnd + 1 < json.length()) { 
-            valEnd += 2; 
-            continue; 
+        if (json[valEnd] == '\\' && valEnd + 1 < json.length()) {
+            valEnd += 2;
+            continue;
         }
         if (json[valEnd] == '"') break;
         valEnd++;
@@ -30,7 +36,6 @@ namespace fs = std::filesystem;static std::string ParseStringField(const std::st
 }
 
 static int ParseIntField(const std::string& json, const std::string& key, int defaultVal)
-
 {
     std::string searchKey = "\"" + key + "\"";
     size_t keyPos = json.find(searchKey);
@@ -39,12 +44,14 @@ static int ParseIntField(const std::string& json, const std::string& key, int de
     if (colonPos == std::string::npos) return defaultVal;
     size_t valStart = json.find_first_not_of(" \t", colonPos + 1);
     if (valStart == std::string::npos) return defaultVal;
-    try { 
-        return std::stoi(json.substr(valStart)); 
-    } catch (...) { 
-        return defaultVal; 
+    try {
+        return std::stoi(json.substr(valStart));
+    } catch (...) {
+        return defaultVal;
     }
 }
+
+} // namespace
 
 NotebookEditTool::NotebookEditTool()
     : Tool("notebook_edit", "Edit a Jupyter notebook (.ipynb) cell. "
@@ -56,7 +63,9 @@ NotebookEditTool::NotebookEditTool()
           {"cell_index", "0-based index of the cell to edit", "integer", true},
           {"new_source", "New source content for the cell", "string", false},
           {"cell_type", "Cell type: code or markdown", "string", false},
-          {"edit_mode", "Mode: replace, insert, or delete", "string", false}}){} std::string NotebookEditTool::Invoke(const std::string& input)
+          {"edit_mode", "Mode: replace, insert, or delete", "string", false}}) {}
+
+std::string NotebookEditTool::Invoke(const std::string& input)
 {
     std::string filePath = ParseStringField(input, "path");
     if (filePath.empty()) {
@@ -82,7 +91,6 @@ NotebookEditTool::NotebookEditTool()
 
     fs::path fp(filePath);
 
-    // Create new notebook if file doesn't exist and mode is insert
     if (!fs::exists(fp)) {
         if (editMode != "insert") {
             return "Error: File not found: " + filePath;
@@ -96,13 +104,11 @@ NotebookEditTool::NotebookEditTool()
         return "Successfully created " + filePath + " with 1 cell";
     }
 
-    // Read notebook
     std::ifstream inFile(filePath);
     if (!inFile.is_open()) return "Error: Cannot open file: " + filePath;
     std::string content((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
     inFile.close();
 
-    // Simple JSON parsing for cells array
     std::vector<std::string> cells;
     ExtractCells(content, cells);
 
@@ -126,35 +132,27 @@ NotebookEditTool::NotebookEditTool()
         return "Successfully inserted cell at index " + std::to_string(insertAt) + " in " + filePath;
     }
 
-    // Replace mode
     if (cellIndex < 0 || cellIndex >= cellCount) {
         return "Error: cell_index " + std::to_string(cellIndex) +
                " out of range (notebook has " + std::to_string(cellCount) + " cells)";
     }
 
-    // Update the cell source and type
     std::string cell = cells[cellIndex];
-    // Replace "source": ... value
     size_t srcPos = cell.find("\"source\"");
     if (srcPos != std::string::npos) {
         size_t colonPos = cell.find(':', srcPos + 8);
         size_t valStart = cell.find_first_not_of(" \t\n\r", colonPos + 1);
         if (valStart != std::string::npos) {
-            // Replace the source value with the new one
-            // Escape the newSource for JSON
             std::string escapedSource = EscapeJson(newSource);
             if (cell[valStart] == '[') {
-                // Array format
                 cell.replace(valStart, cell.find(']', valStart) + 1 - valStart, "[\"" + escapedSource + "\"]");
             } else {
-                // Simple format
                 size_t valEnd = cell.find_first_of(",}", valStart);
                 cell.replace(valStart, valEnd - valStart, "\"" + escapedSource + "\"");
             }
         }
     }
 
-    // Update cell_type if changed
     size_t typePos = cell.find("\"cell_type\"");
     if (typePos != std::string::npos) {
         size_t colonPos = cell.find(':', typePos + 11);
@@ -176,7 +174,6 @@ NotebookEditTool::NotebookEditTool()
 }
 
 std::string NotebookEditTool::EscapeJson(const std::string& input)
-
 {
     std::string result;
     for (char c : input) {
@@ -278,3 +275,5 @@ void NotebookEditTool::WriteNotebook(const std::string& filePath, const std::vec
         outFile.close();
     }
 }
+
+} // namespace jiuwenClaw

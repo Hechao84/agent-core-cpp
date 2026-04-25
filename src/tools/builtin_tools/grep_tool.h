@@ -1,13 +1,15 @@
 #pragma once
 
+#include <filesystem>
 #include <map>
+#include <regex>
 #include <string>
 #include <vector>
-#include "filesystem"
 #include "include/tool.h"
-#include "regex"
 
 namespace fs = std::filesystem;
+
+namespace jiuwen {
 
 class GrepTool : public Tool {
 public:
@@ -25,3 +27,5 @@ private:
                     int& resultChars, bool& truncated,
                     int& skippedBinary, int& skippedLarge);
 };
+
+} // namespace jiuwen

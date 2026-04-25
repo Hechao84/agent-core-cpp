@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+namespace jiuwen {
+
 Tool::Tool(std::string name, std::string description, std::vector<ToolParam> params)
     : name_(std::move(name)), description_(std::move(description)), params_(std::move(params)){} std::string Tool::GetName() const 
 { 
@@ -33,3 +35,5 @@ std::string Tool::GetSchema() const
     }
     return oss.str();
 }
+
+} // namespace jiuwen

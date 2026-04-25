@@ -1,10 +1,11 @@
-
 #include "src/workers/workflow_worker.h"
 #include <algorithm>
 #include <iostream>
+#include <queue>
 #include <string>
 #include <vector>
-#include "queue"
+
+namespace jiuwen {
 
 WorkflowAgentWorker::WorkflowAgentWorker(AgentConfig config) : AgentWorker(std::move(config)){} std::vector<WorkflowNode> WorkflowAgentWorker::ParseWorkflowConfig()
 {
@@ -72,3 +73,5 @@ std::string WorkflowAgentWorker::Invoke(const std::string& query, std::function<
     callback("[FINAL] " + currentInput);
     return currentInput;
 }
+
+} // namespace jiuwen

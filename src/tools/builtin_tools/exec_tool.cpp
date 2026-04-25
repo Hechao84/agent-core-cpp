@@ -1,19 +1,19 @@
-
-
 #include "src/tools/builtin_tools/exec_tool.h"
 #include <algorithm>
+#include <cstdlib>
 #include <fstream>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
-#include "cstdlib"
-#include "regex"
 
 #ifdef _WIN32
     #include <windows.h>
 #else
     // Linux/Unix specific alternatives if needed, or simply exclude logic
 #endif
+
+namespace jiuwen {
 
 static std::string ParseStringField(const std::string& json, const std::string& key)
 {
@@ -238,3 +238,5 @@ std::string ExecTool::TruncateOutput(const std::string& output)
     truncated += output.substr(output.length() - half);
     return truncated;
 }
+
+} // namespace jiuwen

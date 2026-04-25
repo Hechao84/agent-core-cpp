@@ -14,6 +14,8 @@
 #include "src/tools/builtin_tools/write_file_tool.h"
 #include "test_runner.h"
 
+using namespace jiuwen;
+
 namespace fs = std::filesystem;
 
 // ============================================

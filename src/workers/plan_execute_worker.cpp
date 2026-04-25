@@ -1,10 +1,11 @@
-
 #include "src/workers/plan_execute_worker.h"
 #include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+
+namespace jiuwen {
 
 PlanAndExecuteAgentWorker::PlanAndExecuteAgentWorker(AgentConfig config) : AgentWorker(std::move(config)){} std::vector<std::string> PlanAndExecuteAgentWorker::GeneratePlan(const std::string& query, std::function<void(const std::string&)> callback)
 {
@@ -74,3 +75,5 @@ std::string PlanAndExecuteAgentWorker::Invoke(const std::string& query, std::fun
     }
     return SynthesizeResult(query, context, callback);
 }
+
+} // namespace jiuwen

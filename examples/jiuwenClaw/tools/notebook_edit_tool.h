@@ -4,6 +4,10 @@
 #include <vector>
 #include "include/tool.h"
 
+using namespace jiuwen;
+
+namespace jiuwenClaw {
+
 class NotebookEditTool : public Tool {
 public:
     NotebookEditTool();
@@ -15,3 +19,5 @@ private:
     void ExtractCells(const std::string& content, std::vector<std::string>& cells);
     void WriteNotebook(const std::string& filePath, const std::vector<std::string>& cells, const std::string& originalContent);
 };
+
+} // namespace jiuwenClaw

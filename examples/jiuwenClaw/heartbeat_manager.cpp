@@ -1,17 +1,23 @@
 #include "heartbeat_manager.h"
 
+#include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
-#include <ctime>
-#include <iomanip>
 #include <thread>
+
 #include "include/resource_manager.h"
-#include "src/utils/logger.h"
-#include "src/3rd-party/include/nlohmann/json.hpp"
+#include "examples/jiuwenClaw/utils/encoding.h"
+#include "examples/jiuwenClaw/utils/logger.h"
+#include "third_party/include/nlohmann/json.hpp"
+
+using namespace jiuwen;
 
 namespace fs = std::filesystem;
+
+namespace jiuwenClaw {
 
 HeartbeatManager::HeartbeatManager(const std::string& heartbeatFilePath, Agent& agent, const ModelConfig& modelConfig, int intervalSeconds)
     : path_(heartbeatFilePath), agent_(agent), modelConfig_(modelConfig), intervalSeconds_(intervalSeconds), running_(true)
@@ -117,7 +123,7 @@ void HeartbeatManager::Run() {
         std::string tasks;
         if (DecideAction(content, tasks)) {
             LOG(INFO) << "[HB-TRIGGER] Task triggered: " << tasks;
-            std::cout << "\n[Heartbeat] Decision: RUN. Executing task: " << tasks << "...\n" << std::flush;
+            std::cout << UTF8ToLocal("\n[Heartbeat] Decision: RUN. Executing task: ") << UTF8ToLocal(tasks) << UTF8ToLocal("...\n") << std::flush;
 
             std::string heartbeatPrompt = "HEARTBEAT ALERT: You are required to execute the following periodic task right now:\n\n"
                                           "**Task**: " + tasks + "\n\n"
@@ -175,14 +181,16 @@ void HeartbeatManager::Run() {
                 }
 
                 if (!s.empty()) {
-                    std::cout << s << std::flush;
+                    std::cout << UTF8ToLocal(s) << std::flush;
                 }
             });
             LOG(INFO) << "[HB-COMPLETED] Task execution finished. Response length: " << fullResponse.length();
             std::cout << "\n";
         } else {
             LOG(INFO) << "[HB-SKIP] No tasks to execute or conditions not met.";
-            std::cout << "\n[Heartbeat] Decision: SKIP. No active tasks or conditions not met.\n" << std::flush;
+            std::cout << UTF8ToLocal("\n[Heartbeat] Decision: ") << UTF8ToLocal("SKIP. No active tasks or conditions not met.\n") << std::flush;
         }
     }
 }
+
+} // namespace jiuwenClaw

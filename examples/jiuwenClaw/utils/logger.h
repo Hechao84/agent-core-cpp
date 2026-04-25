@@ -1,12 +1,11 @@
-#ifndef INCLUDE_LOGGER_H_
-#define INCLUDE_LOGGER_H_
+#pragma once
 
 #include <iostream>
 #include <mutex>
 #include <sstream>
 #include <string>
 
-namespace jiuwen {
+namespace jiuwenClaw {
 
 enum LogLevel {
     DBG = 0,
@@ -52,6 +51,4 @@ class Logger {
     if (Logger::ShouldLog(level)) \
     LogStream(__FILE__, __LINE__, level)
 
-} // namespace jiuwen
-
-#endif  // INCLUDE_LOGGER_H_
+} // namespace jiuwenClaw

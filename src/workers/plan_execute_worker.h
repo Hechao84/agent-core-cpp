@@ -7,6 +7,8 @@
 #include "include/types.h"
 #include "src/core/agent_worker.h"
 
+namespace jiuwen {
+
 class PlanAndExecuteAgentWorker : public AgentWorker {
 public:
     PlanAndExecuteAgentWorker(AgentConfig config);
@@ -16,3 +18,5 @@ private:
     std::string ExecuteStep(const std::string& step, const std::string& context, std::function<void(const std::string&)> callback);
     std::string SynthesizeResult(const std::string& query, const std::string& context, std::function<void(const std::string&)> callback);
 };
+
+} // namespace jiuwen

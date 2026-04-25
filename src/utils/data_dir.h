@@ -12,6 +12,8 @@
   #define DATA_DIR_API
 #endif
 
+namespace jiuwen {
+
 // DataDir provides a centralized way to manage agent data directories.
 // All agent-generated data (context, cron, memory, etc.) is stored under
 // a base directory, with different data types in separate subdirectories.
@@ -20,7 +22,8 @@
 //   data/
 //   ├── context/     - Session context and conversation history
 //   ├── cron/        - Scheduled reminders and job definitions
-//   -- memory/       - Long-term memory and knowledge files
+//   -- MEMORY.md     - Long-term memory file
+//   -- HEARTBEAT.md  - Heartbeat file
 //   -- temp/         - Temporary files and caches
 class DATA_DIR_API DataDir {
 public:
@@ -49,3 +52,5 @@ DATA_DIR_API DataDir& GetDataDir();
 
 // Initialize the global DataDir with a custom base path
 DATA_DIR_API void InitDataDir(const std::string& basePath);
+
+} // namespace jiuwen

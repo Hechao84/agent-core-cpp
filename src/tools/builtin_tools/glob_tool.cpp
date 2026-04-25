@@ -2,14 +2,16 @@
 
 #include "src/tools/builtin_tools/glob_tool.h"
 #include <algorithm>
+#include <filesystem>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
 #include <vector>
-#include "filesystem"
-#include "regex"
 
 namespace fs = std::filesystem;
+
+namespace jiuwen {
 
 static const int kDefaultHeadLimit = 250;
 static const std::set<std::string> kIgnoreDirs = {
@@ -176,3 +178,5 @@ GlobTool::GlobTool()
     }
     return oss.str();
 }
+
+} // namespace jiuwen

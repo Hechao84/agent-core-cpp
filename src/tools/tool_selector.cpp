@@ -1,9 +1,10 @@
-
 #include "src/tools/tool_selector.h"
 #include <algorithm>
 #include <string>
 #include <vector>
 #include "include/resource_manager.h"
+
+namespace jiuwen {
 
 ToolSelector::ToolSelector(SearchConfig config) : config_(std::move(config)){} void ToolSelector::AddToolToPool(const std::string& toolName)
 {
@@ -79,3 +80,5 @@ double ToolSelector::CalculateEmbeddingScore(const std::string& query, const std
     (void)query; (void)toolName;
     return 1.0;
 }
+
+} // namespace jiuwen

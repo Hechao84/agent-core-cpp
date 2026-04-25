@@ -9,6 +9,8 @@
 #include "include/types.h"
 #include "test_runner.h"
 
+using namespace jiuwen;
+
 TEST(types, SetAndGetInt)
 {
     ConfigNode node;

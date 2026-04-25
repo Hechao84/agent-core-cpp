@@ -3,7 +3,9 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "src/3rd-party/include/nlohmann/json.hpp"
+#include "third_party/include/nlohmann/json.hpp"
+
+namespace jiuwen {
 
 struct MCPToolInfo {
     std::string name;
@@ -39,3 +41,5 @@ private:
     std::vector<std::string> headers_;
     int nextRequestId_{1};
 };
+
+} // namespace jiuwen

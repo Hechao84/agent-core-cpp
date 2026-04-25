@@ -1,17 +1,23 @@
 #include "cron_watcher.h"
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <filesystem>
-#include <ctime>
 #include <chrono>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+
 #include "include/resource_manager.h"
-#include "src/3rd-party/include/nlohmann/json.hpp"
-#include "src/utils/logger.h"
+#include "examples/jiuwenClaw/utils/encoding.h"
+#include "examples/jiuwenClaw/utils/logger.h"
+#include "third_party/include/nlohmann/json.hpp"
+
+using namespace jiuwen;
 
 namespace fs = std::filesystem;
 
-static bool MatchesCronExpression(const std::string& cronExpr, const std::tm& tm)
+namespace {
+
+bool MatchesCronExpression(const std::string& cronExpr, const std::tm& tm)
 {
     std::istringstream iss(cronExpr);
     std::string minStr, hourStr, dayStr, monthStr, weekdayStr;
@@ -55,6 +61,10 @@ static bool MatchesCronExpression(const std::string& cronExpr, const std::tm& tm
     return true;
 }
 
+} // namespace
+
+namespace jiuwenClaw {
+
 CronWatcher::CronWatcher(const std::string& dataDir, Agent& agent, const ModelConfig& modelConfig, int intervalSeconds)
     : dataDir_(dataDir), agent_(agent), modelConfig_(modelConfig), intervalSeconds_(intervalSeconds), running_(true)
 {
@@ -80,7 +90,7 @@ CronWatcher::~CronWatcher() {
 
 void CronWatcher::HandleEvent(const CronTriggerEvent& event) {
     LOG(INFO) << "[CRON-AGENT] Handling event: " << event.message;
-    std::cout << "\n[CronAgent] Processing: " << event.message << "...\n" << std::flush;
+    std::cout << UTF8ToLocal("\n[CronAgent] Processing: ") << UTF8ToLocal(event.message) << UTF8ToLocal("...\n") << std::flush;
 
     std::string prompt = "You have been triggered by a scheduled cron event:\n\n"
                          "**Event**: " + event.message + "\n\n"
@@ -136,7 +146,7 @@ void CronWatcher::HandleEvent(const CronTriggerEvent& event) {
         }
 
         if (!s.empty()) {
-            std::cout << s << std::flush;
+            std::cout << UTF8ToLocal(s) << std::flush;
         }
     });
 
@@ -174,7 +184,6 @@ void CronWatcher::CheckAndFireCrons() {
             auto& job = j[i];
             if (job.value("removed", false)) continue;
 
-            // Skip already-fired one-time tasks
             if (job.value("fired", false) && job.value("type", "") == "one-time") continue;
 
             bool shouldFire = false;
@@ -192,8 +201,6 @@ void CronWatcher::CheckAndFireCrons() {
                 std::string expr = job.value("cron_expr", "");
                 time_t next = job.value("next_fire", 0);
                 if (!expr.empty() && now >= next) {
-                    // Advance window on every check to prevent stale next_fire
-                    // from causing unintended matches
                     job["next_fire"] = now + 60;
                     modified = true;
                     if (MatchesCronExpression(expr, localTm)) {
@@ -212,11 +219,9 @@ void CronWatcher::CheckAndFireCrons() {
                 HandleEvent(event);
 
                 if (type == "one-time") {
-                    // Mark for removal instead of just setting fired=true
                     job["removed"] = true;
                     modified = true;
                 } else {
-                    // Update next_fire for recurring/cron
                     if (intervalSec <= 0) intervalSec = 60.0;
                     job["next_fire"] = now + static_cast<time_t>(intervalSec);
                     job["fired"] = false;
@@ -226,7 +231,6 @@ void CronWatcher::CheckAndFireCrons() {
             }
         }
 
-        // Remove one-time jobs that have been fired
         for (int idx = static_cast<int>(j.size()) - 1; idx >= 0; --idx) {
             if (j[idx].value("removed", false) && j[idx].value("type", "") == "one-time") {
                 std::string jobMsg = j[idx].value("message", "");
@@ -249,3 +253,5 @@ void CronWatcher::CheckAndFireCrons() {
         std::cerr << "\n[CRON WATCHER] Error: " << e.what() << "\n" << std::flush;
     }
 }
+
+} // namespace jiuwenClaw

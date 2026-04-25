@@ -7,6 +7,8 @@
 #include <vector>
 #include "include/agent_export.h"
 
+namespace jiuwen {
+
 struct ToolParam 
 {
     std::string name;
@@ -29,3 +31,5 @@ protected:
     std::string description_;
     std::vector<ToolParam> params_;
 };
+
+} // namespace jiuwen

@@ -1,5 +1,3 @@
-
-
 #include "src/context_engine/md_storage.h"
 #include <fstream>
 #include <iostream>
@@ -9,6 +7,8 @@
 #include "filesystem"
 
 namespace fs = std::filesystem;
+
+namespace jiuwen {
 
 MarkdownStorage::MarkdownStorage(const std::string& path, const std::string& sessionId)
     : ContextStorageBase(sessionId)
@@ -102,3 +102,5 @@ Message MarkdownStorage::ParseMessageBlock(const std::string& block) const
     }
     return msg;
 }
+
+} // namespace jiuwen

@@ -1,8 +1,9 @@
-
 #include "src/tools/builtin_tools/web_fetch_tool.h"
 #include <iostream>
 #include <string>
-#include "src/3rd-party/include/curl/curl.h"
+#include "third_party/include/curl/curl.h"
+
+namespace jiuwen {
 
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
 {
@@ -50,3 +51,5 @@ std::string WebFetcherTool::Invoke(const std::string& input)
     
     return FetchUrl(url);
 }
+
+} // namespace jiuwen

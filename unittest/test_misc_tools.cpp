@@ -10,6 +10,8 @@
 #include "src/tools/builtin_tools/time_info_tool.h"
 #include "test_runner.h"
 
+using namespace jiuwen;
+
 namespace fs = std::filesystem;
 
 // TimeInfoTool Tests

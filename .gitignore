@@ -1,4 +1,5 @@
 # Build Output
+build/
 build-linux/
 build-windows/
 dist/
@@ -10,8 +11,8 @@ CMakeFiles/
 
 # Third-Party Libraries
 libs/
-src/3rd-party/*
-!src/3rd-party/README.md
+third_party/*
+!third_party/README.md
 
 # Compiler/IDE Artifacts
 .cache/

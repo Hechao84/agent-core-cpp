@@ -1,8 +1,9 @@
-
 #include "src/tools/builtin_tools/skill_search_tool.h"
 #include <string>
-#include "src/3rd-party/include/nlohmann/json.hpp"
 #include "src/skills/skill_engine.h"
+#include "third_party/include/nlohmann/json.hpp"
+
+namespace jiuwen {
 
 SkillEngine* SkillSearchTool::engine_ = nullptr;
 
@@ -56,3 +57,5 @@ std::string SkillSearchTool::Invoke(const std::string& input)
         return "Error: Invalid action '" + action + "'. Use 'search' or 'load'.";
     }
 }
+
+} // namespace jiuwen

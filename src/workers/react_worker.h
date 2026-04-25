@@ -7,6 +7,8 @@
 #include "include/types.h"
 #include "src/core/agent_worker.h"
 
+namespace jiuwen {
+
 class ReactAgentWorker : public AgentWorker {
 public:
     ReactAgentWorker(AgentConfig config);
@@ -14,3 +16,5 @@ public:
 private:
     std::string ReactLoop(const std::string& query, std::function<void(const std::string&)> callback);
 };
+
+} // namespace jiuwen

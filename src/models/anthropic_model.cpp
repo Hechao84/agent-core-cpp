@@ -1,14 +1,14 @@
-
-
 #include "src/models/anthropic_model.h"
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
-#include "src/3rd-party/include/curl/curl.h"
-#include "src/3rd-party/include/nlohmann/json.hpp"
+#include "third_party/include/curl/curl.h"
+#include "third_party/include/nlohmann/json.hpp"
 
 using json = nlohmann::json;
+
+namespace jiuwen {
 
 struct AnthropicStreamContext {
     std::function<void(const std::string&)> onChunk;
@@ -111,3 +111,5 @@ ModelResponse AnthropicModel::ParseResponse(const std::string& rawResponse)
 {
     return {rawResponse, true, "end_turn"};
 }
+
+} // namespace jiuwen

@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+namespace jiuwen {
+
 struct ToolMatchResult {
     std::string toolName;
     double score;
@@ -36,3 +38,5 @@ private:
     double CalculateKeywordScore(const std::string& query, const std::string& toolName, const std::string& toolDesc);
     double CalculateEmbeddingScore(const std::string& query, const std::string& toolName);
 };
+
+} // namespace jiuwen

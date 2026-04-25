@@ -3,8 +3,8 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "src/3rd-party/include/curl/curl.h"
-#include "src/3rd-party/include/nlohmann/json.hpp"
+#include "third_party/include/curl/curl.h"
+#include "third_party/include/nlohmann/json.hpp"
 
 namespace {
     size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output)
@@ -14,6 +14,8 @@ namespace {
         return totalSize;
     }
 } // namespace
+
+namespace jiuwen {
 
 MCPClient::MCPClient(const std::string& name, const std::string& version, const std::string& endpoint)
     : name_(name), version_(version), endpoint_(endpoint)
@@ -202,3 +204,5 @@ std::shared_ptr<MCPToolResult> MCPClient::CallTool(const std::string& toolName, 
 
     return result;
 }
+
+} // namespace jiuwen

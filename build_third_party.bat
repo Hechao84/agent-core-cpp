@@ -10,7 +10,7 @@ echo ==========================================
 echo  Building Third-Party Libraries for Windows
 echo ==========================================
 
-set "TP_DIR=%SCRIPT_DIR%\src\3rd-party"
+set "TP_DIR=%SCRIPT_DIR%\third_party"
 set "LIBS_DIR=%SCRIPT_DIR%\libs"
 set "TP_INCLUDE=%TP_DIR%\include"
 set "TP_SRC=%TP_DIR%\src"

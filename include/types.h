@@ -7,6 +7,8 @@
 #include <variant>
 #include <vector>
 
+namespace jiuwen {
+
 // Forward declaration for recursive configuration structure
 struct ConfigNode;
 
@@ -148,3 +150,5 @@ struct AgentConfig
     std::string skillDirectory;
     int maxIterations{10};
 };
+
+} // namespace jiuwen

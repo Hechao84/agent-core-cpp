@@ -5,6 +5,8 @@
 #include "src/tools/tool_selector.h"
 #include "test_runner.h"
 
+using namespace jiuwen;
+
 TEST(tool_selector, AddToPool)
 {
     ToolSelector selector;

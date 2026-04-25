@@ -9,15 +9,17 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include "src/utils/logger.h"
-#include "src/utils/prompt_utils.h"
 #include "include/model.h"
 #include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
 #include "src/skills/skill_engine.h"
 #include "src/tools/tool_selector.h"
+#include "src/utils/logger.h"
+#include "src/utils/prompt_utils.h"
 
 namespace fs = std::filesystem;
+
+namespace jiuwen {
 
 AgentWorker::AgentWorker(AgentConfig config) : config_(std::move(config))
 {
@@ -85,7 +87,7 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
     std::string promptTemplate;
     auto it = config_.promptTemplates.find(templateName);
     if (it != config_.promptTemplates.end()) {
-        promptTemplate = PromptUtils::ResolvePromptResource(it->second);
+        promptTemplate = ResolvePromptResource(it->second);
     } else {
         // Fallback: load from templates/REACT_SYSTEM.md relative to current working directory
         fs::path fallbackPath = fs::current_path() / "templates" / "REACT_SYSTEM.md";
@@ -117,7 +119,7 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
     // 3. Resolve sub-templates from config (e.g., {$identity}, {$custom_section})
     for (const auto& tpl : config_.promptTemplates) {
         if (tpl.first == templateName) continue;
-        vars[tpl.first] = PromptUtils::ResolvePromptResource(tpl.second);
+        vars[tpl.first] = ResolvePromptResource(tpl.second);
     }
 
     // 4. Hot-reload skills and load into {$skills}
@@ -144,7 +146,7 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
     }
 
     // 8. Render the prompt with all variables
-    return PromptUtils::RenderPrompt(promptTemplate, vars);
+    return RenderPrompt(promptTemplate, vars);
 }
 
 std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::string& input)
@@ -181,3 +183,5 @@ std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
     }
     return schema;
 }
+
+} // namespace jiuwen

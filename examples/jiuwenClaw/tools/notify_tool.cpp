@@ -8,15 +8,18 @@
 #include <thread>
 #include <vector>
 
-#include "src/utils/logger.h"
-#include "src/3rd-party/include/nlohmann/json.hpp"
+#include "examples/jiuwenClaw/utils/encoding.h"
+#include "examples/jiuwenClaw/utils/logger.h"
+#include "third_party/include/nlohmann/json.hpp"
 
 #ifdef _WIN32
-    #include <windows.h>
-    #include <shellapi.h>
-    #include <wincrypt.h>
-    #pragma comment(lib, "Crypt32.lib")
+#include <windows.h>
+#include <shellapi.h>
+#include <wincrypt.h>
+#pragma comment(lib, "Crypt32.lib")
 #endif
+
+using namespace jiuwen;
 
 namespace fs = std::filesystem;
 
@@ -41,7 +44,6 @@ std::string EscapePowerShellString(const std::string& input)
     return result;
 }
 
-// Build PowerShell command for WSL environment
 std::string CreateWslNotificationCommand(const std::string& title, const std::string& message)
 {
     std::string escapedTitle = EscapePowerShellString(title);
@@ -61,7 +63,6 @@ std::string CreateWslNotificationCommand(const std::string& title, const std::st
 }
 
 #ifdef _WIN32
-// Encode UTF-8 script content to Base64 (UTF-16 LE) for PowerShell -EncodedCommand
 std::string EncodeScriptToBase64(const std::string& script)
 {
     int len = MultiByteToWideChar(CP_UTF8, 0, script.c_str(), -1, nullptr, 0);
@@ -92,7 +93,6 @@ std::string EncodeScriptToBase64(const std::string& script)
     return base64Encoded;
 }
 
-// Build PowerShell script content for native Windows notification
 std::string BuildWinNotificationScript(const std::string& title, const std::string& message)
 {
     std::string escapedTitle = EscapePowerShellString(title);
@@ -117,6 +117,8 @@ std::string BuildWinNotificationScript(const std::string& title, const std::stri
 #endif
 
 } // namespace
+
+namespace jiuwenClaw {
 
 NotifyTool::NotifyTool()
     : Tool("notify",
@@ -199,3 +201,5 @@ std::string NotifyTool::Invoke(const std::string& input)
     SendNotification(title, message);
     return "Notification sent: \"" + title + "\" - \"" + message + "\"";
 }
+
+} // namespace jiuwenClaw

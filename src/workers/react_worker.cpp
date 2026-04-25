@@ -1,6 +1,3 @@
-
-// Extract JSON string starting from brace position,handling nested braces and strings
-
 #include "src/workers/react_worker.h"
 #include <algorithm>
 #include <iostream>
@@ -9,6 +6,8 @@
 #include "src/utils/logger.h"
 #include "src/context_engine/context_engine.h"
 #include "src/tools/tool_selector.h"
+
+namespace jiuwen {
 
 static std::string ExtractJson(const std::string& text, size_t startPos)
 {
@@ -320,3 +319,5 @@ std::string ReactAgentWorker::Invoke(const std::string& query, std::function<voi
     cancelled_.store(false);
     return ReactLoop(query, std::move(callback));
 }
+
+} // namespace jiuwen

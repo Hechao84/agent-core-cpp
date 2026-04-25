@@ -14,6 +14,8 @@
 
 namespace fs = std::filesystem;
 
+namespace jiuwen {
+
 Agent::Agent(AgentConfig config) : config_(std::move(config))
 {
     // 0. Initialize global DataDir from context storage path
@@ -203,3 +205,5 @@ void Agent::ConsolidateMemory()
         std::cerr << "Memory consolidation failed: " << e.what() << std::endl;
     }
 }
+
+} // namespace jiuwen

@@ -3,6 +3,10 @@
 #include <string>
 #include "include/tool.h"
 
+using namespace jiuwen;
+
+namespace jiuwenClaw {
+
 class CronTool : public Tool {
 public:
     CronTool();
@@ -16,3 +20,5 @@ private:
 
     std::string GetDataFile() const;
 };
+
+} // namespace jiuwenClaw

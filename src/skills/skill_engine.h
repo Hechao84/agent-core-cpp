@@ -4,6 +4,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace jiuwen {
+
 struct Skill {
     std::string id;          // Directory name
     std::string name;        // Extracted from YAML frontmatter
@@ -54,3 +56,5 @@ private:
     Skill ParseSkillDir(const std::string& dirPath, const std::string& folderName) const;
     std::string ExtractFrontmatterField(const std::string& content, const std::string& key) const;
 };
+
+} // namespace jiuwen

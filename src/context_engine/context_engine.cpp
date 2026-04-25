@@ -1,4 +1,3 @@
-
 #include "src/context_engine/context_engine.h"
 #include <algorithm>
 #include <chrono>
@@ -16,6 +15,7 @@
 
 namespace fs = std::filesystem;
 
+namespace jiuwen {
 
 ContextEngine::ContextEngine(const ContextConfig& config) : config_(config){} ContextEngine::~ContextEngine() = default;
 
@@ -278,3 +278,5 @@ std::string ContextEngine::GetConsolidationPayload(int maxMessages) const
     }
     return result;
 }
+
+} // namespace jiuwen

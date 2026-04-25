@@ -1,13 +1,14 @@
-
 #include "src/tools/mcp_tool.h"
 #include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
-#include "src/utils/logger.h"
 #include "include/resource_manager.h"
 #include "src/protocol/mcp_client.h"
-#include "src/3rd-party/include/nlohmann/json.hpp"
+#include "src/utils/logger.h"
+#include "third_party/include/nlohmann/json.hpp"
+
+namespace jiuwen {
 
 MCPTool::MCPTool(std::string name, std::string description, std::vector<ToolParam> params, std::shared_ptr<MCPServer> server)
     : Tool(std::move(name), std::move(description), std::move(params)), server_(std::move(server)){} std::string MCPTool::Invoke(const std::string& input)
@@ -208,3 +209,5 @@ std::string MCPServer::GetName() const
 {
     return name_;
 }
+
+} // namespace jiuwen

@@ -1,11 +1,11 @@
-
-
 #include <memory>
+#include <stdexcept>
 #include "src/core/agent_worker.h"
 #include "src/workers/plan_execute_worker.h"
 #include "src/workers/react_worker.h"
 #include "src/workers/workflow_worker.h"
-#include "stdexcept"
+
+namespace jiuwen {
 
 std::unique_ptr<AgentWorker> CreateAgentWorker(AgentConfig config)
 {
@@ -20,3 +20,5 @@ std::unique_ptr<AgentWorker> CreateAgentWorker(AgentConfig config)
             throw std::invalid_argument("Unknown work mode");
     }
 }
+
+} // namespace jiuwen

@@ -6,35 +6,33 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include "src/3rd-party/include/nlohmann/json.hpp"
 #include "src/utils/data_dir.h"
-#include "src/utils/logger.h"
+#include "examples/jiuwenClaw/utils/logger.h"
+#include "third_party/include/nlohmann/json.hpp"
+
+using namespace jiuwen;
 
 namespace fs = std::filesystem;
 
-// Generate a simple job ID based on timestamp
-static std::string GenerateJobId()
+namespace {
+
+std::string GenerateJobId()
 {
     auto now = std::chrono::system_clock::now();
     auto epoch = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
     return "job_" + std::to_string(epoch);
 }
 
-// Parse ISO datetime string to epoch seconds.
-// Handles both UTC (Z suffix) and local time formats.
-// If isUTC is true, treats the input as UTC; otherwise as local time.
-static time_t ParseISOTime(const std::string& iso, bool isUTC)
+time_t ParseISOTime(const std::string& iso, bool isUTC)
 {
     std::tm tm = {};
     std::string input = iso;
 
-    // Check for Z suffix (UTC)
     if (!input.empty() && input.back() == 'Z') {
         isUTC = true;
         input.pop_back();
     }
 
-    // Parse the datetime
     std::istringstream iss(input);
     iss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
     if (iss.fail()) {
@@ -44,10 +42,8 @@ static time_t ParseISOTime(const std::string& iso, bool isUTC)
     }
     if (iss.fail()) return 0;
 
-    // Normalize tm fields not set by get_time
     tm.tm_isdst = -1;
 
-    // Convert to epoch
     if (isUTC) {
 #ifdef _WIN32
         return _mkgmtime(&tm);
@@ -60,6 +56,10 @@ static time_t ParseISOTime(const std::string& iso, bool isUTC)
         return mktime(&tm);
     }
 }
+
+} // namespace
+
+namespace jiuwenClaw {
 
 CronTool::CronTool() : Tool("cron", "Schedule, list, and remove reminders. Use when user asks to set a reminder, list scheduled tasks, or remove a scheduled task.", {
     ToolParam{"action", "Action: 'add', 'list', or 'remove'", "string", true},
@@ -85,7 +85,6 @@ std::string CronTool::AddReminder(const std::string& message, double everySecond
     std::string dataFile = GetDataFile();
     nlohmann::json jobs;
 
-    // Load existing jobs
     if (fs::exists(dataFile)) {
         try {
             std::ifstream ifs(dataFile);
@@ -110,22 +109,15 @@ std::string CronTool::AddReminder(const std::string& message, double everySecond
         job["every_seconds"] = everySeconds;
         job["next_fire"] = std::time(nullptr) + static_cast<time_t>(everySeconds);
     } else if (!atTime.empty()) {
-        // Determine timezone interpretation mode
         bool isUTC = false;
         bool hasZ = (!atTime.empty() && atTime.back() == 'Z');
-        // Check for explicit UTC offset (e.g. +08:00, -05:00)
         bool hasOffset = (atTime.find('+', 11) != std::string::npos || atTime.find('-', 11) != std::string::npos);
 
         if (hasZ) {
             isUTC = true;
         } else if (!hasOffset && tz.empty()) {
-            // No timezone indicator provided.
-            // Default assumption: LLMs typically output UTC time when no timezone is specified.
-            // If we treated this as local time, it might be interpreted as "in the past".
             isUTC = true;
         } else {
-            // Fallback to local time if tz param is provided (assuming tz matches system local)
-            // Or if offset is present (though offset parsing isn't fully implemented here)
             isUTC = false;
         }
 
@@ -142,8 +134,7 @@ std::string CronTool::AddReminder(const std::string& message, double everySecond
     } else if (!cronExpr.empty()) {
         job["type"] = "cron";
         job["cron_expr"] = cronExpr;
-        // Calculate approximate next fire
-        job["next_fire"] = std::time(nullptr) + 60; // Will be checked on next poll
+        job["next_fire"] = std::time(nullptr) + 60;
     } else {
         return "Error: Must specify one of: every_seconds, at, or cron_expr for adding a reminder.";
     }
@@ -153,12 +144,10 @@ std::string CronTool::AddReminder(const std::string& message, double everySecond
     std::string jobLog = "Added " + job["type"].get<std::string>() + " job id=" + jobId + " msg=" + message;
     LOG(INFO) << "[CronTool] " << jobLog;
 
-    // Save
     std::ofstream ofs(dataFile);
     ofs << jobs.dump(2);
     ofs.close();
 
-    // Format next_fire time for display
     time_t nextFire = job.value("next_fire", std::time(nullptr));
     std::tm* local = std::localtime(&nextFire);
     char buf[64];
@@ -238,7 +227,6 @@ std::string CronTool::RemoveReminder(const std::string& jobId)
 
         if (!found) return "No reminder found with ID: " + jobId;
 
-        // Clean up removed jobs
         nlohmann::json cleaned;
         for (const auto& job : jobs) {
             if (!job.value("removed", false) && !job.value("fired", false)) {
@@ -296,3 +284,5 @@ std::string CronTool::Invoke(const std::string& input)
         return "Error: Invalid action '" + action + "'. Use 'add', 'list', or 'remove'.";
     }
 }
+
+} // namespace jiuwenClaw

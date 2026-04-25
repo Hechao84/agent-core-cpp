@@ -1,6 +1,6 @@
 #!/bin/bash
 # build_third_party.sh - Download and compile third-party base dependencies
-# Output: src/3rd-party/include/*.hpp and libs/*.so
+# Output: third_party/include/*.hpp and libs/*.so
 # This script is meant to be called by build_linux.sh
 
 set -e
@@ -13,7 +13,7 @@ cd "$SCRIPT_DIR"
 
 # Directories
 LIBS_DIR="$SCRIPT_DIR/libs"
-TP_DIR="$SCRIPT_DIR/src/3rd-party"
+TP_DIR="$SCRIPT_DIR/third_party"
 INCLUDE_DIR="$TP_DIR/include"
 SRC_DIR="$TP_DIR/src"
 BUILD_DIR="$TP_DIR/build"
@@ -102,5 +102,5 @@ fi
 echo ""
 echo "=== Third-Party Base Libraries Ready ==="
 ls -lh "$LIBS_DIR/"*.so* 2>/dev/null || echo "  (no .so files)"
-echo "$(find "$INCLUDE_DIR" -name '*.h' -o -name '*.hpp' 2>/dev/null | wc -l) headers installed to src/3rd-party/include/"
+echo "$(find "$INCLUDE_DIR" -name '*.h' -o -name '*.hpp' 2>/dev/null | wc -l) headers installed to third_party/include/"
 echo "=== Done ==="

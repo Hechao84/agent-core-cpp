@@ -10,6 +10,10 @@
 #include "include/agent.h"
 #include "include/types.h"
 
+using namespace jiuwen;
+
+namespace jiuwenClaw {
+
 class HeartbeatManager {
 public:
     HeartbeatManager(
@@ -34,3 +38,5 @@ private:
     std::mutex mutex_;
     std::condition_variable cv_;
 };
+
+} // namespace jiuwenClaw
