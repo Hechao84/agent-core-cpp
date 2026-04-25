@@ -134,6 +134,7 @@ add_library(agent_framework SHARED
     src/utils/logger.cpp
     src/utils/data_dir.cpp
     src/utils/prompt_utils.cpp
+    src/utils/encoding.cpp
 )
 
 target_include_directories(agent_framework PRIVATE 

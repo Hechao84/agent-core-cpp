@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "src/utils/encoding.h"
 #include "third_party/include/curl/curl.h"
 #include "third_party/include/nlohmann/json.hpp"
 
@@ -16,7 +17,9 @@ struct AnthropicStreamContext {
     std::string buffer;
 };
 
-static size_t AnthropicWriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+namespace {
+
+size_t AnthropicWriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
 {
     size_t totalSize = size * nmemb;
     auto* ctx = static_cast<AnthropicStreamContext*>(userp);
@@ -57,6 +60,8 @@ static size_t AnthropicWriteCallback(void* contents, size_t size, size_t nmemb, 
     return totalSize;
 }
 
+} // namespace
+
 std::string AnthropicModel::Format(const std::string& systemPrompt, const std::vector<Message>& messages)
 {
     json payload;
@@ -69,7 +74,7 @@ std::string AnthropicModel::Format(const std::string& systemPrompt, const std::v
     for (const auto& msg : messages) {
         msgs.push_back({
             {"role", msg.role},
-            {"content", {{"type", "text"}, {"text", msg.content}}}
+            {"content", {{"type", "text"}, {"text", FixStringUTF8(msg.content)}}}
         });
     }
     payload["messages"] = msgs;
