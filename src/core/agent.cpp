@@ -102,6 +102,12 @@ std::string Agent::Invoke(const std::string& query, std::function<void(const std
     return finalAnswer;
 }
 
+bool Agent::IsBusy() const
+{
+    std::unique_lock<std::mutex> lock(invokeMutex_, std::try_to_lock);
+    return !lock.owns_lock();
+}
+
 void Agent::Cancel()
 {
     if (worker_) {

@@ -158,7 +158,7 @@ void CronWatcher::Notify() {
     cv_.notify_all();
 }
 
-void CronWatcher::HandleEvent(const CronTriggerEvent& event) {
+std::string CronWatcher::HandleEvent(const CronTriggerEvent& event) {
     LOG(INFO) << "[CRON-AGENT] Handling event: " << event.message;
     std::cout << UTF8ToLocal("\n[CronAgent] Processing: ") << UTF8ToLocal(event.message) << UTF8ToLocal("...\n") << std::flush;
 
@@ -173,8 +173,13 @@ void CronWatcher::HandleEvent(const CronTriggerEvent& event) {
     AgentResponseHandler handler;
     std::string fullResponse = agent_.Invoke(prompt, handler.GetCallback());
 
-    LOG(INFO) << "[CRON-AGENT] Event handled. Response length: " << fullResponse.length();
+    if (fullResponse == "Agent is busy") {
+        LOG(INFO) << "[CRON-AGENT] Agent busy, event deferred for job=" << event.jobId;
+    } else {
+        LOG(INFO) << "[CRON-AGENT] Event handled. Response length: " << fullResponse.length();
+    }
     std::cout << "\n";
+    return fullResponse;
 }
 
 time_t CronWatcher::CalculateSleepDuration() {
@@ -310,7 +315,11 @@ void CronWatcher::CheckAndFireCrons() {
 
                 LOG(INFO) << "[CronWatcher] Triggered [" << type << "] job=" << jobId << " message=" << msg;
 
-                HandleEvent(event);
+                std::string response = HandleEvent(event);
+                if (response == "Agent is busy") {
+                    LOG(INFO) << "[CronWatcher] Agent busy, deferring job=" << jobId << ", will retry next cycle";
+                    continue;
+                }
 
                 if (type == "one-time") {
                     job["removed"] = true;

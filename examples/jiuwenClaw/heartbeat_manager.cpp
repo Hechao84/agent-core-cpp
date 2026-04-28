@@ -123,6 +123,11 @@ void HeartbeatManager::Run() {
             continue;
         }
 
+        if (agent_.IsBusy()) {
+            LOG(INFO) << "[HB-CHECK] Agent busy, deferring heartbeat, will retry next cycle";
+            continue;
+        }
+
         std::string tasks;
         if (DecideAction(content, tasks)) {
             LOG(INFO) << "[HB-TRIGGER] Task triggered: " << tasks;

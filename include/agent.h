@@ -22,6 +22,7 @@ public:
     Agent(AgentConfig config);
     ~Agent();
     std::string Invoke(const std::string& query, std::function<void(const std::string&)> callback);
+    bool IsBusy() const;
     void Cancel();
     void AddTools(const std::vector<std::string>& toolNames);
     std::vector<std::string> GetRegisteredTools() const;
@@ -41,7 +42,7 @@ private:
     std::condition_variable cv_;
     std::atomic<bool> running_{true};
     std::atomic<bool> isActive_{false};
-    std::mutex invokeMutex_;
+    mutable std::mutex invokeMutex_;
     
     void ConsolidateMemory();
     void ConsolidationLoop();

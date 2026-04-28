@@ -38,7 +38,7 @@ public:
 private:
     void Run();
     void CheckAndFireCrons();
-    void HandleEvent(const CronTriggerEvent& event);
+    std::string HandleEvent(const CronTriggerEvent& event);
 
     time_t CalculateSleepDuration();
 
