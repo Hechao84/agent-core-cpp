@@ -160,16 +160,17 @@ void Agent::ConsolidationLoop()
         if (idleSeconds <= 0) idleSeconds = 60;
 
         auto timeout_occurred = cv_.wait_for(lock, std::chrono::seconds(idleSeconds), [this]() {
-            return !isActive_ || !running_;
+            return isActive_ || !running_;
         });
 
         if (!running_) break;
 
         if (isActive_) continue;
 
-        if (!timeout_occurred) continue;
+        if (timeout_occurred) continue;
 
-        lock.unlock(); 
+        LOG(INFO) << "[Consolidation] Do consolidation";
+        lock.unlock();
         ConsolidateMemory();
     }
 }

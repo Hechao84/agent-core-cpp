@@ -9,6 +9,7 @@
 #include <thread>
 
 #include "include/resource_manager.h"
+#include "examples/jiuwenClaw/utils/agent_response_handler.h"
 #include "examples/jiuwenClaw/utils/encoding.h"
 #include "examples/jiuwenClaw/utils/logger.h"
 #include "third_party/include/nlohmann/json.hpp"
@@ -31,6 +32,7 @@ HeartbeatManager::HeartbeatManager(const std::string& heartbeatFilePath, Agent& 
         ofs << "# Heartbeat Tasks\n\n## Active Tasks\n\n<!-- Add periodic tasks below -->\n\n## Completed\n\n";
     }
     thread_ = std::thread(&HeartbeatManager::Run, this);
+    LOG(INFO) << "[HB-CHECK] Start complete.";
 }
 
 HeartbeatManager::~HeartbeatManager() {
@@ -39,6 +41,7 @@ HeartbeatManager::~HeartbeatManager() {
     if (thread_.joinable()) {
         thread_.join();
     }
+    LOG(INFO) << "[HB-CHECK] Shutdown complete.";
 }
 
 std::string HeartbeatManager::ReadFile() const {
@@ -134,56 +137,7 @@ void HeartbeatManager::Run() {
                                           "   - ONLY move to 'Completed' if the task is explicitly a **one-time** task.\n"
                                           "   - Use your file editing tools to make this update in `./data/HEARTBEAT.md`.";
 
-            std::string fullResponse = agent_.Invoke(heartbeatPrompt, [this](const std::string& resp) {
-                std::string s = resp;
-
-                std::vector<std::string> streamTags = {"[STREAM] ", "[STREAM]"};
-                for (const auto& st : streamTags) {
-                    size_t p = s.find(st);
-                    while (p != std::string::npos) {
-                        s.erase(p, st.length());
-                        p = s.find(st, p);
-                    }
-                }
-
-                std::vector<std::string> hiddenTags = {"[STATUS]", "[THOUGHT]", "[ACTION]",
-                                                       "[TOOL_CALLS]", "[TOOL_RESPONSE]",
-                                                       "[RESPONSE]", "[FINAL]", "[ERROR]"};
-                for (const auto& tag : hiddenTags) {
-                    size_t pos = s.find(tag);
-                    while (pos != std::string::npos) {
-                        size_t contentStart = s.find('{', pos);
-                        size_t endPos = std::string::npos;
-
-                        if (contentStart != std::string::npos && contentStart < pos + tag.length() + 2) {
-                            int depth = 1;
-                            for (size_t i = contentStart + 1; i < s.length() && depth > 0; i++) {
-                                if (s[i] == '{') depth++;
-                                else if (s[i] == '}') depth--;
-                                if (depth == 0) endPos = i + 1;
-                            }
-                        }
-
-                        if (endPos == std::string::npos) {
-                            size_t nextTagPos = std::string::npos;
-                            for (const auto& ht : hiddenTags) {
-                                size_t p2 = s.find(ht, pos + tag.length());
-                                if (p2 != std::string::npos && (nextTagPos == std::string::npos || p2 < nextTagPos)) {
-                                    nextTagPos = p2;
-                                }
-                            }
-                            endPos = (nextTagPos != std::string::npos) ? nextTagPos : s.length();
-                        }
-
-                        s.erase(pos, endPos - pos);
-                        pos = s.find(tag);
-                    }
-                }
-
-                if (!s.empty()) {
-                    std::cout << UTF8ToLocal(s) << std::flush;
-                }
-            });
+            std::string fullResponse = agent_.Invoke(heartbeatPrompt, AgentResponseHandler().GetCallback());
             LOG(INFO) << "[HB-COMPLETED] Task execution finished. Response length: " << fullResponse.length();
             std::cout << "\n";
         } else {

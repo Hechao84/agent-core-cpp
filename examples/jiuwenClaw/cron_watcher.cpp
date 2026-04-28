@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "include/resource_manager.h"
+#include "examples/jiuwenClaw/utils/agent_response_handler.h"
 #include "examples/jiuwenClaw/utils/encoding.h"
 #include "examples/jiuwenClaw/utils/logger.h"
 #include "third_party/include/nlohmann/json.hpp"
@@ -17,6 +18,46 @@ namespace fs = std::filesystem;
 
 namespace {
 
+bool MatchesField(const std::string& field, int value, int minVal, int maxVal)
+{
+    if (field == "*" || field == "?") return true;
+
+    if (field.find(',') != std::string::npos) {
+        std::istringstream iss(field);
+        std::string part;
+        bool matched = false;
+        while (std::getline(iss, part, ',')) {
+            if (MatchesField(part, value, minVal, maxVal)) {
+                matched = true;
+                break;
+            }
+        }
+        return matched;
+    }
+
+    if (field.find('-') != std::string::npos) {
+        size_t dashPos = field.find('-');
+        int start = std::stoi(field.substr(0, dashPos));
+        int end = std::stoi(field.substr(dashPos + 1));
+        return value >= start && value <= end;
+    }
+
+    if (field.find('/') != std::string::npos) {
+        size_t slashPos = field.find('/');
+        std::string base = field.substr(0, slashPos);
+        int step = std::stoi(field.substr(slashPos + 1));
+        if (step <= 0) return false;
+        int start = (base == "*") ? minVal : std::stoi(base);
+        for (int v = start; v <= maxVal; v += step) {
+            if (v == value) return true;
+        }
+        return false;
+    }
+
+    int target = std::stoi(field);
+    return value == target;
+}
+
 bool MatchesCronExpression(const std::string& cronExpr, const std::tm& tm)
 {
     std::istringstream iss(cronExpr);
@@ -26,37 +67,11 @@ bool MatchesCronExpression(const std::string& cronExpr, const std::tm& tm)
         return false;
     }
 
-    if (minStr != "*") {
-        int cronMin = std::stoi(minStr);
-        if (tm.tm_min != cronMin) return false;
-    }
-
-    if (hourStr != "*") {
-        int cronHour = std::stoi(hourStr);
-        if (tm.tm_hour != cronHour) return false;
-    }
-
-    if (dayStr != "*" && dayStr != "?") {
-        int cronDay = std::stoi(dayStr);
-        if (tm.tm_mday != cronDay) return false;
-    }
-
-    if (monthStr != "*") {
-        int cronMonth = std::stoi(monthStr);
-        if (tm.tm_mon + 1 != cronMonth) return false;
-    }
-
-    if (weekdayStr != "*") {
-        if (weekdayStr.find('-') != std::string::npos) {
-            size_t dashPos = weekdayStr.find('-');
-            int start = std::stoi(weekdayStr.substr(0, dashPos));
-            int end = std::stoi(weekdayStr.substr(dashPos + 1));
-            if (tm.tm_wday < start || tm.tm_wday > end) return false;
-        } else {
-            int cronWday = std::stoi(weekdayStr);
-            if (tm.tm_wday != cronWday) return false;
-        }
-    }
+    if (!MatchesField(minStr, tm.tm_min, 0, 59)) return false;
+    if (!MatchesField(hourStr, tm.tm_hour, 0, 23)) return false;
+    if (!MatchesField(dayStr, tm.tm_mday, 1, 31)) return false;
+    if (!MatchesField(monthStr, tm.tm_mon + 1, 1, 12)) return false;
+    if (!MatchesField(weekdayStr, tm.tm_wday, 0, 6)) return false;
 
     return true;
 }
@@ -64,6 +79,55 @@ bool MatchesCronExpression(const std::string& cronExpr, const std::tm& tm)
 } // namespace
 
 namespace jiuwenClaw {
+
+time_t CalculateNextFire(const std::string& cronExpr, time_t afterTime)
+{
+    std::istringstream iss(cronExpr);
+    std::string minStr, hourStr, dayStr, monthStr, weekdayStr;
+
+    if (!(iss >> minStr >> hourStr >> dayStr >> monthStr >> weekdayStr)) {
+        return afterTime + 60;
+    }
+
+    std::tm tm = *std::localtime(&afterTime);
+    tm.tm_sec = 0;
+    tm.tm_min++;
+
+    bool domIsWildcard = (dayStr == "*" || dayStr == "?");
+    bool dowIsWildcard = (weekdayStr == "*" || weekdayStr == "?");
+
+    for (int i = 0; i < 525600; ++i) {
+        time_t currentTime = std::mktime(&tm);
+        if (currentTime == -1) {
+            return afterTime + 60;
+        }
+        tm = *std::localtime(&currentTime);
+
+        bool dayMatches = false;
+        if (domIsWildcard && dowIsWildcard) {
+            dayMatches = true;
+        } else if (domIsWildcard) {
+            dayMatches = MatchesField(weekdayStr, tm.tm_wday, 0, 6);
+        } else if (dowIsWildcard) {
+            dayMatches = MatchesField(dayStr, tm.tm_mday, 1, 31);
+        } else {
+            bool domMatches = MatchesField(dayStr, tm.tm_mday, 1, 31);
+            bool dowMatches = MatchesField(weekdayStr, tm.tm_wday, 0, 6);
+            dayMatches = domMatches || dowMatches;
+        }
+
+        if (MatchesField(minStr, tm.tm_min, 0, 59) &&
+            MatchesField(hourStr, tm.tm_hour, 0, 23) &&
+            dayMatches &&
+            MatchesField(monthStr, tm.tm_mon + 1, 1, 12)) {
+            return currentTime;
+        }
+
+        tm.tm_min++;
+    }
+
+    return afterTime + 60;
+}
 
 CronWatcher::CronWatcher(const std::string& dataDir, Agent& agent, const ModelConfig& modelConfig, int intervalSeconds)
     : dataDir_(dataDir), agent_(agent), modelConfig_(modelConfig), intervalSeconds_(intervalSeconds), running_(true)
@@ -73,19 +137,25 @@ CronWatcher::CronWatcher(const std::string& dataDir, Agent& agent, const ModelCo
         if (!fs::exists(dir)) {
             fs::create_directories(dir);
         }
-        LOG(INFO) << "[CronWatcher] Initialized, dataDir=" << dataDir_ << ", interval=" << intervalSeconds_ << "s";
+        LOG(INFO) << "[CronWatcher] Initialized, dataDir=" << dir << ", interval=" << intervalSeconds_ << "s";
         thread_ = std::thread(&CronWatcher::Run, this);
     } catch (const std::exception& e) {
         LOG(ERR) << "[CronWatcher] Init Error: " << e.what();
     }
+    LOG(INFO) << "[CronWatcher] Start complete.";
 }
 
 CronWatcher::~CronWatcher() {
     running_ = false;
+    cv_.notify_all();
     if (thread_.joinable()) {
         thread_.join();
     }
     LOG(INFO) << "[CronWatcher] Shutdown complete.";
+}
+
+void CronWatcher::Notify() {
+    cv_.notify_all();
 }
 
 void CronWatcher::HandleEvent(const CronTriggerEvent& event) {
@@ -99,66 +169,90 @@ void CronWatcher::HandleEvent(const CronTriggerEvent& event) {
                          "2. Execute the appropriate action based on what this reminder is about.\n"
                          "3. If this requires updating files or state, use your tools to do so.\n";
 
-    std::string fullResponse = agent_.Invoke(prompt, [](const std::string& resp) {
-        std::string s = resp;
-
-        std::vector<std::string> streamTags = {"[STREAM] ", "[STREAM]"};
-        for (const auto& st : streamTags) {
-            size_t p = s.find(st);
-            while (p != std::string::npos) {
-                s.erase(p, st.length());
-                p = s.find(st, p);
-            }
-        }
-
-        std::vector<std::string> hiddenTags = {"[STATUS]", "[THOUGHT]", "[ACTION]",
-                                               "[TOOL_CALLS]", "[TOOL_RESPONSE]",
-                                               "[RESPONSE]", "[FINAL]", "[ERROR]"};
-        for (const auto& tag : hiddenTags) {
-            size_t pos = s.find(tag);
-            while (pos != std::string::npos) {
-                size_t contentStart = s.find('{', pos);
-                size_t endPos = std::string::npos;
-
-                if (contentStart != std::string::npos && contentStart < pos + tag.length() + 2) {
-                    int depth = 1;
-                    for (size_t i = contentStart + 1; i < s.length() && depth > 0; i++) {
-                        if (s[i] == '{') depth++;
-                        else if (s[i] == '}') depth--;
-                        if (depth == 0) endPos = i + 1;
-                    }
-                }
-
-                if (endPos == std::string::npos) {
-                    size_t nextTagPos = std::string::npos;
-                    for (const auto& ht : hiddenTags) {
-                        size_t p2 = s.find(ht, pos + tag.length());
-                        if (p2 != std::string::npos && (nextTagPos == std::string::npos || p2 < nextTagPos)) {
-                            nextTagPos = p2;
-                        }
-                    }
-                    endPos = (nextTagPos != std::string::npos) ? nextTagPos : s.length();
-                }
-
-                s.erase(pos, endPos - pos);
-                pos = s.find(tag);
-            }
-        }
-
-        if (!s.empty()) {
-            std::cout << UTF8ToLocal(s) << std::flush;
-        }
-    });
+    LOG(INFO) << "[CRON-AGENT] Pseudo query for Cron task " << prompt;
+    AgentResponseHandler handler;
+    std::string fullResponse = agent_.Invoke(prompt, handler.GetCallback());
 
     LOG(INFO) << "[CRON-AGENT] Event handled. Response length: " << fullResponse.length();
     std::cout << "\n";
 }
 
+time_t CronWatcher::CalculateSleepDuration() {
+    std::string jobsPath = (fs::path(dataDir_) / "cron" / "jobs.json").string();
+    if (!fs::exists(jobsPath)) {
+        return intervalSeconds_;
+    }
+
+    try {
+        std::ifstream ifs(jobsPath);
+        nlohmann::json j = nlohmann::json::parse(ifs);
+        ifs.close();
+
+        if (!j.is_array() || j.empty()) {
+            return intervalSeconds_;
+        }
+
+        time_t now = std::time(nullptr);
+        time_t earliestNext = 0;
+
+        for (const auto& job : j) {
+            if (job.value("removed", false)) continue;
+            if (job.value("fired", false) && job.value("type", "") == "one-time") continue;
+
+            std::string type = job.value("type", "");
+            time_t next = job.value("next_fire", 0);
+            double intervalSec = job.value("every_seconds", 0.0);
+
+            if (type == "one-time") {
+                if (next > now && (earliestNext == 0 || next < earliestNext)) {
+                    earliestNext = next;
+                }
+            } else if (type == "recurring") {
+                if (next > 0) {
+                    time_t actualNext = next;
+                    if (actualNext <= now) {
+                        if (intervalSec <= 0) intervalSec = 60.0;
+                        while (actualNext <= now) {
+                            actualNext += static_cast<time_t>(intervalSec);
+                        }
+                    }
+                    if (earliestNext == 0 || actualNext < earliestNext) {
+                        earliestNext = actualNext;
+                    }
+                }
+            } else if (type == "cron") {
+                std::string expr = job.value("cron_expr", "");
+                if (!expr.empty() && next > 0) {
+                    time_t actualNext = next;
+                    if (actualNext <= now) {
+                        actualNext = CalculateNextFire(expr, now);
+                    }
+                    if (earliestNext == 0 || actualNext < earliestNext) {
+                        earliestNext = actualNext;
+                    }
+                }
+            }
+        }
+
+        if (earliestNext > now) {
+            return std::min(static_cast<time_t>(intervalSeconds_), earliestNext - now);
+        }
+    } catch (...) {
+    }
+
+    return intervalSeconds_;
+}
+
 void CronWatcher::Run() {
     while (running_) {
-        for (int i = 0; i < intervalSeconds_ && running_; ++i) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+        time_t sleepSec = CalculateSleepDuration();
+        if (sleepSec <= 0) sleepSec = 1;
+
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            cv_.wait_for(lock, std::chrono::seconds(sleepSec), [this]() { return !running_; });
         }
+
         if (!running_) break;
 
         CheckAndFireCrons();
@@ -186,30 +280,30 @@ void CronWatcher::CheckAndFireCrons() {
 
             if (job.value("fired", false) && job.value("type", "") == "one-time") continue;
 
-            bool shouldFire = false;
             std::string type = job.value("type", "");
-            double intervalSec = 0;
+            time_t next = job.value("next_fire", 0);
+            double intervalSec = job.value("every_seconds", 0.0);
 
+            bool shouldFire = false;
             if (type == "one-time") {
                 time_t at = job.value("at", 0);
                 if (at > 0 && now >= at) shouldFire = true;
             } else if (type == "recurring") {
-                intervalSec = job.value("every_seconds", 60.0);
-                time_t next = job.value("next_fire", 0);
-                if (now >= next) shouldFire = true;
+                if (next > 0 && now >= next) shouldFire = true;
             } else if (type == "cron") {
                 std::string expr = job.value("cron_expr", "");
-                time_t next = job.value("next_fire", 0);
-                if (!expr.empty() && now >= next) {
-                    job["next_fire"] = now + 60;
-                    modified = true;
+                if (!expr.empty() && next > 0 && now >= next) {
                     if (MatchesCronExpression(expr, localTm)) {
                         shouldFire = true;
+                    } else {
+                        job["next_fire"] = CalculateNextFire(expr, now);
+                        modified = true;
+                        LOG(INFO) << "[CronWatcher] Recalculated next_fire for missed cron job=" << job.value("id", "unknown");
                     }
                 }
             }
 
-            if (shouldFire) {
+            if (shouldFire && running_) {
                 std::string msg = job.value("message", "Timer Fired");
                 std::string jobId = job.value("id", "unknown");
                 CronTriggerEvent event{msg, jobId, type, (type == "one-time")};
@@ -221,12 +315,23 @@ void CronWatcher::CheckAndFireCrons() {
                 if (type == "one-time") {
                     job["removed"] = true;
                     modified = true;
-                } else {
+                } else if (type == "cron") {
+                    std::string expr = job.value("cron_expr", "");
+                    job["next_fire"] = CalculateNextFire(expr, now);
+                    job["fired"] = false;
+                    modified = true;
+                    LOG(INFO) << "[CronWatcher] Updated next_fire for cron job=" << jobId;
+                } else if (type == "recurring") {
                     if (intervalSec <= 0) intervalSec = 60.0;
-                    job["next_fire"] = now + static_cast<time_t>(intervalSec);
+                    time_t originalNext = job.value("next_fire", now);
+                    job["next_fire"] = originalNext + static_cast<time_t>(intervalSec);
                     job["fired"] = false;
                     modified = true;
                     LOG(INFO) << "[CronWatcher] Updated next_fire for recurring job=" << jobId;
+                }
+
+                if (!running_) {
+                    return;
                 }
             }
         }

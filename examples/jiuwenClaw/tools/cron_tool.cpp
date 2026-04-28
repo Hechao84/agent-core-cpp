@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "examples/jiuwenClaw/cron_watcher.h"
 #include "src/utils/data_dir.h"
 #include "examples/jiuwenClaw/utils/logger.h"
 #include "third_party/include/nlohmann/json.hpp"
@@ -134,7 +135,7 @@ std::string CronTool::AddReminder(const std::string& message, double everySecond
     } else if (!cronExpr.empty()) {
         job["type"] = "cron";
         job["cron_expr"] = cronExpr;
-        job["next_fire"] = std::time(nullptr) + 60;
+        job["next_fire"] = CalculateNextFire(cronExpr, std::time(nullptr));
     } else {
         return "Error: Must specify one of: every_seconds, at, or cron_expr for adding a reminder.";
     }
