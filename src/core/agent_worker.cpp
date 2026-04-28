@@ -71,7 +71,8 @@ void AgentWorker::CallModelStream(const std::string& prompt, const std::vector<s
         
         std::string fullResponse = model->Invoke(formatted, onChunk);
         
-        LOG(INFO) << "Model Response:\n" << fullResponse;
+        LOG(INFO) << "Model returned " << fullResponse.length() << " chars. Content preview: "
+                  << fullResponse;
         
         if (onComplete) onComplete(fullResponse);
     } catch (const std::exception& e) {

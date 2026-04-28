@@ -251,9 +251,6 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, std::function<
             },
             [](const std::string& complete) { (void)complete; });
 
-        LOG(INFO) << "[React] Model returned " << fullResponse.length() << " chars. Content preview: "
-                  << fullResponse;
-
         if (fullResponse.empty()) {
             LOG(WARN) << "[React] Model returned empty response. Loop stopped.";
             callback("\n[STATUS] Model returned empty response\n");
@@ -283,7 +280,6 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, std::function<
         for (const auto& toolCall : toolCalls) {
             LOG(INFO) << "Parsed tool call: " << toolCall.name << " with input: " << toolCall.arguments;
             callback("\n[TOOL_CALLS] {\"name\": \"" + toolCall.name + "\", \"arguments\": " + toolCall.arguments + "}\n");
-            callback("\n[STATUS] Tool Called: " + toolCall.name + "\n");
 
             std::string observation = ExecuteTool(toolCall.name, toolCall.arguments);
             LOG(INFO) << "[React] Tool observation length: " << observation.length();

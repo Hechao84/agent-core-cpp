@@ -11,6 +11,7 @@
 #include "src/skills/skill_engine.h"
 #include "src/tools/builtin_tools/skill_search_tool.h"
 #include "src/utils/data_dir.h"
+#include "src/utils/logger.h"
 
 namespace fs = std::filesystem;
 
@@ -47,15 +48,20 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
 
     // 3. Start background consolidation thread (sleep-time memory)
     consolidationThread_ = std::thread(&Agent::ConsolidationLoop, this);
+    LOG(INFO) << "[Agent] Start complete.";
 }
 
 Agent::~Agent()
 {
     running_ = false;
+    if (worker_) {
+        worker_->Cancel();
+    }
     cv_.notify_all();
     if (consolidationThread_.joinable()) {
         consolidationThread_.join();
     }
+    LOG(INFO) << "[Agent] Shutdown complete.";
 }
 
 std::string Agent::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
@@ -153,18 +159,17 @@ void Agent::ConsolidationLoop()
         auto idleSeconds = static_cast<unsigned int>(config_.contextConfig.idleConsolidationSeconds);
         if (idleSeconds <= 0) idleSeconds = 60;
 
-        // Wait until idle timeout or notified of new activity
-        cv_.wait_for(lock, std::chrono::seconds(idleSeconds), [this]() {
+        auto timeout_occurred = cv_.wait_for(lock, std::chrono::seconds(idleSeconds), [this]() {
             return !isActive_ || !running_;
         });
 
-        // If agent became active again, reset and keep waiting
-        if (isActive_ || !running_) {
-            continue;
-        }
+        if (!running_) break;
 
-        // Agent is idle, trigger consolidation
-        lock.unlock();
+        if (isActive_) continue;
+
+        if (!timeout_occurred) continue;
+
+        lock.unlock(); 
         ConsolidateMemory();
     }
 }
