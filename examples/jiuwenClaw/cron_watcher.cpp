@@ -89,7 +89,7 @@ time_t CalculateNextFire(const std::string& cronExpr, time_t afterTime)
         return afterTime + 60;
     }
 
-    std::tm tm = *std::localtime(&afterTime);
+    std::tm tm = *std::gmtime(&afterTime);
     tm.tm_sec = 0;
     tm.tm_min++;
 
@@ -97,11 +97,11 @@ time_t CalculateNextFire(const std::string& cronExpr, time_t afterTime)
     bool dowIsWildcard = (weekdayStr == "*" || weekdayStr == "?");
 
     for (int i = 0; i < 525600; ++i) {
-        time_t currentTime = std::mktime(&tm);
+        time_t currentTime = timegm(&tm);
         if (currentTime == -1) {
             return afterTime + 60;
         }
-        tm = *std::localtime(&currentTime);
+        tm = *std::gmtime(&currentTime);
 
         bool dayMatches = false;
         if (domIsWildcard && dowIsWildcard) {
@@ -169,7 +169,7 @@ std::string CronWatcher::HandleEvent(const CronTriggerEvent& event) {
                          "2. Execute the appropriate action based on what this reminder is about.\n"
                          "3. If this requires updating files or state, use your tools to do so.\n";
 
-    LOG(INFO) << "[CRON-AGENT] Pseudo query for Cron task " << prompt;
+    LOG(INFO) << "[CRON-AGENT] " << prompt;
     AgentResponseHandler handler;
     std::string fullResponse = agent_.Invoke(prompt, handler.GetCallback());
 
@@ -276,7 +276,7 @@ void CronWatcher::CheckAndFireCrons() {
         if (!j.is_array()) return;
 
         time_t now = std::time(nullptr);
-        std::tm localTm = *std::localtime(&now);
+        std::tm utcTm = *std::gmtime(&now);
         bool modified = false;
 
         for (int i = 0; i < static_cast<int>(j.size()); ++i) {
@@ -298,7 +298,7 @@ void CronWatcher::CheckAndFireCrons() {
             } else if (type == "cron") {
                 std::string expr = job.value("cron_expr", "");
                 if (!expr.empty() && next > 0 && now >= next) {
-                    if (MatchesCronExpression(expr, localTm)) {
+                    if (MatchesCronExpression(expr, utcTm)) {
                         shouldFire = true;
                     } else {
                         job["next_fire"] = CalculateNextFire(expr, now);

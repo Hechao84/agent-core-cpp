@@ -96,6 +96,7 @@ std::string Agent::Invoke(const std::string& query, std::function<void(const std
     {
         std::lock_guard<std::mutex> lock(mutex_);
         isActive_ = false;
+        consolidateStatus_ = ConsolidateStatus::NEED_CONSOLIDATE;
     }
     cv_.notify_all();
 
@@ -161,22 +162,37 @@ void Agent::ClearMemory()
 void Agent::ConsolidationLoop()
 {
     while (running_) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        auto idleSeconds = static_cast<unsigned int>(config_.contextConfig.idleConsolidationSeconds);
-        if (idleSeconds <= 0) idleSeconds = 60;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            auto idleSeconds = static_cast<unsigned int>(config_.contextConfig.idleConsolidationSeconds);
+            if (idleSeconds <= 0) idleSeconds = 60;
 
-        auto timeout_occurred = cv_.wait_for(lock, std::chrono::seconds(idleSeconds), [this]() {
-            return isActive_ || !running_;
-        });
+            while (running_ && isActive_) {
+                cv_.wait(lock, [this](){ return !isActive_ || !running_; });
+            }
+            if (!running_) break;
 
-        if (!running_) break;
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(idleSeconds);
 
-        if (isActive_) continue;
+            while (running_ && !isActive_) {
+                auto remaining_time = deadline - std::chrono::steady_clock::now();
+                if (remaining_time <= std::chrono::seconds::zero()) break;
 
-        if (timeout_occurred) continue;
+                auto status = cv_.wait_for(lock, remaining_time);
+                if (status == std::cv_status::timeout) break;
 
-        LOG(INFO) << "[Consolidation] Do consolidation";
-        lock.unlock();
+                if (!running_) break;
+            }
+
+            if (!running_) break;
+
+            if (isActive_) continue;
+
+            if (consolidateStatus_ == ConsolidateStatus::CONSOLIDATED) continue;
+
+            LOG(INFO) << "[Consolidation] Do consolidation";
+        }
+
         ConsolidateMemory();
     }
 }
@@ -212,6 +228,7 @@ void Agent::ConsolidateMemory()
 
         if (!updatedMemory.empty() && updatedMemory.find("no information") == std::string::npos) {
             contextEngine_->OverwriteMemory(updatedMemory);
+            consolidateStatus_ = ConsolidateStatus::CONSOLIDATED;
         }
     } catch (const std::exception& e) {
         std::cerr << "Memory consolidation failed: " << e.what() << std::endl;

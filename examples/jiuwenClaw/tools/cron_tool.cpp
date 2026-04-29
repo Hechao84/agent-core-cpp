@@ -66,10 +66,10 @@ CronTool::CronTool() : Tool("cron", "Schedule, list, and remove reminders. Use w
     ToolParam{"action", "Action: 'add', 'list', or 'remove'", "string", true},
     ToolParam{"message", "Reminder message", "string", false},
     ToolParam{"every_seconds", "Interval in seconds for recurring reminders", "integer", false},
-    ToolParam{"at", "ISO datetime for one-time reminders (e.g. 2026-01-15T14:00:00)", "string", false},
-    ToolParam{"cron_expr", "Cron expression (e.g. \"0 9 * * 1-5\" for weekdays at 9am)", "string", false},
+    ToolParam{"at", "ISO datetime for one-time reminders (e.g. 2026-01-15T14:00:00Z). Default: UTC", "string", false},
+    ToolParam{"cron_expr", "Cron expression in UTC (e.g. \"0 9 * * 1-5\" for weekdays at 9am UTC)", "string", false},
     ToolParam{"job_id", "Job ID to remove (from list output)", "string", false},
-    ToolParam{"timezone", "IANA timezone name (e.g. Asia/Shanghai). Default: local timezone", "string", false}
+    ToolParam{"timezone", "IANA timezone name (e.g. Asia/Shanghai). Default: UTC", "string", false}
 })
 {
 }
@@ -110,15 +110,13 @@ std::string CronTool::AddReminder(const std::string& message, double everySecond
         job["every_seconds"] = everySeconds;
         job["next_fire"] = std::time(nullptr) + static_cast<time_t>(everySeconds);
     } else if (!atTime.empty()) {
-        bool isUTC = false;
+        bool isUTC = true;
         bool hasZ = (!atTime.empty() && atTime.back() == 'Z');
         bool hasOffset = (atTime.find('+', 11) != std::string::npos || atTime.find('-', 11) != std::string::npos);
 
         if (hasZ) {
             isUTC = true;
-        } else if (!hasOffset && tz.empty()) {
-            isUTC = true;
-        } else {
+        } else if (!hasOffset && !tz.empty()) {
             isUTC = false;
         }
 
@@ -136,6 +134,7 @@ std::string CronTool::AddReminder(const std::string& message, double everySecond
         job["type"] = "cron";
         job["cron_expr"] = cronExpr;
         job["next_fire"] = CalculateNextFire(cronExpr, std::time(nullptr));
+        job["timezone"] = "UTC";
     } else {
         return "Error: Must specify one of: every_seconds, at, or cron_expr for adding a reminder.";
     }

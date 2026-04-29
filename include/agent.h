@@ -17,6 +17,8 @@ class AgentWorker;
 class ContextEngine; // Forward declaration
 class SkillEngine;   // Forward declaration
 
+enum class ConsolidateStatus {INIT, NEED_CONSOLIDATE, CONSOLIDATED};
+
 class AGENT_API Agent {
 public:
     Agent(AgentConfig config);
@@ -42,6 +44,7 @@ private:
     std::condition_variable cv_;
     std::atomic<bool> running_{true};
     std::atomic<bool> isActive_{false};
+    std::atomic<ConsolidateStatus> consolidateStatus_{ConsolidateStatus::INIT};
     mutable std::mutex invokeMutex_;
     
     void ConsolidateMemory();
