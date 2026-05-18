@@ -16,8 +16,6 @@
 #include "examples/jiuwenClaw/tools/cron_tool.h"
 #include "examples/jiuwenClaw/tools/notebook_edit_tool.h"
 #include "examples/jiuwenClaw/tools/notify_tool.h"
-// Web API
-#include "src/web/web_api.h"
 
 #include "examples/jiuwenClaw/utils/encoding.h"
 #include "examples/jiuwenClaw/utils/logger.h"
