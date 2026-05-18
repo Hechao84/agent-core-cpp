@@ -20,8 +20,8 @@ namespace fs = std::filesystem;
 
 namespace jiuwenClaw {
 
-HeartbeatManager::HeartbeatManager(const std::string& heartbeatFilePath, Agent& agent, const ModelConfig& modelConfig, int intervalSeconds)
-    : path_(heartbeatFilePath), agent_(agent), modelConfig_(modelConfig), intervalSeconds_(intervalSeconds), running_(true)
+HeartbeatManager::HeartbeatManager(const std::string& heartbeatFilePath, const ModelConfig& modelConfig, int intervalSeconds)
+    : path_(heartbeatFilePath), modelConfig_(modelConfig), intervalSeconds_(intervalSeconds), running_(true)
 {
     if (!fs::exists(fs::path(path_))) {
         fs::path parentDir = fs::path(path_).parent_path();
@@ -123,8 +123,9 @@ void HeartbeatManager::Run() {
             continue;
         }
 
-        if (agent_.IsBusy()) {
-            LOG(INFO) << "[HB-CHECK] Agent busy, deferring heartbeat, will retry next cycle";
+        // Check if heartbeat session is busy via SessionManager
+        if (GetSessionManager().IsSessionBusy(kHeartbeatSessionId)) {
+            LOG(INFO) << "[HB-CHECK] Heartbeat session busy, will retry next cycle";
             continue;
         }
 
@@ -142,8 +143,17 @@ void HeartbeatManager::Run() {
                                           "   - ONLY move to 'Completed' if the task is explicitly a **one-time** task.\n"
                                           "   - Use your file editing tools to make this update in `./data/HEARTBEAT.md`.";
 
-            std::string fullResponse = agent_.Invoke(heartbeatPrompt, AgentResponseHandler().GetCallback());
-            LOG(INFO) << "[HB-COMPLETED] Task execution finished. Response length: " << fullResponse.length();
+            SessionInvokeResult result = GetSessionManager().Invoke(
+                kHeartbeatSessionId,
+                heartbeatPrompt,
+                AgentResponseHandler().GetCallback()
+            );
+
+            if (result.success) {
+                LOG(INFO) << "[HB-COMPLETED] Task execution finished. Response length: " << result.content.length();
+            } else {
+                LOG(ERR) << "[HB-FAILED] Task execution failed: " << result.errorMessage;
+            }
             std::cout << "\n";
         } else {
             LOG(INFO) << "[HB-SKIP] No tasks to execute or conditions not met.";

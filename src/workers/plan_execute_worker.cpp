@@ -1,4 +1,5 @@
 #include "src/workers/plan_execute_worker.h"
+
 #include <algorithm>
 #include <iostream>
 #include <sstream>
@@ -7,15 +8,20 @@
 
 namespace jiuwen {
 
-PlanAndExecuteAgentWorker::PlanAndExecuteAgentWorker(AgentConfig config) : AgentWorker(std::move(config)){} std::vector<std::string> PlanAndExecuteAgentWorker::GeneratePlan(const std::string& query, std::function<void(const std::string&)> callback)
+PlanAndExecuteAgentWorker::PlanAndExecuteAgentWorker(AgentConfig config) : AgentWorker(std::move(config))
 {
-    std::string prompt = BuildPrompt("plan_system", query, "");
+}
+
+std::vector<std::string> PlanAndExecuteAgentWorker::GeneratePlan(const std::string& query, ContextEngine* contextEngine, std::function<void(const std::string&)> callback, uint64_t myGeneration)
+{
+    std::string prompt = BuildPrompt("plan_system", query, "", contextEngine);
     callback("[STATUS] Generating plan...");
     std::string fullResponse;
     CallModelStream(prompt, {},
         [&callback, &fullResponse](const std::string& chunk) { fullResponse += chunk; callback("[PLAN_STREAM] " + chunk); },
-        [&callback, &fullResponse](const std::string& complete) { if (!complete.empty()) callback("[PLAN_COMPLETE] " + complete); });
-    if (cancelled_.load()) return {};
+        [&callback, &fullResponse](const std::string& complete) { if (!complete.empty()) callback("[PLAN_COMPLETE] " + complete); },
+        myGeneration);
+    if (!IsCancelled(myGeneration)) return {};
     std::vector<std::string> steps;
     std::istringstream stream(fullResponse);
     std::string line;
@@ -33,47 +39,49 @@ PlanAndExecuteAgentWorker::PlanAndExecuteAgentWorker(AgentConfig config) : Agent
     return steps;
 }
 
-std::string PlanAndExecuteAgentWorker::ExecuteStep(const std::string& step, const std::string& context, std::function<void(const std::string&)> callback)
+std::string PlanAndExecuteAgentWorker::ExecuteStep(const std::string& step, const std::string& context, ContextEngine* contextEngine, std::function<void(const std::string&)> callback, uint64_t myGeneration)
 {
-    std::string prompt = BuildPrompt("execute_system", step, context);
+    std::string prompt = BuildPrompt("execute_system", step, context, contextEngine);
     callback("[STATUS] Executing step: " + step);
     std::string fullResponse;
     CallModelStream(prompt, {},
         [&callback, &fullResponse](const std::string& chunk) { fullResponse += chunk; callback("[STEP_STREAM] " + chunk); },
-        [&callback, &fullResponse](const std::string& complete) { if (!complete.empty()) callback("[STEP_COMPLETE] " + complete); });
+        [&callback, &fullResponse](const std::string& complete) { if (!complete.empty()) callback("[STEP_COMPLETE] " + complete); },
+        myGeneration);
     return fullResponse;
 }
 
-std::string PlanAndExecuteAgentWorker::SynthesizeResult(const std::string& query, const std::string& context, std::function<void(const std::string&)> callback)
+std::string PlanAndExecuteAgentWorker::SynthesizeResult(const std::string& query, const std::string& context, ContextEngine* contextEngine, std::function<void(const std::string&)> callback, uint64_t myGeneration)
 {
-    std::string prompt = BuildPrompt("synthesize_system", query, context);
+    std::string prompt = BuildPrompt("synthesize_system", query, context, contextEngine);
     callback("[STATUS] Synthesizing final result...");
     std::string fullResponse;
     CallModelStream(prompt, {},
         [&callback, &fullResponse](const std::string& chunk) { fullResponse += chunk; callback("[RESULT_STREAM] " + chunk); },
-        [&callback, &fullResponse](const std::string& complete) { if (!complete.empty()) callback("[FINAL] " + complete); });
+        [&callback, &fullResponse](const std::string& complete) { if (!complete.empty()) callback("[FINAL] " + complete); },
+        myGeneration);
     return fullResponse;
 }
 
-std::string PlanAndExecuteAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
+std::string PlanAndExecuteAgentWorker::Invoke(const std::string& query, ContextEngine* contextEngine, std::function<void(const std::string&)> callback)
 {
-    cancelled_.store(false);
-    std::vector<std::string> plan = GeneratePlan(query, callback);
-    if (cancelled_.load() || plan.empty()) { 
+    uint64_t myGeneration = StartNewInvocation();
+    std::vector<std::string> plan = GeneratePlan(query, contextEngine, callback, myGeneration);
+    if (!IsCancelled(myGeneration) || plan.empty()) { 
         callback("[STATUS] Cancelled or empty plan"); 
         return "";
     }
     std::string context;
-    for (size_t i = 0; i < plan.size() && !cancelled_.load(); ++i) {
+    for (size_t i = 0; i < plan.size() && IsCancelled(myGeneration); ++i) {
         callback("[PROGRESS] Step " + std::to_string(i + 1) + "/" + std::to_string(plan.size()));
-        std::string stepResult = ExecuteStep(plan[i], context, callback);
+        std::string stepResult = ExecuteStep(plan[i], context, contextEngine, callback, myGeneration);
         context += "\nStep " + std::to_string(i + 1) + ": " + plan[i] + "\nResult: " + stepResult;
     }
-    if (cancelled_.load()) { 
+    if (!IsCancelled(myGeneration)) { 
         callback("[STATUS] Cancelled during execution"); 
         return "";
     }
-    return SynthesizeResult(query, context, callback);
+    return SynthesizeResult(query, context, contextEngine, callback, myGeneration);
 }
 
 } // namespace jiuwen

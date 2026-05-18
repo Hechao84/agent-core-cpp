@@ -7,10 +7,8 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "include/agent.h"
+#include "include/session_manager.h"
 #include "include/types.h"
-
-using namespace jiuwen;
 
 namespace jiuwenClaw {
 
@@ -18,8 +16,7 @@ class HeartbeatManager {
 public:
     HeartbeatManager(
         const std::string& heartbeatFilePath,
-        Agent& agent,
-        const ModelConfig& modelConfig,
+        const jiuwen::ModelConfig& modelConfig,
         int intervalSeconds = 1800
     );
     ~HeartbeatManager();
@@ -30,8 +27,7 @@ private:
     void Run();
 
     std::string path_;
-    Agent& agent_;
-    ModelConfig modelConfig_;
+    jiuwen::ModelConfig modelConfig_;
     int intervalSeconds_{600};
     std::atomic<bool> running_{true};
     std::thread thread_;

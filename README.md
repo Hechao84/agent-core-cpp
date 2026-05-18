@@ -52,7 +52,7 @@ After building, the following artifacts are produced:
 
 ### Context Engine
 - **Memory Only** — Ephemeral storage
-- **Markdown File** — Persist messages as `.md` files (verified)
+- **JSON File** — Persist messages as `.json` files
 - **Database** — SQLite-backed persistent storage (implemented)
 - Common base class (`ContextStorageBase`) for shared logic, with specialized backends
 - Automatic token estimation and context window management
@@ -207,7 +207,7 @@ jiuwen-lite/
 │   ├── protocol/        # MCP JSON-RPC client
 │   ├── context_engine/  # Context storage backends
 │   │   ├── storage_base.h/cpp # Common storage logic
-│   │   ├── md_storage.h/cpp   # Markdown file storage
+│   │   ├── json_storage.h/cpp # JSON file storage
 │   │   └── db_storage.h/cpp   # SQLite storage
 │   ├── skills/          # Skill loading and management
 │   └── utils/           # Logging and utilities

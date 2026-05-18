@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -38,6 +39,7 @@ private:
     void RegisterBuiltinTools();
     void RegisterBuiltinModels();
 
+    mutable std::mutex mutex_;
     std::unordered_map<std::string, std::function<std::unique_ptr<Tool>()>> toolFactories_;
     std::unordered_map<std::string, std::string> toolSchemas_;
     std::unordered_map<ModelFormatType, std::function<std::unique_ptr<Model>(const ModelConfig&)>> modelFactories_;

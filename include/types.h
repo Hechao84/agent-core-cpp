@@ -131,10 +131,49 @@ struct ContextConfig
     int maxMessages{50};
     std::string sessionId;
     std::string storagePath; // For DB: path to file, For File: directory path
-    enum class StorageType{ MEMORY_ONLY, MARKDOWN_FILE, DATABASE };
-    StorageType storageType{StorageType::MARKDOWN_FILE}; // Default to Markdown file for persistence
+    enum class StorageType{ MEMORY_ONLY, JSON_FILE, DATABASE };
+    StorageType storageType{StorageType::JSON_FILE}; // Default to Json file for persistence
     bool enableSummarization{false};
     int idleConsolidationSeconds{60};
+};
+
+// Session-specific configuration (per-session agent runtime)
+struct SessionConfig
+{
+    std::string sessionId;
+    std::map<std::string, std::string> metadata; // channel, sender, etc.
+
+    // Per-session agent overrides (fallback to global defaults)
+    int maxIterations{0}; // 0 = use global default
+};
+
+// Session invocation result
+struct SessionInvokeResult
+{
+    std::string sessionId;
+    bool success{true};
+    std::string errorMessage;
+    std::string content;
+};
+
+struct HistoryEntry
+{
+    int cursor;
+    std::string timestamp;
+    std::string role;
+    std::string content;
+    int toolsUsed{0};
+};
+
+struct DreamConfig
+{
+    std::string dataBasePath;
+    std::string historyPath;
+    int maxBatchSize{20};
+    int maxIterations{10};
+    int maxToolResultChars{16000};
+    int historyEntryPreviewMaxChars{4000};
+    int memoryFileMaxChars{32000};
 };
 
 struct AgentConfig 
@@ -147,8 +186,25 @@ struct AgentConfig
     ModelConfig modelConfig;
     std::unordered_map<std::string, PromptResource> promptTemplates;
     ContextConfig contextConfig;
+    DreamConfig dreamConfig;
     std::string skillDirectory;
     int maxIterations{10};
+
+    // Multi-session settings
+    std::string dataBasePath; // "./data" - root of all data
+    int maxConcurrentSessions{3}; // Global concurrency gate (0 = unlimited)
+    std::vector<std::string> defaultTools; // Tools registered for all sessions
+};
+
+// Channel message format for web/feishu/telegram routing
+struct ChannelMessage
+{
+    std::string channel; // "websocket", "feishu", "cli"
+    std::string chatId;
+    std::string senderId;
+    std::string sessionId; // Overrides auto-generated session key
+    std::string content;
+    std::map<std::string, std::string> metadata; // Extra channel-specific data
 };
 
 } // namespace jiuwen

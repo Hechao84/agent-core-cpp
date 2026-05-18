@@ -75,7 +75,7 @@ int main()
 
     // Context Config
     config.contextConfig.sessionId = "test_session";
-    config.contextConfig.storageType = ContextConfig::StorageType::MARKDOWN_FILE;
+    config.contextConfig.storageType = ContextConfig::StorageType::JSON_FILE;
     config.contextConfig.storagePath = "./data/context_test_builtin";
     
     // Skill Config

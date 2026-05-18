@@ -1,4 +1,5 @@
 #include "src/core/agent_worker.h"
+
 #include <algorithm>
 #include <chrono>
 #include <ctime>
@@ -9,6 +10,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
 #include "include/model.h"
 #include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
@@ -26,13 +28,14 @@ AgentWorker::AgentWorker(AgentConfig config) : config_(std::move(config))
     toolSelector_ = std::make_unique<ToolSelector>();
 }
 
-void AgentWorker::Cancel() 
-{ 
-    cancelled_.store(true); 
+void AgentWorker::Cancel()
+{
+    cancelGeneration_.fetch_add(100, std::memory_order_relaxed);
 }
 
 void AgentWorker::AddTools(const std::vector<std::string>& toolNames)
 {
+    std::lock_guard<std::mutex> lock(toolMutex_);
     auto& rm = ResourceManager::GetInstance();
     for (const auto& name : toolNames) {
         if (rm.HasTool(name)) {
@@ -44,22 +47,18 @@ void AgentWorker::AddTools(const std::vector<std::string>& toolNames)
     }
 }
 
-void AgentWorker::SetContextEngine(std::shared_ptr<ContextEngine> engine)
-{
-    contextEngine_ = engine;
-}
-
 void AgentWorker::SetSkillEngine(std::shared_ptr<SkillEngine> engine)
 {
     skillEngine_ = engine;
 }
 
 void AgentWorker::CallModelStream(const std::string& prompt, const std::vector<std::pair<std::string, std::string>>& messages,
-                                  std::function<void(const std::string&)> onChunk, std::function<void(const std::string&)> onComplete) 
+                                  std::function<void(const std::string&)> onChunk, std::function<void(const std::string&)> onComplete,
+                                  uint64_t generation)
 {
-    if (cancelled_.load()) { 
-        onComplete(""); 
-        return; 
+    if (!IsCancelled(generation)) {
+        onComplete("");
+        return;
     }
     try {
         auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
@@ -82,7 +81,7 @@ void AgentWorker::CallModelStream(const std::string& prompt, const std::vector<s
     }
 }
 
-std::string AgentWorker::BuildPrompt(const std::string& templateName, const std::string& query, const std::string& context)
+std::string AgentWorker::BuildPrompt(const std::string& templateName, const std::string& query, const std::string& context, ContextEngine* contextEngine)
 {
     // 1. Resolve the template content (load from file if configured, or fallback to templates/REACT_SYSTEM.md)
     std::string promptTemplate;
@@ -135,8 +134,8 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
     vars["tools"] = GetToolSchemaForQuery(query);
 
     // 7. Load memory context into {$memory}
-    if (contextEngine_) {
-        std::string memoryContent = contextEngine_->GetMemoryContent();
+    if (contextEngine) {
+        std::string memoryContent = contextEngine->GetMemoryContent();
         if (!memoryContent.empty()) {
             vars["memory"] = "# Long-term Memory\n\n" + memoryContent;
         } else {
@@ -173,6 +172,7 @@ std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
 {
     // TODO: Bypass tool selection for now; dump all registered tools into prompt.
     (void)query;
+    std::lock_guard<std::mutex> lock(toolMutex_);
     auto& rm = ResourceManager::GetInstance();
     std::string schema;
     for (const auto& name : toolNames_) {
@@ -183,6 +183,16 @@ std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
         }
     }
     return schema;
+}
+
+uint64_t AgentWorker::StartNewInvocation()
+{
+    return cancelGeneration_.fetch_add(1, std::memory_order_relaxed) + 1;
+}
+
+bool AgentWorker::IsCancelled(uint64_t myGeneration) const
+{
+    return cancelGeneration_.load(std::memory_order_relaxed) <= myGeneration;
 }
 
 } // namespace jiuwen

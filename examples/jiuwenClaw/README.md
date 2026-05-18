@@ -127,7 +127,6 @@ CronWatcher 是一个独立运行的模块，拥有自己的 Agent 实例，检�
 ## 记忆管理
 
 - **自动**：对话空闲 60 秒后，自动整理记忆到 `MEMORY.md`
-- **手动**：通过 Agent 的 `UpdateMemory()` / `ClearMemory()` 接口操作
 
 ## 自定义新智能体
 

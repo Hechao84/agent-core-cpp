@@ -129,8 +129,8 @@ time_t CalculateNextFire(const std::string& cronExpr, time_t afterTime)
     return afterTime + 60;
 }
 
-CronWatcher::CronWatcher(const std::string& dataDir, Agent& agent, const ModelConfig& modelConfig, int intervalSeconds)
-    : dataDir_(dataDir), agent_(agent), modelConfig_(modelConfig), intervalSeconds_(intervalSeconds), running_(true)
+CronWatcher::CronWatcher(const std::string& dataDir, const ModelConfig& modelConfig, int intervalSeconds)
+    : dataDir_(dataDir), modelConfig_(modelConfig), intervalSeconds_(intervalSeconds), running_(true)
 {
     try {
         fs::path dir = fs::path(dataDir_) / "cron";
@@ -170,16 +170,26 @@ std::string CronWatcher::HandleEvent(const CronTriggerEvent& event) {
                          "3. If this requires updating files or state, use your tools to do so.\n";
 
     LOG(INFO) << "[CRON-AGENT] " << prompt;
-    AgentResponseHandler handler;
-    std::string fullResponse = agent_.Invoke(prompt, handler.GetCallback());
 
-    if (fullResponse == "Agent is busy") {
-        LOG(INFO) << "[CRON-AGENT] Agent busy, event deferred for job=" << event.jobId;
+    // Check if cron session is busy
+    if (GetSessionManager().IsSessionBusy(kCronSessionId)) {
+        LOG(INFO) << "[CRON-AGENT] Cron session busy, deferring event=" << event.jobId;
+        return "Agent is busy";
+    }
+
+    SessionInvokeResult result = GetSessionManager().Invoke(
+        kCronSessionId,
+        prompt,
+        AgentResponseHandler().GetCallback()
+    );
+
+    if (result.success) {
+        LOG(INFO) << "[CRON-AGENT] Event handled. Response length: " << result.content.length();
     } else {
-        LOG(INFO) << "[CRON-AGENT] Event handled. Response length: " << fullResponse.length();
+        LOG(ERR) << "[CRON-AGENT] Event handled failed: " << result.errorMessage;
     }
     std::cout << "\n";
-    return fullResponse;
+    return result.success ? result.content : result.errorMessage;
 }
 
 time_t CronWatcher::CalculateSleepDuration() {

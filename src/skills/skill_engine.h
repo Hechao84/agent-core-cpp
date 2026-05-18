@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -50,6 +51,7 @@ public:
 
 private:
     std::string rootDir_;
+    mutable std::mutex mutex_;
     std::unordered_map<std::string, Skill> skills_;
     std::string lastMtime_;
 

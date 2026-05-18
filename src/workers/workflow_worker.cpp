@@ -1,4 +1,5 @@
 #include "src/workers/workflow_worker.h"
+
 #include <algorithm>
 #include <iostream>
 #include <queue>
@@ -7,7 +8,11 @@
 
 namespace jiuwen {
 
-WorkflowAgentWorker::WorkflowAgentWorker(AgentConfig config) : AgentWorker(std::move(config)){} std::vector<WorkflowNode> WorkflowAgentWorker::ParseWorkflowConfig()
+WorkflowAgentWorker::WorkflowAgentWorker(AgentConfig config) : AgentWorker(std::move(config))
+{
+}
+
+std::vector<WorkflowNode> WorkflowAgentWorker::ParseWorkflowConfig()
 {
     // TODO: Load from config when workflowSteps is added back
     std::vector<WorkflowNode> nodes;
@@ -39,9 +44,9 @@ std::string WorkflowAgentWorker::ExecuteNode(const WorkflowNode& node, const std
     return fullResponse;
 }
 
-std::string WorkflowAgentWorker::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
+std::string WorkflowAgentWorker::Invoke(const std::string& query, ContextEngine* /*contextEngine*/, std::function<void(const std::string&)> callback)
 {
-    cancelled_.store(false);
+    uint64_t myGeneration = StartNewInvocation();
     std::vector<WorkflowNode> nodes = ParseWorkflowConfig();
     if (nodes.empty()) { 
         callback("[ERROR] No workflow nodes"); 
@@ -50,7 +55,7 @@ std::string WorkflowAgentWorker::Invoke(const std::string& query, std::function<
     std::string currentInput = query;
     std::queue<std::string> nodeQueue;
     nodeQueue.push(nodes[0].name);
-    while (!nodeQueue.empty() && !cancelled_.load()) {
+    while (!nodeQueue.empty() && IsCancelled(myGeneration)) {
         std::string currentNodeName = nodeQueue.front();
         nodeQueue.pop();
         auto it = std::find_if(nodes.begin(), nodes.end(), 
@@ -60,13 +65,13 @@ std::string WorkflowAgentWorker::Invoke(const std::string& query, std::function<
             continue; 
         }
         currentInput = ExecuteNode(*it, currentInput, callback);
-        if (cancelled_.load()) { 
+        if (!IsCancelled(myGeneration)) { 
             callback("[STATUS] Cancelled"); 
             return "";
         }
         for (const auto& nextNode : it->nextNodes) nodeQueue.push(nextNode);
     }
-    if (cancelled_.load()) {
+    if (!IsCancelled(myGeneration)) {
         callback("[STATUS] Cancelled");
         return "";
     }

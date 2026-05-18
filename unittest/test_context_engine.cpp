@@ -1,11 +1,12 @@
 
 
+#include <filesystem>
 #include <string>
 #include <vector>
-#include "filesystem"
+
 #include "include/types.h"
 #include "src/context_engine/context_engine.h"
-#include "src/context_engine/md_storage.h"
+#include "src/context_engine/json_storage.h"
 #include "test_runner.h"
 
 using namespace jiuwen;
@@ -102,14 +103,14 @@ TEST(context_engine, MemoryOnlyStorage)
     TestRunner::AssertEq(engine.GetTokenCount() > 0, true);
 }
 
-// MarkdownStorage Tests
-TEST(markdown_storage, SaveAndLoad)
+// JsonStorage Tests
+TEST(json_storage, SaveAndLoad)
 {
-    std::string testDir = "test_tmp_md_storage";
+    std::string testDir = "test_tmp_json_storage";
     if (fs::exists(testDir)) fs::remove_all(testDir);
     fs::create_directories(testDir);
 
-    MarkdownStorage storage(testDir, "test_session");
+    JsonStorage storage(testDir, "test_session");
     storage.SaveMessage({"user", "Hello world"});
     storage.SaveMessage({"assistant", "Hi!"});
 
@@ -123,13 +124,13 @@ TEST(markdown_storage, SaveAndLoad)
     fs::remove_all(testDir);
 }
 
-TEST(markdown_storage, MultiLineContent)
+TEST(json_storage, MultiLineContent)
 {
-    std::string testDir = "test_tmp_md_multiline";
+    std::string testDir = "test_tmp_json_multiline";
     if (fs::exists(testDir)) fs::remove_all(testDir);
     fs::create_directories(testDir);
 
-    MarkdownStorage storage(testDir, "session2");
+    JsonStorage storage(testDir, "session2");
     storage.SaveMessage({"assistant", "Line 1\nLine 2\nLine 3"});
 
     std::vector<Message> loaded;
@@ -140,13 +141,13 @@ TEST(markdown_storage, MultiLineContent)
     fs::remove_all(testDir);
 }
 
-TEST(markdown_storage, Clear)
+TEST(json_storage, Clear)
 {
-    std::string testDir = "test_tmp_md_clear";
+    std::string testDir = "test_tmp_json_clear";
     if (fs::exists(testDir)) fs::remove_all(testDir);
     fs::create_directories(testDir);
 
-    MarkdownStorage storage(testDir, "clear_session");
+    JsonStorage storage(testDir, "clear_session");
     storage.SaveMessage({"user", "test"});
     storage.Clear();
 
@@ -157,13 +158,13 @@ TEST(markdown_storage, Clear)
     fs::remove_all(testDir);
 }
 
-TEST(markdown_storage, NonExistentFile)
+TEST(json_storage, NonExistentFile)
 {
-    std::string testDir = "test_tmp_md_nofile";
+    std::string testDir = "test_tmp_json_nofile";
     if (fs::exists(testDir)) fs::remove_all(testDir);
     fs::create_directories(testDir);
 
-    MarkdownStorage storage(testDir, "empty_session");
+    JsonStorage storage(testDir, "empty_session");
     std::vector<Message> loaded;
     bool ok = storage.LoadHistory(loaded);
     TestRunner::AssertTrue(ok, "Should succeed (empty is OK)");
@@ -229,22 +230,6 @@ TEST(context_engine, FirstMessageAlwaysPreserved)
     auto window = engine.GetContextWindow();
     TestRunner::AssertTrue(!window.empty());
     TestRunner::AssertEq(window[0].content, std::string("Important first message"));
-}
-
-TEST(context_engine, MemoryProvidesDataForPrompts)
-{
-    ContextConfig config;
-    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
-    config.sessionId = "test_prompt_data";
-    ContextEngine engine(config);
-    engine.Initialize();
-    
-    // ContextEngine provides data, AgentWorker assembles the prompt
-    engine.UpdateMemory("User prefers JSON output.");
-    std::string mem = engine.GetMemoryContent();
-    TestRunner::AssertContains(mem, "User prefers JSON output.");
-    
-    engine.ClearMemory();
 }
 
 TEST(context_engine, BuildMessagesForLLM)
@@ -326,82 +311,6 @@ TEST(context_engine, BuildMessagesCorrectRoleOrder)
     TestRunner::AssertEq(messages[1].role, std::string("assistant"));
     TestRunner::AssertEq(messages[2].role, std::string("user"));
     TestRunner::AssertContains(messages[2].content, "Query");
-}
-
-TEST(context_engine, UpdateMemory)
-{
-    ContextConfig config;
-    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
-    config.sessionId = "test_memory";
-    ContextEngine engine(config);
-    engine.Initialize();
-    
-    engine.UpdateMemory("User prefers short answers. Main language is Chinese.");
-    
-    // Verify memory was loaded
-    std::string mem = engine.GetMemoryContent();
-    TestRunner::AssertContains(mem, "User prefers short answers.");
-    
-    // Cleanup
-    engine.ClearMemory();
-}
-
-TEST(context_engine, UpdateMemoryMultipleTimes)
-{
-    ContextConfig config;
-    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
-    config.sessionId = "test_memory_multi";
-    ContextEngine engine(config);
-    engine.Initialize();
-    
-    engine.UpdateMemory("Fact 1: User is a developer.");
-    engine.UpdateMemory("Fact 2: User works on AI projects.");
-    
-    std::string mem = engine.GetMemoryContent();
-    TestRunner::AssertContains(mem, "User is a developer.");
-    TestRunner::AssertContains(mem, "User works on AI projects.");
-    TestRunner::AssertContains(mem, "---"); // Should have separator
-    
-    engine.ClearMemory();
-}
-
-TEST(context_engine, ClearMemory)
-{
-    ContextConfig config;
-    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
-    config.sessionId = "test_memory_clear";
-    ContextEngine engine(config);
-    engine.Initialize();
-    
-    engine.UpdateMemory("Some fact to be cleared.");
-    std::string mem = engine.GetMemoryContent();
-    TestRunner::AssertTrue(!mem.empty());
-    
-    engine.ClearMemory();
-    mem = engine.GetMemoryContent();
-    TestRunner::AssertEq(mem, std::string(""));
-}
-
-TEST(context_engine, OverwriteMemory)
-{
-    ContextConfig config;
-    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
-    config.sessionId = "test_memory_overwrite";
-    ContextEngine engine(config);
-    engine.Initialize();
-    
-    engine.UpdateMemory("Old fact 1.\nOld fact 2.");
-    std::string mem = engine.GetMemoryContent();
-    TestRunner::AssertContains(mem, "Old fact 1.");
-    TestRunner::AssertContains(mem, "Old fact 2.");
-    
-    engine.OverwriteMemory("New fact A.\nNew fact B.");
-    mem = engine.GetMemoryContent();
-    TestRunner::AssertContains(mem, "New fact A.");
-    TestRunner::AssertContains(mem, "New fact B.");
-    TestRunner::AssertFalse(mem.find("Old fact") != std::string::npos);
-    
-    engine.ClearMemory();
 }
 
 TEST(context_engine, GetConsolidationPayload)

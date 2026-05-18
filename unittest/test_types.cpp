@@ -127,6 +127,6 @@ TEST(types, ContextConfigDefaults)
 {
     ContextConfig cfg;
     TestRunner::AssertEq(cfg.maxContextTokens, 4096);
-    TestRunner::AssertTrue(cfg.storageType == ContextConfig::StorageType::MARKDOWN_FILE);
+    TestRunner::AssertTrue(cfg.storageType == ContextConfig::StorageType::JSON_FILE);
     TestRunner::AssertTrue(cfg.sessionId.empty());
 }

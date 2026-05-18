@@ -65,12 +65,14 @@ void ResourceManager::RegisterBuiltinModels()
 
 void ResourceManager::RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     toolFactories_[name] = std::move(factory);
     toolSchemas_.erase(name);
 }
 
 void ResourceManager::RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     modelFactories_[type] = std::move(factory);
 }
 
@@ -97,7 +99,7 @@ void ResourceManager::RegisterMCPServer(const std::string& name, const std::stri
         }
         baseUrl += endpoint;
     }
-    
+
     endpointCfg.url = baseUrl;
 
     std::string transportTypeStr = config.value("type", "");
@@ -106,7 +108,7 @@ void ResourceManager::RegisterMCPServer(const std::string& name, const std::stri
     }
 
     if (!endpointCfg.url.empty()) {
-        if (transportTypeStr == "sse" || 
+        if (transportTypeStr == "sse" ||
             (transportTypeStr.empty() && endpointCfg.url.find("/sse") != std::string::npos)) {
             endpointCfg.transportType = MCPTransportType::SSE;
         } else {
@@ -140,14 +142,18 @@ void ResourceManager::RegisterMCPServer(const std::string& name, const std::stri
     }
 
     auto server = std::make_shared<MCPServer>(name, endpointCfg);
-    mcpServers_[name] = server;
 
     // Connect immediately to initialize handshake and discover tools
     server->Connect();
+
+    // Register after connection to avoid race
+    std::lock_guard<std::mutex> lock(mutex_);
+    mcpServers_[name] = server;
 }
 
 std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     LOG(INFO) << "Creating tool instance: " << name;
     auto it = toolFactories_.find(name);
     if (it != toolFactories_.end()) return it->second();
@@ -157,17 +163,22 @@ std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
 
 std::string ResourceManager::GetToolSchema(const std::string& name)
 {
-    auto it = toolSchemas_.find(name);
-    if (it != toolSchemas_.end()) return it->second;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = toolSchemas_.find(name);
+        if (it != toolSchemas_.end()) return it->second;
+    }
 
     auto tool = CreateTool(name);
     std::string schema = tool->GetSchema();
+    std::lock_guard<std::mutex> lock(mutex_);
     toolSchemas_[name] = schema;
     return schema;
 }
 
 std::unique_ptr<Model> ResourceManager::CreateModel(const ModelConfig& config)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     auto it = modelFactories_.find(config.formatType);
     if (it != modelFactories_.end()) return it->second(config);
     throw std::runtime_error("Model format not registered");
@@ -175,6 +186,7 @@ std::unique_ptr<Model> ResourceManager::CreateModel(const ModelConfig& config)
 
 std::shared_ptr<MCPServer> ResourceManager::GetMCPServer(const std::string& name)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     auto it = mcpServers_.find(name);
     if (it != mcpServers_.end()) return it->second;
     return nullptr;
@@ -182,6 +194,7 @@ std::shared_ptr<MCPServer> ResourceManager::GetMCPServer(const std::string& name
 
 std::vector<std::string> ResourceManager::GetAvailableTools() const
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> names;
     for (const auto& p : toolFactories_) names.push_back(p.first);
     return names;
@@ -189,9 +202,10 @@ std::vector<std::string> ResourceManager::GetAvailableTools() const
 
 std::vector<std::string> ResourceManager::GetAvailableModels() const
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> names;
     std::unordered_map<ModelFormatType, std::string> typeMap = {
-        {ModelFormatType::OPENAI, "openai"}, 
+        {ModelFormatType::OPENAI, "openai"},
         {ModelFormatType::ANTHROPIC, "anthropic"}
     };
     for (const auto& p : modelFactories_) {
@@ -202,24 +216,28 @@ std::vector<std::string> ResourceManager::GetAvailableModels() const
 
 std::vector<std::string> ResourceManager::GetAvailableMCPServers() const
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> names;
     for (const auto& p : mcpServers_) names.push_back(p.first);
     return names;
 }
 
-bool ResourceManager::HasTool(const std::string& name) const 
-{ 
-    return toolFactories_.count(name) > 0; 
+bool ResourceManager::HasTool(const std::string& name) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return toolFactories_.count(name) > 0;
 }
 
-bool ResourceManager::HasModel(ModelFormatType type) const 
-{ 
-    return modelFactories_.count(type) > 0; 
+bool ResourceManager::HasModel(ModelFormatType type) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return modelFactories_.count(type) > 0;
 }
 
-bool ResourceManager::HasMCPServer(const std::string& name) const 
-{ 
-    return mcpServers_.count(name) > 0; 
+bool ResourceManager::HasMCPServer(const std::string& name) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return mcpServers_.count(name) > 0;
 }
 
 } // namespace jiuwen

@@ -1,4 +1,5 @@
 #include "src/skills/skill_engine.h"
+
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -23,6 +24,7 @@ void SkillEngine::SetRootDir(const std::string& rootDir)
 
 bool SkillEngine::Load(bool forceReload)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (rootDir_.empty()) return false;
     if (!fs::exists(rootDir_) || !fs::is_directory(rootDir_)) {
         std::cerr << "SkillEngine: Root directory '" << rootDir_ << "' not found." << std::endl;
@@ -155,6 +157,7 @@ std::string SkillEngine::ExtractFrontmatterField(const std::string& content, con
 
 std::string SkillEngine::GetSkillCatalog() const
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (skills_.empty()) return "No skills available.";
 
     std::string result = "Available Skills (use skill_search tool to load full instructions):\n";
@@ -166,6 +169,7 @@ std::string SkillEngine::GetSkillCatalog() const
 
 std::string SkillEngine::GetSkillInstructions(const std::string& skillName) const
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     // Case-insensitive search by name
     for (const auto& [id, skill] : skills_) {
         std::string lowerName = skill.name;
@@ -183,6 +187,7 @@ std::string SkillEngine::GetSkillInstructions(const std::string& skillName) cons
 
 std::vector<std::string> SkillEngine::SearchSkills(const std::string& query) const
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> results;
     std::string lowerQuery = query;
     std::transform(lowerQuery.begin(), lowerQuery.end(), lowerQuery.begin(), ::tolower);
@@ -217,6 +222,7 @@ std::vector<std::string> SkillEngine::SearchSkills(const std::string& query) con
 
 std::vector<std::string> SkillEngine::GetSkillIds() const
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> ids;
     ids.reserve(skills_.size());
     for (const auto& [id, _] : skills_) {

@@ -1,8 +1,10 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
+
 #include "include/model.h"
 #include "include/types.h"
 
@@ -28,9 +30,6 @@ public:
 
     std::vector<Message> BuildMessagesForLLM(const std::string& systemPrompt, const std::vector<Message>& history, const Message& currentMessage) const;
 
-    void UpdateMemory(const std::string& keyFacts);
-    void OverwriteMemory(const std::string& fullContent);
-    void ClearMemory();
     std::string GetMemoryContent() const;
     std::string GetConsolidationPayload(int maxMessages = 100) const;
 
@@ -38,6 +37,7 @@ private:
     ContextConfig config_;
     std::vector<Message> memoryBuffer_;
     std::unique_ptr<ContextStorageBase> storage_;
+    mutable std::mutex memoryMutex_; // Guards shared MEMORY.md access
 
     static int EstimateTokens(const std::string& text);
     int CalculateMessageTokens(const Message& msg) const;

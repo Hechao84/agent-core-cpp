@@ -103,10 +103,12 @@ add_library(agent_framework SHARED
     src/protocol/mcp_client.cpp
     src/core/agent.cpp
     src/core/agent_worker.cpp
+    src/core/history_store.cpp
+    src/core/dream_processor.cpp
     src/skills/skill_engine.cpp
     src/context_engine/context_engine.cpp
     src/context_engine/storage_base.cpp
-    src/context_engine/md_storage.cpp
+    src/context_engine/json_storage.cpp
     src/context_engine/db_storage.cpp
     src/workers/agent_worker_factory.cpp
     src/workers/react_worker.cpp
@@ -135,6 +137,9 @@ add_library(agent_framework SHARED
     src/utils/data_dir.cpp
     src/utils/prompt_utils.cpp
     src/utils/encoding.cpp
+    src/utils/tool_parser.cpp
+    src/session/session_manager.cpp
+    src/web/web_api.cpp
 )
 
 target_include_directories(agent_framework PRIVATE 

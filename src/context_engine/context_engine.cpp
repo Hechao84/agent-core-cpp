@@ -1,4 +1,5 @@
 #include "src/context_engine/context_engine.h"
+
 #include <algorithm>
 #include <chrono>
 #include <ctime>
@@ -6,30 +7,39 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
+
 #include "src/context_engine/db_storage.h"
-#include "src/context_engine/md_storage.h"
+#include "src/context_engine/json_storage.h"
 #include "src/context_engine/storage_base.h"
+#include "src/utils/data_dir.h"
+#include "src/utils/logger.h"
 
 namespace fs = std::filesystem;
 
 namespace jiuwen {
 
-ContextEngine::ContextEngine(const ContextConfig& config) : config_(config){} ContextEngine::~ContextEngine() = default;
+ContextEngine::ContextEngine(const ContextConfig& config)
+    : config_(config)
+{
+}
+
+ContextEngine::~ContextEngine()
+{
+}
 
 bool ContextEngine::Initialize()
 {
     switch (config_.storageType) {
-        case ContextConfig::StorageType::MARKDOWN_FILE:
-            storage_ = std::make_unique<MarkdownStorage>(config_.storagePath, config_.sessionId);
+        case ContextConfig::StorageType::DATABASE:
+            storage_ = std::make_unique<DbStorage>(config_.storagePath, config_.sessionId);
             break;
-        case ContextConfig::StorageType::DATABASE: {
-            std::string dbPath = config_.storagePath.empty() ? "agent_context.db" : config_.storagePath;
-            storage_ = std::make_unique<DbStorage>(dbPath, config_.sessionId);
+        case ContextConfig::StorageType::JSON_FILE:
+            storage_ = std::make_unique<JsonStorage>(config_.storagePath, config_.sessionId);
             break;
-        }
         case ContextConfig::StorageType::MEMORY_ONLY:
         default:
             storage_ = nullptr;
@@ -165,18 +175,18 @@ int ContextEngine::EstimateTokens(const std::string& text)
 
 std::string ContextEngine::LoadMemoryContext() const
 {
-    static const std::string memoryFile = "./data/MEMORY.md";
-    fs::path filePath = fs::current_path() / memoryFile;
-    
-    if (fs::exists(filePath) && fs::is_regular_file(filePath)) {
-        std::ifstream file(filePath);
+    std::lock_guard<std::mutex> lock(memoryMutex_);
+    fs::path memoryPath = fs::path(GetDataDir().GetMemoryPath());
+
+    if (fs::exists(memoryPath) && fs::is_regular_file(memoryPath)) {
+        std::ifstream file(memoryPath);
         if (file.is_open()) {
             std::stringstream buffer;
             buffer << file.rdbuf();
             return buffer.str();
         }
     }
-    
+
     return "";
 }
 
@@ -208,57 +218,6 @@ std::vector<Message> ContextEngine::BuildMessagesForLLM(
     }
     
     return result;
-}
-
-void ContextEngine::UpdateMemory(const std::string& keyFacts)
-{
-    static const std::string memoryFile = "./data/MEMORY.md";
-    fs::path filePath = fs::current_path() / memoryFile;
-    
-    std::string existingContent;
-    if (fs::exists(filePath) && fs::is_regular_file(filePath)) {
-        std::ifstream inFile(filePath);
-        if (inFile.is_open()) {
-            std::stringstream buffer;
-            buffer << inFile.rdbuf();
-            existingContent = buffer.str();
-        }
-    }
-    
-    std::ofstream outFile(filePath, std::ios::out);
-    if (outFile.is_open()) {
-        if (!existingContent.empty()) {
-            outFile << existingContent << "\n\n---\n\n";
-        }
-        auto now = std::chrono::system_clock::now();
-        auto time = std::chrono::system_clock::to_time_t(now);
-        std::stringstream timeStream;
-        timeStream << std::put_time(std::gmtime(&time), "%Y-%m-%d %H:%M:%S UTC");
-        outFile << "[" << timeStream.str() << "]\n" << keyFacts << "\n";
-        outFile.close();
-    }
-}
-
-void ContextEngine::OverwriteMemory(const std::string& fullContent)
-{
-    static const std::string memoryFile = "./data/MEMORY.md";
-    fs::path filePath = fs::current_path() / memoryFile;
-    
-    std::ofstream outFile(filePath, std::ios::out | std::ios::trunc);
-    if (outFile.is_open()) {
-        outFile << fullContent;
-        outFile.close();
-    }
-}
-
-void ContextEngine::ClearMemory()
-{
-    static const std::string memoryFile = "./data/MEMORY.md";
-    fs::path filePath = fs::current_path() / memoryFile;
-    
-    if (fs::exists(filePath) && fs::is_regular_file(filePath)) {
-        std::ofstream(filePath, std::ios::trunc).close();
-    }
 }
 
 std::string ContextEngine::GetMemoryContent() const

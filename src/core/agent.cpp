@@ -1,13 +1,24 @@
 #include "include/agent.h"
+
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
+
+#include "include/model.h"
 #include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
 #include "src/core/agent_worker.h"
+#include "src/core/dream_processor.h"
+#include "src/core/history_store.h"
 #include "src/skills/skill_engine.h"
 #include "src/tools/builtin_tools/skill_search_tool.h"
 #include "src/utils/data_dir.h"
@@ -19,36 +30,31 @@ namespace jiuwen {
 
 Agent::Agent(AgentConfig config) : config_(std::move(config))
 {
-    // 0. Initialize global DataDir from context storage path
-    // Extract base data directory: "./data/context" -> "./data"
-    std::string dataBasePath = "./data";
-    if (!config_.contextConfig.storagePath.empty()) {
-        dataBasePath = fs::path(config_.contextConfig.storagePath).parent_path().string();
-    }
-    InitDataDir(dataBasePath);
-    contextEngine_ = std::make_shared<ContextEngine>(config_.contextConfig);
-    contextEngine_->Initialize();
+    std::string dataPath = config_.dataBasePath.empty() ? "./data" : config_.dataBasePath;
+    fs::create_directories(fs::path(dataPath) / "memory");
+    fs::create_directories(fs::path(dataPath) / "sessions");
+    InitDataDir(dataPath);
 
-    // 1. Initialize Skill Engine if directory is configured
     if (!config_.skillDirectory.empty()) {
         skillEngine_ = std::make_shared<SkillEngine>(config_.skillDirectory);
-        skillEngine_->Load(true); // Load from disk
-        // Inject SkillEngine reference into SkillSearchTool
+        skillEngine_->Load(true);
         SkillSearchTool::SetEngine(skillEngine_.get());
     }
 
-    // 2. Create Worker and inject engines
     worker_ = CreateAgentWorker(this->config_);
-    if (worker_) {
-        worker_->SetContextEngine(contextEngine_);
-        if (skillEngine_) {
-            worker_->SetSkillEngine(skillEngine_);
-        }
+    if (skillEngine_) {
+        worker_->SetSkillEngine(skillEngine_);
     }
 
-    // 3. Start background consolidation thread (sleep-time memory)
+    historyStore_ = std::make_unique<HistoryStore>(dataPath);
+
+    config_.dreamConfig.dataBasePath = dataPath;
+    dreamProcessor_ = std::make_unique<DreamProcessor>(config_.dreamConfig);
+
     consolidationThread_ = std::thread(&Agent::ConsolidationLoop, this);
-    LOG(INFO) << "[Agent] Start complete.";
+
+    LOG(INFO) << "[Agent] Single-Agent initialized with Dream memory consolidation, maxConcurrentSessions="
+              << config_.maxConcurrentSessions;
 }
 
 Agent::~Agent()
@@ -57,56 +63,90 @@ Agent::~Agent()
     if (worker_) {
         worker_->Cancel();
     }
-    cv_.notify_all();
+    {
+        std::lock_guard<std::mutex> lock(consolidationMutex_);
+        cv_.notify_all();
+    }
     if (consolidationThread_.joinable()) {
         consolidationThread_.join();
     }
-    LOG(INFO) << "[Agent] Shutdown complete.";
+    LOG(INFO) << "[Agent] Shutdown complete";
 }
 
-std::string Agent::Invoke(const std::string& query, std::function<void(const std::string&)> callback)
+void Agent::SetContextEngineGetter(
+    std::function<std::shared_ptr<ContextEngine>(const std::string&)> getter)
 {
-    std::unique_lock<std::mutex> lock(invokeMutex_, std::try_to_lock);
-    if (!lock.owns_lock()) {
-        callback("Agent is busy, please wait...");
-        return "Agent is busy";
-    }
+    contextEngineGetter_ = getter;
+}
 
-    if (!worker_ || !contextEngine_) {
-        callback("Error: Agent not initialized");
+std::string Agent::Invoke(const std::string& sessionId, const std::string& query,
+                          std::function<void(const std::string&)> callback)
+{
+    if (!worker_) {
+        callback("[STATUS] Error: Agent not initialized");
         return "Error: Agent not initialized";
     }
 
-    // 1. Mark as active to pause consolidation
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        isActive_ = true;
+    auto contextEngine = contextEngineGetter_(sessionId);
+    if (!contextEngine) {
+        callback("[STATUS] Error: ContextEngine not found for session=" + sessionId);
+        return "Error: Session context not found";
     }
+
+    // 1. Mark session as active
+    NotifySessionActive(sessionId);
 
     // 2. Save User Query to Context BEFORE invoking
-    contextEngine_->AddMessage({"user", query});
+    contextEngine->AddMessage({"user", query});
 
-    // 3. Call worker and get the final answer directly
-    std::string finalAnswer = worker_->Invoke(query, callback);
-
-    // 4. Save Assistant Response to Context AFTER invoking
-    contextEngine_->AddMessage({"assistant", finalAnswer});
-
-    // 5. Mark as inactive and notify consolidation thread
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        isActive_ = false;
-        consolidateStatus_ = ConsolidateStatus::NEED_CONSOLIDATE;
+    // 2b. Record to Dream history store
+    if (historyStore_) {
+        historyStore_->AppendEntry("user", query);
     }
-    cv_.notify_all();
+
+    // 3. Call worker and get the final answer (pass contextEngine directly to avoid race conditions)
+    std::string finalAnswer = worker_->Invoke(query, contextEngine.get(), callback);
+
+    // 5. Save Assistant Response to Context AFTER invoking
+    if (!finalAnswer.empty()) {
+        contextEngine->AddMessage({"assistant", finalAnswer});
+
+        // 5b. Record to Dream history store
+        if (historyStore_) {
+            historyStore_->AppendEntry("assistant", finalAnswer);
+        }
+    }
+
+    // 6. Mark session as idle, notify consolidation
+    NotifySessionIdle(sessionId);
 
     return finalAnswer;
 }
 
-bool Agent::IsBusy() const
+void Agent::NotifySessionActive(const std::string& sessionId)
 {
-    std::unique_lock<std::mutex> lock(invokeMutex_, std::try_to_lock);
-    return !lock.owns_lock();
+    std::lock_guard<std::mutex> lock(sessionActivityMutex_);
+    auto& entry = sessionActivity_[sessionId];
+    entry.sessionId = sessionId;
+    entry.isBusy = true;
+}
+
+void Agent::NotifySessionIdle(const std::string& sessionId)
+{
+    std::lock_guard<std::mutex> lock(sessionActivityMutex_);
+    auto it = sessionActivity_.find(sessionId);
+    if (it != sessionActivity_.end()) {
+        it->second.isBusy = false;
+    }
+    cv_.notify_all();
+}
+
+bool Agent::IsSessionBusy(const std::string& sessionId) const
+{
+    std::lock_guard<std::mutex> lock(sessionActivityMutex_);
+    auto it = sessionActivity_.find(sessionId);
+    if (it == sessionActivity_.end()) return false;
+    return it->second.isBusy;
 }
 
 void Agent::Cancel()
@@ -118,7 +158,6 @@ void Agent::Cancel()
 
 void Agent::AddTools(const std::vector<std::string>& toolNames)
 {
-    // 1. Agent updates its Master List (Source of Truth)
     for (const auto& name : toolNames) {
         bool exists = std::find(toolNames_.begin(), toolNames_.end(), name) != toolNames_.end();
         if (!exists) {
@@ -126,7 +165,6 @@ void Agent::AddTools(const std::vector<std::string>& toolNames)
         }
     }
 
-    // 2. Agent forwards tools to Worker (Consumer)
     if (worker_) {
         worker_->AddTools(toolNames);
     }
@@ -137,101 +175,44 @@ std::vector<std::string> Agent::GetRegisteredTools() const
     return toolNames_;
 }
 
-std::string Agent::GetMemoryContent() const
-{
-    if (contextEngine_) {
-        return contextEngine_->GetMemoryContent();
-    }
-    return "";
-}
-
-void Agent::UpdateMemory(const std::string& keyFacts)
-{
-    if (contextEngine_) {
-        contextEngine_->UpdateMemory(keyFacts);
-    }
-}
-
-void Agent::ClearMemory()
-{
-    if (contextEngine_) {
-        contextEngine_->ClearMemory();
-    }
-}
-
 void Agent::ConsolidationLoop()
 {
     while (running_) {
         {
-            std::unique_lock<std::mutex> lock(mutex_);
+            std::unique_lock<std::mutex> lock(consolidationMutex_);
             auto idleSeconds = static_cast<unsigned int>(config_.contextConfig.idleConsolidationSeconds);
             if (idleSeconds <= 0) idleSeconds = 60;
 
-            while (running_ && isActive_) {
-                cv_.wait(lock, [this](){ return !isActive_ || !running_; });
-            }
+            cv_.wait_for(lock, std::chrono::seconds(idleSeconds), [this]() {
+                return !running_;
+            });
             if (!running_) break;
-
-            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(idleSeconds);
-
-            while (running_ && !isActive_) {
-                auto remaining_time = deadline - std::chrono::steady_clock::now();
-                if (remaining_time <= std::chrono::seconds::zero()) break;
-
-                auto status = cv_.wait_for(lock, remaining_time);
-                if (status == std::cv_status::timeout) break;
-
-                if (!running_) break;
-            }
-
-            if (!running_) break;
-
-            if (isActive_) continue;
-
-            if (consolidateStatus_ == ConsolidateStatus::CONSOLIDATED) continue;
-
-            LOG(INFO) << "[Consolidation] Do consolidation";
         }
 
-        ConsolidateMemory();
-    }
-}
-
-void Agent::ConsolidateMemory()
-{
-    if (!contextEngine_) return;
-
-    std::string conversationText = contextEngine_->GetConsolidationPayload(100);
-    if (conversationText.empty()) return;
-
-    std::string existingMemory = contextEngine_->GetMemoryContent();
-
-    std::string summaryPrompt =
-        "You are a memory management assistant. You have access to the current long-term memory and a recent conversation.\n"
-        "Your task is to produce an updated, comprehensive memory by applying the following rules:\n"
-        "1. PRESERVE: Keep existing facts that are still valid and relevant.\n"
-        "2. ADD: Add important new facts, preferences, decisions, or context from the conversation.\n"
-        "3. UPDATE: If a new fact conflicts with or supersedes an existing one, replace the old one.\n"
-        "4. REMOVE: Discard facts that are no longer relevant or have been invalidated.\n\n"
-        "Rules for extraction:\n"
-        "- Only retain truly important information (user preferences, context, decisions, key facts).\n"
-        "- Be concise and specific. Use bullet points.\n"
-        "- Do NOT include trivial details or step-by-step tool usage.\n\n"
-        "Current Memory:\n" + (existingMemory.empty() ? "(Empty)" : existingMemory) + "\n\n"
-        "Recent Conversation:\n" + conversationText + "\n\n"
-        "Output only the fully updated memory content below. Do not include explanations:";
-
-    try {
-        auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
-        std::string formatted = model->Format(summaryPrompt, {});
-        std::string updatedMemory = model->Invoke(formatted, nullptr);
-
-        if (!updatedMemory.empty() && updatedMemory.find("no information") == std::string::npos) {
-            contextEngine_->OverwriteMemory(updatedMemory);
-            consolidateStatus_ = ConsolidateStatus::CONSOLIDATED;
+        // Check if any session is idle (not busy) before running Dream
+        bool anyIdle = false;
+        {
+            std::lock_guard<std::mutex> lock(sessionActivityMutex_);
+            for (const auto& p : sessionActivity_) {
+                if (!p.second.isBusy) {
+                    anyIdle = true;
+                    break;
+                }
+            }
         }
-    } catch (const std::exception& e) {
-        std::cerr << "Memory consolidation failed: " << e.what() << std::endl;
+
+        if (!anyIdle) continue;
+
+        try {
+            auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
+            bool didWork = dreamProcessor_->Run(model.get(), historyStore_.get());
+
+            if (didWork) {
+                LOG(INFO) << "[Dream] Memory consolidation completed";
+            }
+        } catch (const std::exception& e) {
+            LOG(WARN) << "[Dream] Consolidation failed: " << e.what();
+        }
     }
 }
 

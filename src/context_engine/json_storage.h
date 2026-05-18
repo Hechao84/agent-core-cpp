@@ -6,9 +6,9 @@
 
 namespace jiuwen {
 
-class MarkdownStorage : public ContextStorageBase {
+class JsonStorage : public ContextStorageBase {
 public:
-    MarkdownStorage(const std::string& path, const std::string& sessionId);
+    JsonStorage(const std::string& path, const std::string& sessionId);
 
     bool SaveMessage(const Message& msg) override;
     bool LoadHistory(std::vector<Message>& outMessages) override;
@@ -16,8 +16,6 @@ public:
 
 private:
     std::string filePath_;
-    std::string FormatMessage(const Message& msg) const;
-    Message ParseMessageBlock(const std::string& block) const;
 };
 
 } // namespace jiuwen

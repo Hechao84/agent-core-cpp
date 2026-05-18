@@ -7,10 +7,8 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "include/agent.h"
+#include "include/session_manager.h"
 #include "include/types.h"
-
-using namespace jiuwen;
 
 namespace jiuwenClaw {
 
@@ -27,8 +25,7 @@ class CronWatcher {
 public:
     CronWatcher(
         const std::string& dataDir,
-        Agent& agent,
-        const ModelConfig& modelConfig,
+        const jiuwen::ModelConfig& modelConfig,
         int intervalSeconds = 60
     );
     ~CronWatcher();
@@ -43,8 +40,7 @@ private:
     time_t CalculateSleepDuration();
 
     std::string dataDir_;
-    Agent& agent_;
-    ModelConfig modelConfig_;
+    jiuwen::ModelConfig modelConfig_;
     int intervalSeconds_;
     std::atomic<bool> running_;
     std::thread thread_;
