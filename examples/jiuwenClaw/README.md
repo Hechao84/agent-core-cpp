@@ -4,10 +4,11 @@ Jiuwen Claw 是一个基于 **jiuwen-lite** 框架构建的 AI 智能体应用�
 
 ## 特性
 
+- **多会话管理** — 独立的会话上下文，支持 CLI 会话切换 (`/session`, `/sessions`)
 - **ReAct 推理**：通过思维链进行工具调用和问题解决
-- **记忆管理**：自动睡时记忆整理，长期记忆持久化
-- **心跳任务 (Heartbeat)**：定期检查并执行周期性任务
-- **定时任务 (CronWatcher)**：独立运行的定时任务模块，支持多种触发方式
+- **Dream 记忆整合**：空闲时自动分析对话历史，提取关键事实更新长期记忆
+- **心跳任务 (Heartbeat)**：定期检查并执行周期性任务（使用独立会话 `__HEARTBEAT__`）
+- **定时任务 (CronWatcher)**：独立运行的定时任务模块，支持多种触发方式（使用独立会话 `__CRON__`）
 - **技能系统**：搜索和加载专业技能指导 (SKILL.md)
 - **工具集成**：
   - 文件管理（读写、编辑、搜索）
@@ -21,15 +22,16 @@ Jiuwen Claw 是一个基于 **jiuwen-lite** 框架构建的 AI 智能体应用�
 
 ```
 jiuwenClaw/
-├── main.cpp                    # 应用入口
-├── heartbeat_manager.h/cpp     # 心跳管理模块
-├── cron_watcher.h/cpp          # 定时任务模块（独立运行）
+├── main.cpp                    # 应用入口（SessionManager 驱动）
+├── heartbeat_manager.h/cpp     # 心跳管理模块（使用 __HEARTBEAT__ 会话）
+├── cron_watcher.h/cpp          # 定时任务模块（使用 __CRON__ 会话）
 ├── templates/                  # 提示词模板
 │   ├── AGENTS.md               # Agent 行为指令
 │   ├── SOUL.md                 # Agent 个性与价值观
 │   ├── USER.md                 # 用户画像与偏好
 │   ├── TOOLS.md                # 工具使用策略
-│   └── REACT_SYSTEM.md         # 系统提示词组装模板
+│   ├── REACT_SYSTEM.md         # 系统提示词组装模板
+│   └── MEMORY.md               # Dream 记忆整合模板
 ├── tools/                      # 定制化工具
 │   ├── cron_tool.h/.cpp        # 定时任务管理工具
 │   ├── notify_tool.h/.cpp      # 桌面通知工具
@@ -93,7 +95,7 @@ LD_LIBRARY_PATH=./libs:./dist/linux ./dist/linux/jiuwenClaw
 
 ## 心跳任务 (Heartbeat)
 
-心跳机制定期检查 `data/HEARTBEAT.md`。在 "Active Tasks" 部分添加任务后，Agent 会自动判断并执行：
+心跳机制定期检查 `data/HEARTBEAT.md`。在 "Active Tasks" 部分添加任务后，Agent 会自动判断并执行（通过 `__HEARTBEAT__` 会话调用 SessionManager）：
 
 ```markdown
 ## Active Tasks
@@ -106,7 +108,7 @@ LD_LIBRARY_PATH=./libs:./dist/linux ./dist/linux/jiuwenClaw
 
 ## 定时任务 (CronWatcher)
 
-CronWatcher 是一个独立运行的模块，拥有自己的 Agent 实例，检查到触发事件后会直接调用大模型处理，**不依赖心跳模块**。
+CronWatcher 是一个独立运行的模块，使用 `__CRON__` 会话通过 SessionManager 调用，检查到触发事件后会调用大模型处理，**不依赖心跳模块**。
 
 ### 定时任务类型
 
@@ -124,9 +126,20 @@ CronWatcher 是一个独立运行的模块，拥有自己的 Agent 实例，检�
 # "每周一到周五早上9点提醒晨会"
 ```
 
+## CLI 命令
+
+启动后可使用以下命令：
+
+| 命令 | 说明 |
+|------|------|
+| `/exit` | 退出程序 |
+| `/session <id>` | 切换到指定会话（不存在则自动创建） |
+| `/sessions` | 列出所有活跃会话及当前会话 |
+
 ## 记忆管理
 
-- **自动**：对话空闲 60 秒后，自动整理记忆到 `MEMORY.md`
+- **Dream 自动整合**：对话空闲 60 秒后，DreamProcessor 自动分析历史并更新 `MEMORY.md`
+- **History Store**：记录每次交互（角色、内容、工具调用数），支持游标追踪
 
 ## 自定义新智能体
 
@@ -135,6 +148,8 @@ CronWatcher 是一个独立运行的模块，拥有自己的 Agent 实例，检�
 1. 在 `examples/` 下创建新目录
 2. 配置 `promptTemplates` 指向你的模板文件
 3. 注册你需要的工具 (MCP 或自定义)
-4. 运行构建脚本即可
+4. 调用 `InitSessionManager(config)` 初始化会话管理器
+5. 通过 `GetSessionManager().Invoke(sessionId, query, callback)` 发起对话
+6. 运行构建脚本即可
 
 jiuwen-lite 框架本身不包含业务逻辑，所有定制内容（提示词、工具、技能）都在各自的智能体目录下管理。

@@ -52,10 +52,23 @@ After building, the following artifacts are produced:
 
 ### Context Engine
 - **Memory Only** — Ephemeral storage
-- **JSON File** — Persist messages as `.json` files
+- **JSON File** — Persist messages as `.json` files (default)
 - **Database** — SQLite-backed persistent storage (implemented)
 - Common base class (`ContextStorageBase`) for shared logic, with specialized backends
 - Automatic token estimation and context window management
+
+### Session Manager
+- **Multi-Session Support** — Isolated conversation contexts per session
+- **Per-Session Locking** — Serializes same-session calls for thread safety
+- **Concurrency Gate** — Global limit on concurrent session invocations (`maxConcurrentSessions`)
+- **Channel Routing** — Auto-derives session key from channel type (websocket, feishu, telegram, cli) + chatId
+- **Reserved Sessions** — Built-in sessions for internal tasks (`__HEARTBEAT__`, `__CRON__`, `__UNIFIED__`)
+
+### Dream Memory Consolidation
+- **Background Consolidation** — Idle sessions trigger Dream processor to consolidate memory
+- **History Store** — Records interaction history with cursor-based tracking
+- **Two-Phase Processing** — Analyze history, extract key facts, update long-term memory
+- **Automatic** — No manual `UpdateMemory()` needed; happens after configurable idle timeout
 
 ### Skill System
 - Load skills from directory structure with `SKILL.md` and YAML frontmatter
@@ -147,13 +160,16 @@ target_link_libraries(your_app PRIVATE agent_framework)
 target_include_directories(your_app PRIVATE /path/to/jiuwen-lite/include)
 ```
 
-### Example: Creating an Agent
+### Example: Creating an Agent with SessionManager
 
 See `examples/jiuwenClaw/main.cpp` for a complete working example. The core usage pattern is:
 
 ```cpp
 #include "agent.h"
-#include "resource_manager.h"
+#include "resource_manager"
+#include "session_manager.h"
+
+using namespace jiuwen;
 
 // 1. Get the resource manager singleton
 auto& rm = ResourceManager::GetInstance();
@@ -171,16 +187,30 @@ config.modelConfig.apiKey = "your-api-key";
 config.modelConfig.modelName = "Qwen3.6-Plus";
 config.modelConfig.formatType = ModelFormatType::OPENAI;
 
-// 4. Create the agent
-Agent agent(config);
+// 4. Configure multi-session settings
+config.dataBasePath = "./data";
+config.maxConcurrentSessions = 3; // Global concurrency gate (0 = unlimited)
+config.defaultTools = rm.GetAvailableTools();
 
-// 5. Add tools
-agent.AddTools(rm.GetAvailableTools());
+// 5. Configure context engine
+config.contextConfig.sessionId = kDefaultSessionId;
+config.contextConfig.storageType = ContextConfig::StorageType::JSON_FILE;
 
-// 6. Invoke with a callback for streaming responses
-agent.Invoke("Hello, what can you do?", [](const std::string& resp) {
-    std::cout << resp;
-});
+// 6. Initialize SessionManager (creates single shared Agent internally)
+InitSessionManager(config);
+
+// 7. Invoke via SessionManager with session ID and streaming callback
+auto result = GetSessionManager().Invoke(
+    "user-session-001",
+    "Hello, what can you do?",
+    [](const std::string& resp) {
+        std::cout << resp << std::flush;
+    }
+);
+
+if (!result.success) {
+    std::cerr << "Error: " << result.errorMessage << std::endl;
+}
 ```
 
 ## Testing
@@ -198,8 +228,17 @@ cmake --build build-linux --target unittest
 ```
 jiuwen-lite/
 ├── include/              # Public API headers (library interface)
+│   ├── agent.h           # Agent class (session-driven)
+│   ├── session_manager.h # SessionManager singleton
+│   ├── types.h           # Config structs, SessionConfig, DreamConfig, etc.
+│   └── resource_manager.h
 ├── src/                  # Library implementation
 │   ├── core/            # Agent and worker base classes
+│   │   ├── agent.cpp
+│   │   ├── dream_processor.h/cpp   # Background memory consolidation
+│   │   └── history_store.h/cpp     # Interaction history tracking
+│   ├── session/         # Session management
+│   │   └── session_manager.cpp
 │   ├── workers/         # ReAct, Plan-and-Execute, Workflow workers
 │   ├── models/          # OpenAI and Anthropic model implementations
 │   ├── tools/           # Built-in tools (framework) and MCP integration
@@ -207,10 +246,10 @@ jiuwen-lite/
 │   ├── protocol/        # MCP JSON-RPC client
 │   ├── context_engine/  # Context storage backends
 │   │   ├── storage_base.h/cpp # Common storage logic
-│   │   ├── json_storage.h/cpp # JSON file storage
+│   │   ├── json_storage.h/cpp # JSON file storage (default)
 │   │   └── db_storage.h/cpp   # SQLite storage
 │   ├── skills/          # Skill loading and management
-│   └── utils/           # Logging and utilities
+│   └── utils/           # Logging, data directory, tool parsing utilities
 ├── examples/
 │   └── jiuwenClaw/      # Sample application (how to use the framework)
 │       ├── main.cpp
