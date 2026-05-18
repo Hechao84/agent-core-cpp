@@ -181,7 +181,9 @@ add_executable(jiuwenClaw
     examples/jiuwenClaw/tools/cron_tool.cpp
     examples/jiuwenClaw/tools/notify_tool.cpp
     examples/jiuwenClaw/utils/agent_response_handler.cpp
+    examples/jiuwenClaw/utils/encoding.cpp
     examples/jiuwenClaw/utils/logger.cpp
+    examples/jiuwenClaw/utils/string_utils.cpp
 )
 target_include_directories(jiuwenClaw PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 
