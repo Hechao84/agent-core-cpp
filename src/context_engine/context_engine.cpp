@@ -78,11 +78,26 @@ std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message
 {
     if (messages.empty()) return {};
 
+    // 1. Safety Sanitization: Merge adjacent messages with the same role
+    // This prevents "assistant", "assistant" sequences which confuse LLMs.
+    std::vector<Message> sanitized;
+    sanitized.reserve(messages.size());
+    for (const auto& msg : messages) {
+        if (!sanitized.empty() && sanitized.back().role == msg.role) {
+            // Merge content if roles match
+            sanitized.back().content = MergeMessageContent(sanitized.back().content, msg.content);
+        } else {
+            sanitized.push_back(msg);
+        }
+    }
+
+    const std::vector<Message>& workingMessages = sanitized;
+
     std::vector<Message> result;
     int totalTokens = 0;
 
-    // If message count exceeds maxMessages, apply trimming strategy
-    if (static_cast<int>(messages.size()) > config_.maxMessages) {
+    // 2. If message count exceeds maxMessages, apply trimming strategy
+    if (static_cast<int>(workingMessages.size()) > config_.maxMessages) {
         // Always keep the first message (usually user's initial query)
         // And keep the most recent messages within limits
         int messagesToKeep = config_.maxMessages;
@@ -91,19 +106,19 @@ std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message
         result.reserve(messagesToKeep + 1);
         
         // Add first message
-        result.push_back(messages[0]);
-        totalTokens += CalculateMessageTokens(messages[0]);
+        result.push_back(workingMessages[0]);
+        totalTokens += CalculateMessageTokens(workingMessages[0]);
         
         // Add recent messages from the end, respecting token limit
-        int startIndex = static_cast<int>(messages.size()) - 1;
+        int startIndex = static_cast<int>(workingMessages.size()) - 1;
         int keptCount = 0;
         
         for (int i = startIndex; i > 0 && keptCount < messagesToKeep - 1; --i) {
-            int msgTokens = CalculateMessageTokens(messages[i]);
+            int msgTokens = CalculateMessageTokens(workingMessages[i]);
             if (totalTokens + msgTokens > config_.maxContextTokens) {
                 break;
             }
-            result.push_back(messages[i]);
+            result.push_back(workingMessages[i]);
             totalTokens += msgTokens;
             keptCount++;
         }
@@ -117,7 +132,7 @@ std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message
         }
     } else {
         // Within message limit, just apply token limit
-        for (auto it = messages.rbegin(); it != messages.rend(); ++it) {
+        for (auto it = workingMessages.rbegin(); it != workingMessages.rend(); ++it) {
             int msgTokens = CalculateMessageTokens(*it);
             if (!result.empty() && (totalTokens + msgTokens > config_.maxContextTokens)) {
                 break;

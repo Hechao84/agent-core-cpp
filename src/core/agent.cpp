@@ -105,7 +105,42 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
     }
 
     // 3. Call worker and get the final answer (pass contextEngine directly to avoid race conditions)
-    std::string finalAnswer = worker_->Invoke(query, contextEngine.get(), callback);
+    // We wrap the callback to intercept and save tool calls/responses to context
+    std::string finalAnswer = worker_->Invoke(query, contextEngine.get(), [callback, contextEngine, sessionId](const std::string& response) {
+        if (!response.empty() && callback) {
+            callback(response);
+        }
+
+        // Intercept tool calls and responses to save them to context using standard roles
+        if (response.find("[TOOL_CALLS]") != std::string::npos) {
+            std::string content = response;
+            size_t start = content.find("[TOOL_CALLS]");
+            if (start != std::string::npos) {
+                size_t end = content.find("[/TOOL_CALLS]");
+                // If end tag is missing, take the whole thing
+                std::string payload = (end != std::string::npos) ? content.substr(start + 12, end - start - 12) : content.substr(start + 12);
+                
+                // Try to find the first '{' to extract pure JSON if tags are messy
+                size_t jsonStart = payload.find('{');
+                if (jsonStart != std::string::npos) {
+                    payload = payload.substr(jsonStart);
+                }
+                
+                // Save with "assistant" role containing the tool call JSON
+                contextEngine->AddMessage({"assistant", payload});
+            }
+        } else if (response.find("[TOOL_RESPONSE]") != std::string::npos) {
+            std::string content = response;
+            size_t start = content.find("[TOOL_RESPONSE]");
+            if (start != std::string::npos) {
+                size_t end = content.find("[/TOOL_RESPONSE]");
+                std::string payload = (end != std::string::npos) ? content.substr(start + 15, end - start - 15) : content.substr(start + 15);
+                
+                // Save with "tool" role
+                contextEngine->AddMessage({"tool", payload});
+            }
+        }
+    });
 
     // 5. Save Assistant Response to Context AFTER invoking
     if (!finalAnswer.empty()) {

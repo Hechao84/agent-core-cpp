@@ -54,12 +54,25 @@ void SessionManager::Initialize(const AgentConfig& config)
 {
     std::lock_guard<std::mutex> lock(sessionMutex_);
     config_ = config;
-    initialized_ = true;
+    initialized_ = false;
 
     std::string basePath = config_.dataBasePath.empty() ? "./data" : config_.dataBasePath;
-    fs::create_directories(fs::path(basePath));
-    fs::create_directories(fs::path(basePath) / "sessions");
-    fs::create_directories(fs::path(basePath) / "memory");
+    
+    // Convert to absolute path to ensure persistence regardless of CWD
+    std::string absBasePath;
+    try {
+        absBasePath = fs::canonical(fs::path(basePath)).string();
+    } catch (const std::filesystem::filesystem_error&) {
+        // If path doesn't exist yet, use absolute with create_directories approach
+        absBasePath = fs::absolute(fs::path(basePath)).string();
+    }
+    LOG(INFO) << "[SessionManager] Normalizing basePath to absolute: " << absBasePath;
+    config_.dataBasePath = absBasePath; // CRITICAL: Update global config
+    basePath = absBasePath;
+    fs::path rootPath(basePath);
+    fs::create_directories(rootPath);
+    fs::create_directories(rootPath / "sessions");
+    fs::create_directories(rootPath / "memory");
 
     // Init concurrency gate
     if (config_.maxConcurrentSessions > 0) {
@@ -69,16 +82,48 @@ void SessionManager::Initialize(const AgentConfig& config)
     // Create the single shared Agent
     agent_ = std::make_unique<Agent>(config_);
 
-    // Register default tools on the shared Agent
+    // Register default tools
     if (!config_.defaultTools.empty()) {
         agent_->AddTools(config_.defaultTools);
     }
 
-    // Set up context engine routing so Agent can find per-session ContextEngine
     SetupAgentContextRouting();
 
-    LOG(INFO) << "[SessionManager] Single-Agent mode initialized, basePath=" << basePath
-              << ", maxConcurrent=" << maxConcurrent_;
+    // Restore existing sessions from disk
+    fs::path sessionsDir = fs::path(basePath) / "sessions";
+    if (fs::exists(sessionsDir) && fs::is_directory(sessionsDir)) {
+        int count = 0;
+        for (const auto& dirEntry : fs::directory_iterator(sessionsDir)) {
+            if (dirEntry.is_directory()) {
+                auto dirName = dirEntry.path().filename().string();
+                if (dirName.find('.') != 0 && !dirName.empty()) {
+                    try {
+                        FindOrCreateEntry(dirName);
+                        count++;
+                    } catch (const std::exception& e) {
+                        LOG(ERR) << "[SessionManager] Failed to restore session '" << dirName << "': " << e.what();
+                    }
+                }
+            }
+        }
+        LOG(INFO) << "[SessionManager] Successfully restored " << count << " sessions from disk.";
+    } else {
+        LOG(INFO) << "[SessionManager] No existing sessions directory found at: " << sessionsDir.string();
+    }
+
+    // Ensure __DEFAULT__ session always exists
+    try {
+        FindOrCreateEntry(kDefaultSessionId);
+    } catch (const std::exception& e) {
+        LOG(ERR) << "[SessionManager] Failed to create default session: " << e.what();
+    }
+
+    initialized_ = true;
+
+    LOG(INFO) << "[SessionManager] Initialization complete. Active sessions: " << sessions_.size();
+    for (const auto& pair : sessions_) {
+        LOG(INFO) << "  - Session: " << pair.first;
+    }
 }
 
 std::shared_ptr<ContextEngine> SessionManager::GetContextEngine(const std::string& sessionId)
@@ -210,6 +255,56 @@ bool SessionManager::IsSessionBusy(const std::string& sessionId) const
     auto amu = agent_.get();
     if (amu) return amu->IsSessionBusy(sessionId);
     return false;
+}
+
+void SessionManager::RemoveSession(const std::string& sessionId)
+{
+    if (sessionId.empty() ||
+        sessionId == kDefaultSessionId ||
+        sessionId == kHeartbeatSessionId ||
+        sessionId == kCronSessionId) {
+        LOG(WARN) << "[SessionManager] Cannot delete reserved or empty session.";
+        return;
+    }
+
+    std::string basePath = config_.dataBasePath.empty() ? "./data" : config_.dataBasePath;
+    fs::path sessionDir = fs::path(basePath) / "sessions" / sessionId;
+
+    bool isBusy = false;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        auto it = sessions_.find(sessionId);
+        if (it != sessions_.end()) {
+            isBusy = it->second->isBusy;
+        } else {
+            // Session not in memory, but might exist on disk.
+            // Proceed to delete directory if it exists.
+        }
+        sessionMutex_.unlock();
+    }
+
+    if (isBusy) {
+        // Optional: force cancel busy session? For now, just log and delete memory.
+        LOG(WARN) << "[SessionManager] Deleting busy session: " << sessionId;
+    }
+
+    // Remove from in-memory map
+    // We need to lock again to perform erase
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        sessions_.erase(sessionId);
+        LOG(INFO) << "[SessionManager] In-memory session removed: " << sessionId;
+    }
+
+    // Remove from disk
+    if (fs::exists(sessionDir)) {
+        try {
+            fs::remove_all(sessionDir);
+            LOG(INFO) << "[SessionManager] Session directory deleted: " << sessionDir.string();
+        } catch (const std::exception& e) {
+            LOG(ERR) << "[SessionManager] Failed to delete session directory: " << e.what();
+        }
+    }
 }
 
 std::shared_ptr<ContextEngine> SessionManager::GetOrCreateSession(

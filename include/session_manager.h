@@ -58,6 +58,9 @@ public:
     // Cancel the running agent
     void Cancel();
 
+    // Remove a session by ID and delete its data
+    void RemoveSession(const std::string& sessionId);
+
     // Check if a session is busy
     bool IsSessionBusy(const std::string& sessionId) const;
 

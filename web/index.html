@@ -1,0 +1,1527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:,">
+    <title>jiuwenClaw Agent Server</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #1e1e2e;
+            --bg-secondary: #181825;
+            --bg-tertiary: #313244;
+            --text-primary: #cdd6f4;
+            --text-secondary: #a6adc8;
+            --accent: #89b4fa;
+            --accent-hover: #74c7ec;
+            --success: #a6e3a1;
+            --warning: #f9e2af;
+            --error: #f38ba8;
+            --border: #45475a;
+            --user-msg: #313244;
+            --assistant-msg: #1e1e2e;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sidebar-header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-small {
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-secondary);
+        }
+
+        .btn-ghost:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .btn-danger {
+            background: var(--error);
+            color: var(--bg-primary);
+        }
+
+        .session-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .session-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-bottom: 4px;
+        }
+
+        .session-item:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .session-item.active {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--accent);
+        }
+
+        .session-item .name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 14px;
+        }
+
+        .session-item .status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            margin-right: 8px;
+        }
+
+        .session-item .status.busy {
+            background: var(--warning);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .session-item .delete-btn {
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .session-item:hover .delete-btn {
+            opacity: 1;
+        }
+
+        /* Main content */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .chat-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-secondary);
+        }
+
+        .chat-header h2 {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: var(--user-msg);
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+            background: var(--bg-tertiary);
+            border-bottom-left-radius: 4px;
+        }
+
+        .message .role {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: var(--text-secondary);
+        }
+
+        .message .content {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .message .content p {
+            margin-bottom: 8px;
+        }
+
+        .message .content p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message .content code {
+            background: var(--bg-primary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+        }
+
+        .message .content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            background: var(--bg-secondary);
+            font-size: 13px;
+        }
+
+        .message .content th, .message .content td {
+            border: 1px solid var(--border);
+            padding: 6px 10px;
+            text-align: left;
+        }
+
+        .message .content th {
+            background: var(--bg-tertiary);
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .message .content td {
+            color: var(--text-secondary);
+        }
+
+        /* Smart Link Box */
+        .smart-box {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: 6px;
+            padding: 10px;
+            margin: 8px 0;
+            max-width: 100%;
+            transition: transform 0.1s;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .smart-box:hover {
+            transform: scale(1.01);
+            background: var(--bg-tertiary);
+        }
+
+        .smart-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--bg-tertiary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .smart-icon svg {
+            width: 24px;
+            height: 24px;
+            fill: var(--accent);
+        }
+
+        .smart-info {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .smart-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: var(--accent);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .smart-url {
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .message.tool-card {
+            align-self: flex-start;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px;
+            width: 90%;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .message.tool-card.collapsed {
+            padding: 6px 10px;
+        }
+
+        .tool-summary {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .tool-summary .tool-icon {
+            width: 18px;
+            height: 18px;
+            fill: var(--accent);
+        }
+
+        .message.tool-card:hover {
+            background: rgba(255,255,255,0.02);
+        }
+
+        .tool-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            color: var(--accent);
+            font-size: 14px;
+        }
+
+        .tool-arrow {
+            transition: transform 0.2s;
+            font-size: 10px;
+        }
+        
+        .tool-arrow.expanded {
+            transform: rotate(90deg);
+        }
+
+        .tool-content {
+            margin-top: 8px;
+            background: var(--bg-primary);
+            border-radius: 6px;
+            padding: 10px;
+            font-family: 'Fira Code', monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .tool-section-label {
+            font-weight: bold;
+            color: var(--text-secondary);
+            margin: 8px 0 4px 0;
+            font-size: 12px;
+            display: block;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 2px;
+        }
+        
+        .tool-section-label:first-child {
+            margin-top: 0;
+        }
+
+        .message.status-msg {
+            align-self: center;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-style: italic;
+        }
+
+        /* Input area */
+        .input-area {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border);
+            background: var(--bg-secondary);
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .input-wrapper textarea {
+            flex: 1;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            min-height: 44px;
+            max-height: 120px;
+            line-height: 1.5;
+        }
+
+        .input-wrapper textarea:focus {
+            border-color: var(--accent);
+        }
+
+        .input-wrapper textarea::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .send-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .send-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .send-btn svg {
+            width: 20px;
+            height: 20px;
+            fill: var(--bg-primary);
+        }
+
+        /* Cursor animation */
+        .cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            background: var(--accent);
+            animation: blink 0.8s infinite;
+            vertical-align: text-bottom;
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        /* Empty state */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+
+        .empty-state h3 {
+            font-size: 24px;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .empty-state p {
+            font-size: 14px;
+        }
+
+        /* Welcome screen */
+        .welcome {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .welcome h2 {
+            font-size: 32px;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .welcome p {
+            color: var(--text-secondary);
+            max-width: 500px;
+            line-height: 1.6;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        /* Cancel button */
+        .cancel-btn {
+            position: absolute;
+            bottom: 100px;
+            right: 30px;
+            background: var(--error);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 20px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-weight: 500;
+            display: none;
+            z-index: 10;
+        }
+
+        .cancel-btn.visible {
+            display: block;
+        }
+
+        .input-area {
+            position: relative;
+        }
+
+        /* History modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .modal-overlay.visible {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            width: 80%;
+            max-width: 800px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .history-entry {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .history-entry:last-child {
+            border-bottom: none;
+        }
+
+        .history-entry .role {
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 4px;
+        }
+
+        .history-entry .content {
+            white-space: pre-wrap;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>jiuwenClaw</h1>
+                <button class="btn btn-primary btn-small" onclick="createSession()">+ New</button>
+            </div>
+            <div class="session-list" id="sessionList"></div>
+        </aside>
+
+        <main class="main" id="mainArea">
+            <div class="welcome" id="welcomeScreen">
+                <h2>Welcome to jiuwenClaw</h2>
+                <p>Select a session from the sidebar or create a new one to start chatting with the AI agent.</p>
+            </div>
+
+            <div class="chat-header" id="chatHeader" style="display: none;">
+                <h2 id="currentSessionName"></h2>
+                <div class="header-actions">
+                    <button class="btn btn-ghost btn-small" onclick="clearChat()">Clear</button>
+                </div>
+            </div>
+
+            <div class="messages" id="messages" style="display: none;"></div>
+
+            <div class="input-area" id="inputArea" style="display: none;">
+                <button class="cancel-btn" id="cancelBtn" onclick="cancelRequest()">Cancel</button>
+                <div class="input-wrapper">
+                    <textarea
+                        id="messageInput"
+                        placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
+                        rows="1"
+                        onkeydown="handleKeyDown(event)"
+                        oninput="autoResize(this)"
+                    ></textarea>
+                    <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+                        <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        let sessions = [];
+        let currentSessionId = null;
+        let isStreaming = false;
+        let currentEventSource = null;
+        let messages = {};
+
+        async function fetchSessions() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/sessions`);
+                const data = await resp.json();
+                sessions = data.sessions || [];
+                console.log('[Debug] Fetched sessions from server:', sessions.length);
+                renderSessions();
+                return true;
+            } catch (e) {
+                console.error('[Error] Failed to fetch sessions:', e);
+                return false;
+            }
+        }
+
+        function renderSessions() {
+            const list = document.getElementById('sessionList');
+            list.innerHTML = '';
+
+            sessions.forEach(session => {
+                const item = document.createElement('div');
+                item.className = `session-item${session.id === currentSessionId ? ' active' : ''}`;
+                item.onclick = (e) => {
+                    if (!e.target.classList.contains('delete-btn')) {
+                        switchSession(session.id);
+                    }
+                };
+
+                const statusClass = session.busy ? 'status busy' : 'status';
+                const deleteBtn = session.id === '__DEFAULT__' ? '' :
+                    `<button class="btn btn-ghost btn-small delete-btn" onclick="deleteSession('${session.id}')">x</button>`;
+
+                item.innerHTML = `
+                    <div class="${statusClass}"></div>
+                    <span class="name">${escapeHtml(session.id)}</span>
+                    ${deleteBtn}
+                `;
+
+                list.appendChild(item);
+            });
+        }
+
+        async function createSession() {
+            console.log("[Action] Create button clicked");
+            try {
+                // 1. 发起创建请求
+                const resp = await fetch(`${API_BASE}/api/sessions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+
+                if (!resp.ok) {
+                    const errText = await resp.text();
+                    throw new Error(`Server error ${resp.status}: ${errText}`);
+                }
+
+                const data = await resp.json();
+                if (!data.id) {
+                    throw new Error('Server did not return a Session ID');
+                }
+
+                console.log("[Success] Created session:", data.id);
+
+                // 2. 先刷新列表，确保新 Session 出现在侧边栏
+                await fetchSessions();
+
+                // 3. 切换到新 Session
+                switchSession(data.id);
+
+            } catch (e) {
+                console.error('Failed to create session:', e);
+                alert('创建 Session 失败:\n' + e.message);
+            }
+        }
+
+        async function deleteSession(sessionId) {
+            if (sessionId === '__DEFAULT__') return;
+            if (!confirm(`Delete session "${sessionId}"?`)) return;
+
+            try {
+                await fetch(`${API_BASE}/api/sessions/${sessionId}`, { method: 'DELETE' });
+                if (currentSessionId === sessionId) {
+                    currentSessionId = null;
+                    localStorage.removeItem('jiuwen_session_id');
+                }
+                await fetchSessions();
+                if (!currentSessionId) {
+                    showWelcome();
+                }
+            } catch (e) {
+                console.error('Failed to delete session:', e);
+            }
+        }
+
+        function switchSession(sessionId) {
+            console.log(`[Action] Switching to session: ${sessionId}`);
+            currentSessionId = sessionId;
+            localStorage.setItem('jiuwen_session_id', sessionId);
+
+            // 1. Check local cache for seamless resume (if refreshing page)
+            const restored = restoreCachedStream(sessionId);
+            
+            // If restored, update messages array
+            if (restored && (!messages[sessionId] || messages[sessionId].length === 0)) {
+                messages[sessionId] = restored.messages;
+            }
+            
+            // 2. Ensure the chat interface is shown and UI is updated
+            showChat();
+            renderSessions();
+            
+            // ALWAYS render messages to clear any old content from previous session
+            // and show current session state (either restored cache or existing history)
+            renderMessages();
+
+            // 3. Load full history in background to refresh content if needed
+            loadSessionHistory(sessionId).then(() => {
+                checkSessionBusy(sessionId);
+            }).catch(e => {
+                console.warn("Failed to load history for session:", sessionId, e);
+            });
+        }
+
+        function restoreCachedStream(sessionId) {
+            const cached = sessionStorage.getItem(`jiuwen_stream_${sessionId}`);
+            if (!cached) return null;
+
+            try {
+                const data = JSON.parse(cached);
+                // Only restore if cache is relatively recent (last 5 mins)
+                if (Date.now() - data.timestamp < 5 * 60 * 1000) {
+                    return {
+                        messages: [
+                            { type: 'user', content: data.query, role: 'user' },
+                            { type: 'assistant', content: data.content, role: 'assistant', isRestored: true }
+                        ],
+                        query: data.query
+                    };
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        async function checkSessionBusy(sessionId) {
+            try {
+                const resp = await fetch(`${API_BASE}/api/sessions`);
+                const data = await resp.json();
+                const session = data.sessions.find(s => s.id === sessionId);
+                
+                // If we have a restored stream and session is NOT busy, 
+                // it means the task finished while disconnected.
+                // Force a full history reload to show the final result.
+                if (session && !session.busy) {
+                    const cached = sessionStorage.getItem(`jiuwen_stream_${sessionId}`);
+                    if (cached) {
+                        // Task is done on backend, replace restored stream with actual history
+                        loadSessionHistory(sessionId);
+                        cleanupStreamingStorage(sessionId);
+                    }
+                    setStreaming(false);
+                } 
+                // If session IS busy, we show the stream (restored or current) 
+                // and poll for completion.
+                else if (session && session.busy) {
+                    setStreaming(true); 
+                    const pollInterval = setInterval(async () => {
+                        try {
+                            const pollResp = await fetch(`${API_BASE}/api/sessions`);
+                            const pollData = await pollResp.json();
+                            const pollSession = pollData.sessions.find(s => s.id === sessionId);
+                            
+                            if (!pollSession || !pollSession.busy) {
+                                clearInterval(pollInterval);
+                                // Task finished, reload history to show the result
+                                loadSessionHistory(sessionId);
+                                cleanupStreamingStorage(sessionId);
+                                setStreaming(false);
+                            }
+                        } catch (e) {
+                            clearInterval(pollInterval);
+                            setStreaming(false);
+                        }
+                    }, 2000);
+                } else {
+                    // Session not found, clean up
+                    cleanupStreamingStorage(sessionId);
+                    setStreaming(false);
+                }
+            } catch (e) {
+                console.warn("Failed to check session busy state", e);
+            }
+        }
+
+        function cleanupStreamingStorage(sessionId) {
+            sessionStorage.removeItem(`jiuwen_stream_${sessionId}`);
+            localStorage.removeItem(`jiuwen_streaming_query_${sessionId}`);
+        }
+
+        function showWelcome() {
+            document.getElementById('welcomeScreen').style.display = 'flex';
+            document.getElementById('chatHeader').style.display = 'none';
+            document.getElementById('messages').style.display = 'none';
+            document.getElementById('inputArea').style.display = 'none';
+        }
+
+        function showChat() {
+            document.getElementById('welcomeScreen').style.display = 'none';
+            document.getElementById('chatHeader').style.display = 'flex';
+            document.getElementById('messages').style.display = 'flex';
+            document.getElementById('inputArea').style.display = 'block';
+            document.getElementById('currentSessionName').textContent = currentSessionId;
+        }
+
+        function renderMessages() {
+            const container = document.getElementById('messages');
+            container.innerHTML = '';
+
+            const msgList = messages[currentSessionId] || [];
+            msgList.forEach((msg, idx) => {
+                const div = document.createElement('div');
+                let skip = false;
+                
+                if (msg.type === 'tool') {
+                    div.className = 'message tool-card';
+                    const isExpanded = msg.expanded || false;
+                    const arrowClass = isExpanded ? 'tool-arrow expanded' : 'tool-arrow';
+                    const displayStyle = isExpanded ? 'block' : 'none';
+                    const collapsedClass = isExpanded ? '' : ' collapsed';
+                    div.className += collapsedClass;
+                    
+                    let html = `<div class="tool-header" onclick="toggleTool(${idx})">
+                                    <span class="${arrowClass}">▶</span>
+                                    <span>Tool: ${escapeHtml(msg.toolName)}</span>
+                                </div>`;
+                    
+                    if (!isExpanded) {
+                        const hasResult = msg.result && msg.result.length > 0;
+                        html += `<div class="tool-summary">
+                                    <svg class="tool-icon" viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+                                    <span>${hasResult ? 'Completed - click to view details' : 'Executing...'}</span>
+                                 </div>`;
+                    } else {
+                        html += `<div class="tool-content">`;
+                        if (msg.args) html += `<span class="tool-section-label">Arguments:</span><pre style="margin:0">${escapeHtml(msg.args)}</pre>`;
+                        if (msg.result) html += `<span class="tool-section-label" style="margin-top:12px; color:var(--success)">Result:</span><div style="margin-top:4px">${escapeHtml(msg.result)}</div>`;
+                        html += `</div>`;
+                    }
+                    div.innerHTML = html;
+
+                } else if (msg.type === 'status') {
+                    div.className = 'message status-msg';
+                    div.textContent = msg.content;
+
+                } else {
+                    // Assistant or User text message
+                    // 如果内容是纯工具调用 JSON，则跳过渲染（由 tool-card 负责展示）
+                    let shouldRender = true;
+                    if (msg.type === 'assistant' && msg.content) {
+                        const trimmed = msg.content.trim();
+                        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+                            try {
+                                const parsed = JSON.parse(trimmed);
+                                if (parsed.name && parsed.arguments !== undefined) {
+                                    shouldRender = false;
+                                }
+                            } catch (e) {}
+                        }
+                    }
+
+                    if (!shouldRender) {
+                        skip = true;
+                    } else {
+                        div.className = `message ${msg.type}`;
+                        const roleLabel = msg.role === 'user' ? 'You' : (msg.isRestored ? 'Assistant (Recovering...)' : 'Assistant');
+                        let contentHtml = formatContent(msg.content);
+                        if (msg.isRestored && isStreaming) {
+                            contentHtml += '<span class="cursor"></span>';
+                        }
+                        div.innerHTML = `<div class="role">${roleLabel}</div><div class="content">${contentHtml}</div>`;
+                    }
+                }
+
+                if (!skip) {
+                    container.appendChild(div);
+                }
+            });
+
+            const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
+            if (isAtBottom) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        function toggleTool(index) {
+            const list = messages[currentSessionId];
+            if (list && list[index]) {
+                list[index].expanded = !list[index].expanded;
+                renderMessages();
+            }
+        }
+
+        function updateLastToolMsg(resultContent) {
+            if (!currentSessionId || !messages[currentSessionId]) return;
+            for (let i = messages[currentSessionId].length - 1; i >= 0; i--) {
+                if (messages[currentSessionId][i].type === 'tool') {
+                    messages[currentSessionId][i].result = resultContent;
+                    break;
+                }
+            }
+        }
+
+        function addMessage(type, content, options = {}) {
+            if (!currentSessionId) return;
+            if (!messages[currentSessionId]) {
+                messages[currentSessionId] = [];
+            }
+
+            messages[currentSessionId].push({
+                type,
+                content,
+                role: options.role || 'assistant',
+                toolName: options.toolName || '',
+                args: options.args || '',
+                expanded: false
+            });
+
+            renderMessages();
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            if (!text || !currentSessionId || isStreaming) return;
+
+            input.value = '';
+            input.style.height = 'auto';
+            lastQuery = text; // Store query for possible recovery
+
+            addMessage('user', text, { role: 'user' });
+            setStreaming(true);
+            localStorage.setItem(`jiuwen_streaming_query_${currentSessionId}`, text);
+
+            try {
+                await streamChat(text);
+            } catch (e) {
+                console.error('Chat error:', e);
+                addMessage('status', `Error: ${e.message}`);
+            } finally {
+                setStreaming(false);
+                loadSessionHistory(currentSessionId);
+                cleanupStreamingStorage(currentSessionId);
+            }
+        }
+
+        async function streamChat(message) {
+            return new Promise((resolve, reject) => {
+                fetch(`${API_BASE}/api/chat/stream`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: currentSessionId, message: message })
+                }).then(async response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    setStreaming(true);
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let assistantIndex = -1; // Index of the currently active assistant message bubble
+                    let receivedDone = false; // Track if we successfully received the done event
+
+                    while (true) {
+                        const { value, done } = await reader.read();
+                        if (done) {
+                            break;
+                        }
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const events = buffer.split('\n\n');
+                        buffer = events.pop(); // Keep incomplete chunk
+
+                        for (const evt of events) {
+                            if (!evt.trim()) continue;
+
+                            let eventType = 'message';
+                            let eventData = '';
+                            const lines = evt.split('\n');
+                            let hasData = false;
+
+                            // Standard SSE parsing: handle multiple data lines
+                            for (const line of lines) {
+                                if (line.startsWith('event: ')) {
+                                    eventType = line.slice(7);
+                                } else if (line.startsWith('data: ')) {
+                                    if (hasData) {
+                                        eventData += '\n';
+                                    }
+                                    eventData += line.slice(6);
+                                    hasData = true;
+                                }
+                            }
+
+                            const msgList = messages[currentSessionId];
+
+                    if (eventType === 'stream') {
+                                if (!eventData) continue;
+                                
+                                // 检测是否为工具调用 JSON，如果是，拦截并转为 tool 消息
+                                if (eventData.trim().startsWith('{')) {
+                                    try {
+                                        const parsed = JSON.parse(eventData);
+                                        if (parsed.name && (parsed.arguments !== undefined)) {
+                                            // 这是工具调用，不添加到 assistant 消息中，而是创建 tool 消息
+                                            addMessage('tool', '', {
+                                                toolName: parsed.name,
+                                                args: typeof parsed.arguments === 'string' ? parsed.arguments : JSON.stringify(parsed.arguments)
+                                            });
+                                            assistantIndex = -1; // 重置，下次 stream 创建新 assistant
+                                            continue;
+                                        }
+                                    } catch (e) {
+                                        // 不是合法 JSON，继续作为文本处理
+                                    }
+                                }
+
+                                const list = messages[currentSessionId];
+                                const lastMsg = list.length > 0 ? list[list.length - 1] : null;
+                                
+                                if (lastMsg && lastMsg.type === 'assistant') {
+                                    assistantIndex = list.length - 1;
+                                    lastMsg.content += eventData;
+                                } else {
+                                    addMessage('assistant', eventData);
+                                    assistantIndex = list.length - 1;
+                                }
+                                
+                                // 实时缓存到 SessionStorage
+                                const assistantContent = list[assistantIndex].content;
+                                sessionStorage.setItem(
+                                    `jiuwen_stream_${currentSessionId}`, 
+                                    JSON.stringify({ content: assistantContent, timestamp: Date.now(), query: lastQuery })
+                                );
+                            } else if (eventType === 'status') {
+                                if (msgList.length > 0 && msgList[msgList.length - 1].type === 'status') {
+                                    msgList[msgList.length - 1].content += ' ' + eventData;
+                                } else {
+                                    addMessage('status', eventData);
+                                }
+                            } else if (eventType === 'tool_call') {
+                                try {
+                                    const data = JSON.parse(eventData);
+                                    const toolName = data.name || 'tool';
+                                    
+                                    // 去重：如果最后一条消息已经是同名 tool，则跳过
+                                    const list = messages[currentSessionId];
+                                    const lastMsg = list.length > 0 ? list[list.length - 1] : null;
+                                    if (!lastMsg || lastMsg.type !== 'tool' || lastMsg.toolName !== toolName) {
+                                        addMessage('tool', '', {
+                                            toolName: toolName,
+                                            args: data.arguments || JSON.stringify(data)
+                                        });
+                                    }
+                                } catch {
+                                    addMessage('tool', '', { toolName: 'tool', args: eventData });
+                                }
+                                // Reset assistant index to force a new assistant block next time
+                                assistantIndex = -1;
+                            } else if (eventType === 'tool_response') {
+                                // Merge response into the last tool card only, do NOT create assistant message
+                                updateLastToolMsg(eventData);
+                                assistantIndex = -1;
+                            } else if (eventType === 'done') {
+                                receivedDone = true;
+                                try {
+                                    const res = JSON.parse(eventData);
+                                    if (!res.success && res.error) {
+                                        addMessage('status', `Error: ${res.error}`);
+                                    }
+                                } catch (e) {}
+                            }
+                            renderMessages();
+                        }
+                    }
+                    
+                    if (!receivedDone) {
+                         console.warn('Stream ended without a "done" event');
+                    }
+                    resolve();
+                }).catch(err => {
+                    if (err.name !== 'AbortError') {
+                        // Only show error if the stream didn't finish gracefully
+                        // Sometimes browser throws "Network Error" on SSE close
+                        console.error('Stream catch:', err);
+                    }
+                    reject(err);
+                }).finally(() => {
+                    setStreaming(false);
+                    // reader.releaseLock() handled by finally cleanup usually but good to be safe
+                    if (reader) {
+                        reader.releaseLock();
+                    }
+                });
+            });
+        }
+
+        async function cancelRequest() {
+            if (currentSessionId && isStreaming) {
+                try {
+                    await fetch(`${API_BASE}/api/sessions/${currentSessionId}/cancel`, {
+                        method: 'POST'
+                    });
+                } catch (e) {
+                    console.error('Cancel error:', e);
+                }
+            }
+        }
+
+        function setStreaming(streaming) {
+            isStreaming = streaming;
+            document.getElementById('sendBtn').disabled = streaming;
+            document.getElementById('cancelBtn').classList.toggle('visible', streaming);
+            document.getElementById('messageInput').disabled = streaming;
+        }
+
+        function handleKeyDown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function autoResize(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+        }
+
+        function clearChat() {
+            if (currentSessionId) {
+                // Only clear frontend view, history is persisted
+                messages[currentSessionId] = [];
+                renderMessages();
+            }
+        }
+
+        // Removed old modal functions
+
+        async function loadSessionHistory(sessionId) {
+            if (!sessionId) return;
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/sessions/${sessionId}/history`);
+                const data = await resp.json();
+
+                if (!data.messages || data.messages.length === 0) {
+                    messages[sessionId] = [];
+                    renderMessages();
+                    return;
+                }
+
+                const tempMessages = [];
+
+                data.messages.forEach(msg => {
+                    const role = msg.role;
+                    const content = msg.content || '';
+
+                    if (role === 'user') {
+                        tempMessages.push({ type: 'user', content, role: 'user' });
+                    } else if (role === 'tool' || role === 'tool_response') {
+                        let resultContent = content;
+                        if (resultContent.startsWith('[TOOL_RESPONSE]')) {
+                            resultContent = resultContent.replace('[TOOL_RESPONSE]', '').trim();
+                        }
+
+                        let matched = false;
+                        for (let i = tempMessages.length - 1; i >= 0; i--) {
+                            if (tempMessages[i].type === 'tool' && !tempMessages[i].result) {
+                                tempMessages[i].result = resultContent;
+                                matched = true;
+                                break;
+                            }
+                        }
+                        // 如果匹配失败，说明缺失了对应的工具调用记录。
+                        // 为了保持界面整洁，将其显示为一个独立的 Tool 卡片，而不是混入 Assistant 回复。
+                        if (!matched) {
+                            tempMessages.push({
+                                type: 'tool',
+                                toolName: 'Unknown Tool',
+                                args: '',
+                                result: resultContent,
+                                expanded: false
+                            });
+                        }
+                    } else {
+                        let isToolCall = false;
+                        let parsedTool = null;
+                        if (content.trim().startsWith('{')) {
+                            try {
+                                const parsed = JSON.parse(content.trim());
+                                if (parsed.name && (parsed.arguments !== undefined || parsed.input !== undefined)) {
+                                    isToolCall = true;
+                                    parsedTool = {
+                                        type: 'tool',
+                                        toolName: parsed.name,
+                                        args: parsed.arguments !== undefined ? (typeof parsed.arguments === 'string' ? parsed.arguments : JSON.stringify(parsed.arguments)) : (typeof parsed.input === 'string' ? parsed.input : JSON.stringify(parsed.input)),
+                                        result: '',
+                                        expanded: false
+                                    };
+                                }
+                            } catch (e) {}
+                        }
+
+                        if (isToolCall && parsedTool) {
+                            // 去重：如果上一条已经是同名 tool，则跳过
+                            const lastMsg = tempMessages.length > 0 ? tempMessages[tempMessages.length - 1] : null;
+                            if (!lastMsg || lastMsg.type !== 'tool' || lastMsg.toolName !== parsedTool.toolName) {
+                                tempMessages.push(parsedTool);
+                            }
+                        } else if (!isToolCall) {
+                            tempMessages.push({ type: 'assistant', content, role: 'assistant' });
+                        }
+                    }
+                });
+
+                messages[sessionId] = tempMessages;
+                renderMessages();
+            } catch (e) {
+                console.error('Failed to load history:', e);
+            }
+        }
+
+        function updateLastToolMsg(resultContent) {
+            if (!currentSessionId || !messages[currentSessionId]) return;
+            for (let i = messages[currentSessionId].length - 1; i >= 0; i--) {
+                if (messages[currentSessionId][i].type === 'tool') {
+                    messages[currentSessionId][i].result = resultContent;
+                    break;
+                }
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatContent(text) {
+            if (!text) return '';
+            
+            // 1. Normalize CRLF
+            text = text.replace(/\r\n/g, '\n');
+            
+            // 2. Extract Code Blocks to protect them
+            const codeBlocks = [];
+            text = text.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
+                const index = codeBlocks.length;
+                const escapedCode = escapeHtml(code).replace(/\n/g, '<br>');
+                codeBlocks.push(`<pre><code class="language-${lang || ''}">${escapedCode}</code></pre>`);
+                return `__JIUWEN_CODE_BLOCK_${index}__`;
+            });
+
+            // 3. Escape HTML for safety
+            text = escapeHtml(text);
+
+            // 4. Parse Tables and Line-by-Line formatting
+            const lines = text.split('\n');
+            let outputParts = [];
+            let i = 0;
+
+            while (i < lines.length) {
+                let line = lines[i];
+                let trimmed = line.trim();
+
+                // Placeholder check
+                if (trimmed.startsWith('__JIUWEN_CODE_BLOCK_') && trimmed.endsWith('__')) {
+                    outputParts.push(trimmed);
+                    i++;
+                    continue;
+                }
+
+                // Table Check
+                const isRowLike = /^\s*\|/.test(trimmed) && trimmed.includes('|');
+                let isTable = false;
+                if (isRowLike && i + 1 < lines.length) {
+                    const nextTrimmed = lines[i + 1].trim();
+                    // Separator line like |---|
+                    if (/^\s*\|[\s\-\|:]+\|\s*$/.test(nextTrimmed)) {
+                        isTable = true;
+                    }
+                }
+
+                if (isTable) {
+                    let tableHtml = '<table>';
+                    // Header
+                    tableHtml += '<thead><tr>' + parseMdRow(trimmed, 'th') + '</tr></thead>';
+                    tableHtml += '<tbody>';
+                    // Skip header and separator
+                    i += 2;
+                    
+                    // Body
+                    while (i < lines.length) {
+                        let bodyLine = lines[i];
+                        let bodyTrimmed = bodyLine.trim();
+                        if (/^\s*\|/.test(bodyTrimmed) && bodyTrimmed.includes('|')) {
+                            tableHtml += '<tr>' + parseMdRow(bodyTrimmed, 'td') + '</tr>';
+                            i++;
+                        } else {
+                            break;
+                        }
+                    }
+                    tableHtml += '</tbody></table>';
+                    outputParts.push(tableHtml);
+                } else {
+                    // Non-table line: process links and inline markdown
+                    let formattedLine = parseMarkdownLinks(trimmed);
+                    formattedLine = formattedLine.replace(/`([^`]+)`/g, '<code>$1</code>');
+                    formattedLine = formattedLine.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+                    formattedLine = formattedLine.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+                    outputParts.push(formattedLine);
+                    i++;
+                }
+            }
+
+            let finalHtml = outputParts.join('<br>');
+            // Restore Code Blocks
+            finalHtml = finalHtml.replace(/__JIUWEN_CODE_BLOCK_(\d+)__/g, function(m, idx) {
+                return codeBlocks[parseInt(idx)];
+            });
+
+            return finalHtml;
+        }
+
+        function parseMdRow(line, tag) {
+            if (line.startsWith('|')) line = line.substring(1);
+            if (line.endsWith('|')) line = line.substring(0, line.length - 1);
+            const cells = line.split('|');
+            return cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('');
+        }
+
+        function parseMarkdownLinks(text) {
+            // Smart Links (http)
+            text = text.replace(/(https?:\/\/[^\s<>\[\]{}]+)/g, function(url) {
+                try {
+                    if (url.includes('amap.com') || url.includes('gaode.com')) {
+                        const icon = `<svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`;
+                        return `<a href="${url}" target="_blank" class="smart-box"><div class="smart-icon">${icon}</div><div class="smart-info"><span class="smart-title">查看地图位置</span><span class="smart-url">amap map</span></div></a>`;
+                    } else {
+                        const icon = `<svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>`;
+                        let hostname = url;
+                        try { hostname = new URL(url).hostname; } catch(e){}
+                        return `<a href="${url}" target="_blank" class="smart-box"><div class="smart-icon">${icon}</div><div class="smart-info"><span class="smart-title">访问链接</span><span class="smart-url">${hostname}</span></div></a>`;
+                    }
+                } catch (e) { return url; }
+            });
+
+            // Markdown Links [text](url)
+            text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, linkText, url) {
+                try {
+                    if (url.includes('amap') || url.includes('gaode') || url.startsWith('amapuri://')) {
+                        const icon = `<svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`;
+                        return `<a href="${url}" target="_blank" class="smart-box"><div class="smart-icon">${icon}</div><div class="smart-info"><span class="smart-title">${linkText}</span><span class="smart-url">amap map</span></div></a>`;
+                    } else {
+                        let hostname = url;
+                        try { hostname = new URL(url).hostname; } catch(e){}
+                        return `<a href="${url}" target="_blank" class="smart-box"><div class="smart-icon">🔗</div><div class="smart-info"><span class="smart-title">${linkText}</span><span class="smart-url">${hostname}</span></div></a>`;
+                    }
+                } catch (e) { return match; }
+            });
+            return text;
+        }
+
+        function formatJsonSafe(str) {
+            try {
+                const obj = typeof str === 'string' ? JSON.parse(str) : str;
+                return escapeHtml(JSON.stringify(obj, null, 2));
+            } catch {
+                return escapeHtml(str);
+            }
+        }
+
+        // Health check
+        async function checkHealth() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/health`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    console.log('Health check:', data);
+                }
+            } catch (e) {
+                console.warn('Health check failed:', e);
+            }
+        }
+
+        // Expose functions to window for onclick handlers
+        window.createSession = createSession;
+        window.deleteSession = deleteSession;
+        window.sendMessage = sendMessage;
+        window.cancelRequest = cancelRequest;
+        window.clearChat = clearChat;
+        window.switchSession = switchSession;
+        window.toggleTool = toggleTool;
+
+        // Initialize
+        async function init() {
+            await checkHealth();
+            await fetchSessions();
+            
+            // Restore last active session
+            const lastSession = localStorage.getItem('jiuwen_session_id');
+            if (lastSession && sessions.some(s => s.id === lastSession)) {
+                switchSession(lastSession);
+            } else if (sessions.length > 0) {
+                switchSession(sessions[0].id);
+            } else {
+                await createSession();
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>

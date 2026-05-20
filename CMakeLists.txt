@@ -13,10 +13,10 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 # All third-party pre-built libs
-set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
-set(TP_LIBS_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/libs")
-set(TP_INCLUDE_DIR  "${THIRD_PARTY_DIR}/include")
-set(TP_SRC_DIR      "${THIRD_PARTY_DIR}/src")
+set(THIRD_PARTY_DIR          "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+set(TRIRD_PARTY_LIBS_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/libs")
+set(TRIRD_PARTY_INCLUDE_DIR  "${THIRD_PARTY_DIR}/include")
+set(TRIRD_PARTY_SRC_DIR      "${THIRD_PARTY_DIR}/src")
 
 # ============================================================
 # 1. Check if pre-built libraries exist
@@ -24,7 +24,7 @@ set(TP_SRC_DIR      "${THIRD_PARTY_DIR}/src")
 include(FindPackageHandleStandardArgs)
 
 set(USE_PREBUILT_THIRD_PARTY OFF)
-if(EXISTS "${TP_INCLUDE_DIR}/nlohmann/json.hpp")
+if(EXISTS "${TRIRD_PARTY_INCLUDE_DIR}/nlohmann/json.hpp")
     set(USE_PREBUILT_THIRD_PARTY ON)
     message(STATUS "Using pre-built third-party includes from third_party/")
 endif()
@@ -40,25 +40,25 @@ set(SQLITE_LIB sqlite3)
 
 if(WIN32)
     # Windows: look for sqlite3.dll
-    if(EXISTS "${TP_LIBS_DIR}/sqlite3.dll")
+    if(EXISTS "${TRIRD_PARTY_LIBS_DIR}/sqlite3.dll")
         message(STATUS "Using pre-built sqlite3.dll from libs/")
         add_library(sqlite3 SHARED IMPORTED GLOBAL)
         set_target_properties(sqlite3 PROPERTIES
-            IMPORTED_LOCATION "${TP_LIBS_DIR}/sqlite3.dll"
-            INTERFACE_INCLUDE_DIRECTORIES "${TP_INCLUDE_DIR}"
+            IMPORTED_LOCATION "${TRIRD_PARTY_LIBS_DIR}/sqlite3.dll"
+            INTERFACE_INCLUDE_DIRECTORIES "${TRIRD_PARTY_INCLUDE_DIR}"
         )
         # Also import the .lib if it exists (for MSVC linking)
-        if(EXISTS "${TP_LIBS_DIR}/sqlite3.lib")
+        if(EXISTS "${TRIRD_PARTY_LIBS_DIR}/sqlite3.lib")
             set_target_properties(sqlite3 PROPERTIES
-                IMPORTED_IMPLIB "${TP_LIBS_DIR}/sqlite3.lib"
+                IMPORTED_IMPLIB "${TRIRD_PARTY_LIBS_DIR}/sqlite3.lib"
             )
         endif()
     else()
-        set(LOCAL_SQLITE_SRC "${TP_SRC_DIR}/sqlite3-src/sqlite3.c")
+        set(LOCAL_SQLITE_SRC "${TRIRD_PARTY_SRC_DIR}/sqlite3-src/sqlite3.c")
         if(EXISTS "${LOCAL_SQLITE_SRC}")
             message(STATUS "Building sqlite3 from source")
             add_library(sqlite3 SHARED ${LOCAL_SQLITE_SRC})
-            target_include_directories(sqlite3 PUBLIC "${TP_SRC_DIR}/sqlite3-src" ${TP_INCLUDE_DIR})
+            target_include_directories(sqlite3 PUBLIC "${TRIRD_PARTY_SRC_DIR}/sqlite3-src" ${TRIRD_PARTY_INCLUDE_DIR})
             target_compile_definitions(sqlite3 PRIVATE SQLITE_API=__declspec(dllexport))
         else()
             message(STATUS "Warning: sqlite3 not found. Building without SQLite support.")
@@ -67,19 +67,19 @@ if(WIN32)
     endif()
 else()
     # Linux: look for libsqlite3.so
-    if(EXISTS "${TP_LIBS_DIR}/libsqlite3.so")
+    if(EXISTS "${TRIRD_PARTY_LIBS_DIR}/libsqlite3.so")
         message(STATUS "Using pre-built sqlite3 from libs/")
         add_library(sqlite3 SHARED IMPORTED GLOBAL)
         set_target_properties(sqlite3 PROPERTIES
-            IMPORTED_LOCATION "${TP_LIBS_DIR}/libsqlite3.so"
-            INTERFACE_INCLUDE_DIRECTORIES "${TP_INCLUDE_DIR}"
+            IMPORTED_LOCATION "${TRIRD_PARTY_LIBS_DIR}/libsqlite3.so"
+            INTERFACE_INCLUDE_DIRECTORIES "${TRIRD_PARTY_INCLUDE_DIR}"
         )
     else()
-        set(LOCAL_SQLITE_SRC "${TP_SRC_DIR}/sqlite3-src/sqlite3.c")
+        set(LOCAL_SQLITE_SRC "${TRIRD_PARTY_SRC_DIR}/sqlite3-src/sqlite3.c")
         if(EXISTS "${LOCAL_SQLITE_SRC}")
             message(STATUS "Using local sqlite3 source")
             add_library(sqlite3 SHARED ${LOCAL_SQLITE_SRC})
-            target_include_directories(sqlite3 PUBLIC "${TP_SRC_DIR}/sqlite3-src" ${TP_INCLUDE_DIR})
+            target_include_directories(sqlite3 PUBLIC "${TRIRD_PARTY_SRC_DIR}/sqlite3-src" ${TRIRD_PARTY_INCLUDE_DIR})
             target_link_libraries(sqlite3 PUBLIC dl pthread)
         else()
             message(STATUS "Warning: sqlite3 not found in libs/ or src/. Building without sqlite.")
@@ -93,7 +93,16 @@ endif()
 # ============================================================
 if(NOT TARGET nlohmann_json::nlohmann_json)
     add_library(nlohmann_json::nlohmann_json INTERFACE IMPORTED GLOBAL)
-    set_property(TARGET nlohmann_json::nlohmann_json PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TP_INCLUDE_DIR}")
+    set_property(TARGET nlohmann_json::nlohmann_json PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TRIRD_PARTY_INCLUDE_DIR}")
+endif()
+
+# ============================================================
+# 4. cpp-httplib (header-only HTTP server)
+# ============================================================
+if(EXISTS "${TRIRD_PARTY_INCLUDE_DIR}/httplib.h")
+    message(STATUS "Using cpp-httplib from third_party/")
+    add_library(httplib INTERFACE IMPORTED GLOBAL)
+    set_property(TARGET httplib PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${TRIRD_PARTY_INCLUDE_DIR}")
 endif()
 
 # ============================================================
@@ -146,11 +155,11 @@ target_include_directories(agent_framework PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR} 
     ${CMAKE_CURRENT_SOURCE_DIR}/include 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${TRIRD_PARTY_INCLUDE_DIR}
+    ${CURL_INCLUDE_DIRS}
 )
 
 target_compile_definitions(agent_framework PRIVATE BUILDING_AGENT_FRAMEWORK)
-
-target_include_directories(agent_framework PRIVATE ${CURL_INCLUDE_DIRS})
 
 # Platform-specific link libraries
 if(WIN32)
@@ -158,6 +167,7 @@ if(WIN32)
         ${CURL_LIB}
         ${SQLITE_LIB}
         nlohmann_json::nlohmann_json
+        httplib
         ws2_32  # Windows Sockets (required by libcurl on Windows)
         crypt32 # Required by libcurl for SSL
     )
@@ -166,6 +176,7 @@ else()
         ${CURL_LIB}
         ${SQLITE_LIB}
         nlohmann_json::nlohmann_json
+        httplib
         pthread
     )
 endif()
@@ -190,19 +201,42 @@ target_include_directories(jiuwenClaw PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-target_link_libraries(jiuwenClaw PRIVATE agent_framework nlohmann_json::nlohmann_json)
+target_link_libraries(jiuwenClaw PRIVATE 
+    agent_framework
+    nlohmann_json::nlohmann_json
+    httplib
+)
 
-# Optional test targets
-add_executable(unittest unittest/main.cpp unittest/test_types.cpp unittest/test_tool.cpp unittest/test_context_engine.cpp)
+# ============================================================
+# Test Targets
+# ============================================================
+add_executable(unittest 
+    unittest/main.cpp
+    unittest/test_types.cpp
+    unittest/test_tool.cpp
+    unittest/test_context_engine.cpp
+)
 target_include_directories(unittest PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 
     ${CMAKE_CURRENT_SOURCE_DIR}/include 
     ${CMAKE_CURRENT_SOURCE_DIR}/src 
     ${CMAKE_CURRENT_SOURCE_DIR}/unittest
 )
-target_link_libraries(unittest PRIVATE agent_framework nlohmann_json::nlohmann_json)
+target_link_libraries(unittest PRIVATE 
+    agent_framework
+    nlohmann_json::nlohmann_json
+)
 
 install(TARGETS agent_framework jiuwenClaw
     ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY examples/jiuwenClaw/ DESTINATION share/jiuwen-lite/examples)
+install(DIRECTORY web/ DESTINATION share/jiuwen-lite/web)
+
+# Copy web frontend to build directory for development
+add_custom_command(TARGET jiuwenClaw POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/web
+        $<TARGET_FILE_DIR:jiuwenClaw>/web
+    COMMENT "Copying web frontend to build directory"
+)

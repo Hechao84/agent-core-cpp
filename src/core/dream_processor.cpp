@@ -134,9 +134,9 @@ std::string DreamProcessor::LoadDreamPhase2Prompt() const
     p2 += "3. write_file: Create a new file. Only use this for creating skill files under my_skills/.\n";
     p2 += "   Input: {\"path\": \"path/to/file.md\", \"content\": \"file content\"}\n\n";
     p2 += "## File Paths\n";
-    p2 += "- MEMORY.md: memory/MEMORY.md\n";
-    p2 += "- SOUL.md: SOUL.md\n";
-    p2 += "- USER.md: USER.md\n";
+    p2 += "- MEMORY.md: " + config_.dataBasePath + "/memory/MEMORY.md\n";
+    p2 += "- SOUL.md: " + config_.dataBasePath + "/SOUL.md\n";
+    p2 += "- USER.md: " + config_.dataBasePath + "/USER.md\n";
     p2 += "- Skills: my_skills/<name>/SKILL.md\n\n";
     p2 += "## Editing Rules\n";
     p2 += "- Use edit_file for existing files, write_file only for new skill files\n";
@@ -240,11 +240,11 @@ std::string DreamProcessor::BuildPhase2Prompt(
     std::string prompt;
     prompt += "## Findings to Apply\n" + FindingsToText(findings) + "\n\n";
     prompt += "## Current File Contents\n\n";
-    prompt += "### memory/MEMORY.md (" + std::to_string(memoryContent.length()) + " chars)\n";
+    prompt += "### " + config_.dataBasePath + "/memory/MEMORY.md (" + std::to_string(memoryContent.length()) + " chars)\n";
     prompt += TruncateText(memoryContent.empty() ? "(empty)" : memoryContent, config_.memoryFileMaxChars) + "\n\n";
-    prompt += "### SOUL.md (" + std::to_string(soulContent.length()) + " chars)\n";
+    prompt += "### " + config_.dataBasePath + "/SOUL.md (" + std::to_string(soulContent.length()) + " chars)\n";
     prompt += TruncateText(soulContent.empty() ? "(empty)" : soulContent, config_.memoryFileMaxChars) + "\n\n";
-    prompt += "### USER.md (" + std::to_string(userContent.length()) + " chars)\n";
+    prompt += "### " + config_.dataBasePath + "/USER.md (" + std::to_string(userContent.length()) + " chars)\n";
     prompt += TruncateText(userContent.empty() ? "(empty)" : userContent, config_.memoryFileMaxChars);
 
     if (!scratchpad.empty()) {

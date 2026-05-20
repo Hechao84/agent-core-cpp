@@ -1,5 +1,7 @@
+#include <csignal>
 #include <iostream>
 #include <memory>
+#include <atomic>
 #include <string>
 #include <vector>
 #ifdef _WIN32
@@ -9,6 +11,7 @@
 #include "include/agent.h"
 #include "include/resource_manager.h"
 #include "include/session_manager.h"
+#include "src/web/web_api.h"
 // Heartbeat management & Cron watcher module
 #include "examples/jiuwenClaw/cron_watcher.h"
 #include "examples/jiuwenClaw/heartbeat_manager.h"
@@ -25,39 +28,17 @@
 using namespace jiuwen;
 using namespace jiuwenClaw;
 
-int main()
+std::atomic<bool> g_ServerRunning{true};
+
+void SignalHandler(int signum)
 {
-    std::cout << "jiuwenClaw is an Agent powered by jiuwen-lite Agent Framework\n====================\n" << std::flush;
-
-    auto& rm = ResourceManager::GetInstance();
-
-    // Register additional tools
-    rm.RegisterTool("notebook_edit", []() { return std::make_unique<NotebookEditTool>(); });
-    rm.RegisterTool("cron", []() { return std::make_unique<CronTool>(); });
-    rm.RegisterTool("notify", []() { return std::make_unique<NotifyTool>(); });
-
-    std::cout << "\nInitializing Amap MCP Server (Streamable HTTP)...\n" << std::flush;
-    try {
-        std::string amapJson = R"({
-            "url": "https://mcp.amap.com",
-            "endpoint": "/mcp?key=<your amap key>",
-            "isActive": "true",
-            "description": "this is a mcp map server",
-            "type": "streamable-http-client"
-        })";
-
-        rm.RegisterMCPServer("amap", amapJson);
-
-        std::cout << "[SUCCESS] Amap MCP server connected. Available tools:\n" << std::flush;
-        auto mcpTools = rm.GetAvailableTools();
-        for (const auto& toolName : mcpTools) {
-            std::cout << "  - " << toolName << "\n" << std::flush;
-        }
-    } catch (const std::exception& e) {
-        std::cout << "[WARN] MCP Server initialization failed: " << e.what() << "\n" << std::flush;
+    if (signum == SIGINT || signum == SIGTERM) {
+        g_ServerRunning = false;
     }
+}
 
-    // Build global AgentConfig for SessionManager
+AgentConfig BuildAgentConfig()
+{
     AgentConfig config;
     config.id = "demo-agent";
     config.name = "Demo Agent";
@@ -75,8 +56,8 @@ int main()
 
     config.skillDirectory = "./my_skills";
 
-    config.modelConfig.baseUrl = "<your model baseUrl>";
-    config.modelConfig.apiKey = "<your model apiKey>";
+    config.modelConfig.baseUrl = "<YOUR_BASE_URL_HERE>";
+    config.modelConfig.apiKey = "<YOUR_API_KEY_HERE>";
     config.modelConfig.modelName = "Qwen3.6-Plus";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
 
@@ -108,21 +89,86 @@ int main()
     };
 
     // Default tools for all sessions
+    auto& rm = ResourceManager::GetInstance();
     auto allTools = rm.GetAvailableTools();
     config.defaultTools = allTools;
 
-    // Initialize SessionManager (creates the __DEFAULT__ session)
-    InitSessionManager(config);
+    return config;
+}
 
-    // Initialize heartbeat and cron using reserved sessions
-    HeartbeatManager heartbeat(
-        "./data/HEARTBEAT.md",
-        config.modelConfig,
-        300
-    );
+void RegisterDemoTools()
+{
+    auto& rm = ResourceManager::GetInstance();
+    rm.RegisterTool("notebook_edit", []() { return std::make_unique<NotebookEditTool>(); });
+    rm.RegisterTool("cron", []() { return std::make_unique<CronTool>(); });
+    rm.RegisterTool("notify", []() { return std::make_unique<NotifyTool>(); });
+}
 
-    CronWatcher cronWatcher("./data", config.modelConfig, 60);
+void InitMcpServer()
+{
+    std::cout << "\nInitializing Amap MCP Server (Streamable HTTP)...\n" << std::flush;
+    try {
+        std::string amapJson = R"({
+            "url": "https://mcp.amap.com",
+            "endpoint": "/mcp?key=<YOUR_AMAP_KEY_HERE>",
+            "isActive": "true",
+            "description": "this is a mcp map server",
+            "type": "streamable-http-client"
+        })";
 
+        auto& rm = ResourceManager::GetInstance();
+        rm.RegisterMCPServer("amap", amapJson);
+
+        std::cout << "[SUCCESS] Amap MCP server connected. Available tools:\n" << std::flush;
+        auto mcpTools = rm.GetAvailableTools();
+        for (const auto& toolName : mcpTools) {
+            std::cout << "  - " << toolName << "\n" << std::flush;
+        }
+    } catch (const std::exception& e) {
+        std::cout << "[WARN] MCP Server initialization failed: " << e.what() << "\n" << std::flush;
+    }
+}
+
+void RunServerMode(const AgentConfig& /* config */)
+{
+    std::signal(SIGINT, SignalHandler);
+    std::signal(SIGTERM, SignalHandler);
+
+    std::cout << "[Server] Starting jiuwenClaw Agent Server...\n" << std::flush;
+
+    WebApi server;
+    WebApiConfig webConfig;
+    webConfig.host = "127.0.0.1";
+    webConfig.port = 8080;
+    webConfig.staticDir = "./web";
+
+    server.Start(webConfig);
+
+    std::cout << "[Server] Agent Server running at " << server.GetUrl() << "\n" << std::flush;
+    std::cout << "[Server] Open http://" << webConfig.host << ":" << webConfig.port << " in your browser\n" << std::flush;
+    std::cout << "[Server] Type '/exit' or press Ctrl+C to stop...\n" << std::flush;
+
+    // Wait for exit command or signal
+    while (g_ServerRunning) {
+        std::string cmd;
+        if (std::getline(std::cin, cmd)) {
+            if (cmd == "/exit" || cmd == "exit" || cmd == "quit") {
+                g_ServerRunning = false;
+                break;
+            }
+        } else {
+            // EOF reached
+            break;
+        }
+    }
+
+    std::cout << "\n[Server] Stopping server...\n" << std::flush;
+    server.Stop();
+    std::cout << "[Server] Goodbye.\n" << std::flush;
+}
+
+void RunCliMode(const AgentConfig& /* config */)
+{
     std::cout << "\nEnter '/exit' to quit, '/session <id>' to switch session.\n" << std::flush;
 
     // Session management for CLI
@@ -254,6 +300,76 @@ int main()
         );
 
         std::cout << "\n";
+    }
+}
+
+void PrintUsage()
+{
+    std::cout << "Usage: jiuwenClaw [OPTIONS]\n"
+              << "\n"
+              << "Options:\n"
+              << "  --server     Start Agent Server with web UI (default: 127.0.0.1:8080)\n"
+              << "  --port <N>   Set server port (default: 8080)\n"
+              << "  --host <IP>  Set server host (default: 127.0.0.1)\n"
+              << "  --cli        Start CLI mode (default)\n"
+              << "  --help       Show this help message\n"
+              << std::endl;
+}
+
+int main(int argc, char* argv[])
+{
+    std::cout << "jiuwenClaw is an Agent powered by jiuwen-lite Agent Framework\n====================\n" << std::flush;
+
+    bool serverMode = false;
+    std::string serverHost = "127.0.0.1";
+    int serverPort = 8080;
+
+    // Parse command line arguments
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--server") {
+            serverMode = true;
+        } else if (arg == "--cli") {
+            serverMode = false;
+        } else if (arg == "--port" && i + 1 < argc) {
+            serverPort = std::stoi(argv[++i]);
+        } else if (arg == "--host" && i + 1 < argc) {
+            serverHost = argv[++i];
+        } else if (arg == "--help") {
+            PrintUsage();
+            return 0;
+        }
+    }
+
+    // Register additional tools
+    RegisterDemoTools();
+
+    // Initialize MCP server
+    InitMcpServer();
+
+    // Build and initialize SessionManager
+    AgentConfig config = BuildAgentConfig();
+    InitSessionManager(config);
+
+    // Initialize heartbeat and cron using reserved sessions
+    HeartbeatManager heartbeat(
+        "./data/HEARTBEAT.md",
+        config.modelConfig,
+        300
+    );
+
+    CronWatcher cronWatcher("./data", config.modelConfig, 60);
+
+    if (serverMode) {
+        // Override web config from command line
+        WebApiConfig webConfig;
+        webConfig.host = serverHost;
+        webConfig.port = serverPort;
+        webConfig.staticDir = "./web";
+
+        RunServerMode(config);
+    } else {
+        RunCliMode(config);
     }
 
     return 0;
