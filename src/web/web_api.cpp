@@ -280,7 +280,9 @@ void WebApi::Start(const WebApiConfig& config)
                 while (!data.empty() && data[0] == ' ') data = data.substr(1);
             } else if (resp.find("[TOOL_CALLS]") != std::string::npos) {
                 eventType = "tool_call";
-                data = resp;
+                size_t pos = resp.find("[TOOL_CALLS]");
+                data = resp.substr(pos + 12);
+                while (!data.empty() && (data[0] == ' ' || data[0] == '\n')) data = data.substr(1);
             } else if (resp.find("[TOOL_RESPONSE]") != std::string::npos) {
                 eventType = "tool_response";
                 size_t pos = resp.find("[TOOL_RESPONSE]");

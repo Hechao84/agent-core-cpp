@@ -940,7 +940,7 @@
             document.getElementById('currentSessionName').textContent = currentSessionId;
         }
 
-        function renderMessages() {
+        function renderMessages(forceScrollToBottom = false) {
             const container = document.getElementById('messages');
             container.innerHTML = '';
 
@@ -951,9 +951,9 @@
                 
                 if (msg.type === 'tool') {
                     div.className = 'message tool-card';
+                    div.setAttribute('data-msg-index', idx);
                     const isExpanded = msg.expanded || false;
                     const arrowClass = isExpanded ? 'tool-arrow expanded' : 'tool-arrow';
-                    const displayStyle = isExpanded ? 'block' : 'none';
                     const collapsedClass = isExpanded ? '' : ' collapsed';
                     div.className += collapsedClass;
                     
@@ -978,11 +978,10 @@
 
                 } else if (msg.type === 'status') {
                     div.className = 'message status-msg';
+                    div.setAttribute('data-msg-index', idx);
                     div.textContent = msg.content;
 
                 } else {
-                    // Assistant or User text message
-                    // 如果内容是纯工具调用 JSON，则跳过渲染（由 tool-card 负责展示）
                     let shouldRender = true;
                     if (msg.type === 'assistant' && msg.content) {
                         const trimmed = msg.content.trim();
@@ -1000,6 +999,7 @@
                         skip = true;
                     } else {
                         div.className = `message ${msg.type}`;
+                        div.setAttribute('data-msg-index', idx);
                         const roleLabel = msg.role === 'user' ? 'You' : (msg.isRestored ? 'Assistant (Recovering...)' : 'Assistant');
                         let contentHtml = formatContent(msg.content);
                         if (msg.isRestored && streamingSessions.has(currentSessionId)) {
@@ -1014,9 +1014,171 @@
                 }
             });
 
-            const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
-            if (isAtBottom) {
-                container.scrollTop = container.scrollHeight;
+            if (forceScrollToBottom) {
+                requestAnimationFrame(() => {
+                    container.scrollTop = container.scrollHeight;
+                });
+            } else {
+                smartScrollToBottom(container);
+            }
+        }
+
+        function smartScrollToBottom(container) {
+            requestAnimationFrame(() => {
+                const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
+                if (isAtBottom) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            });
+        }
+
+        function appendAssistantMessage(sessionId, content, query) {
+            if (!messages[sessionId]) {
+                messages[sessionId] = [];
+            }
+            const list = messages[sessionId];
+            const lastMsg = list.length > 0 ? list[list.length - 1] : null;
+            
+            if (lastMsg && lastMsg.type === 'assistant') {
+                lastMsg.content += content;
+                if (sessionId === currentSessionId) {
+                    incrementalUpdateAssistant(sessionId);
+                }
+            } else {
+                list.push({
+                    type: 'assistant',
+                    content: content,
+                    role: 'assistant'
+                });
+                if (sessionId === currentSessionId) {
+                    incrementalAppendAssistant(sessionId);
+                }
+            }
+            
+            const assistantMsg = list[list.length - 1];
+            if (assistantMsg && assistantMsg.type === 'assistant') {
+                sessionStorage.setItem(
+                    `jiuwen_stream_${sessionId}`, 
+                    JSON.stringify({ content: assistantMsg.content, timestamp: Date.now(), query: query })
+                );
+            }
+        }
+
+        function incrementalAppendAssistant(sessionId) {
+            const container = document.getElementById('messages');
+            const msgList = messages[sessionId];
+            const lastMsg = msgList[msgList.length - 1];
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            div.setAttribute('data-msg-index', msgList.length - 1);
+            div.innerHTML = `<div class="role">Assistant</div><div class="content">${formatContent(lastMsg.content)}</div>`;
+            container.appendChild(div);
+            smartScrollToBottom(container);
+        }
+
+        function incrementalUpdateAssistant(sessionId) {
+            const container = document.getElementById('messages');
+            const msgList = messages[sessionId];
+            const lastAssistantIndex = findLastMessageIndex(sessionId, 'assistant');
+            if (lastAssistantIndex === -1) return;
+            
+            const contentDiv = container.querySelector(`.message.assistant[data-msg-index="${lastAssistantIndex}"] .content`);
+            if (contentDiv) {
+                contentDiv.innerHTML = formatContent(msgList[lastAssistantIndex].content);
+                smartScrollToBottom(container);
+            }
+        }
+
+        function findLastMessageIndex(sessionId, type) {
+            const list = messages[sessionId];
+            for (let i = list.length - 1; i >= 0; i--) {
+                if (list[i].type === type) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        function appendToolMessage(sessionId, toolName, args) {
+            if (!messages[sessionId]) {
+                messages[sessionId] = [];
+            }
+            const newIndex = messages[sessionId].length;
+            messages[sessionId].push({
+                type: 'tool',
+                content: '',
+                toolName: toolName,
+                args: args,
+                expanded: false
+            });
+            if (sessionId === currentSessionId) {
+                incrementalAppendTool(sessionId, newIndex);
+            }
+        }
+
+        function incrementalAppendTool(sessionId, index) {
+            const container = document.getElementById('messages');
+            const msg = messages[sessionId][index];
+            const div = document.createElement('div');
+            div.className = 'message tool-card';
+            div.setAttribute('data-msg-index', index);
+            div.innerHTML = `<div class="tool-header" onclick="toggleTool(${index})">
+                                <span class="tool-arrow">▶</span>
+                                <span>Tool: ${escapeHtml(msg.toolName)}</span>
+                             </div>
+                             <div class="tool-summary">
+                                <svg class="tool-icon" viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+                                <span>Executing...</span>
+                             </div>`;
+            container.appendChild(div);
+            smartScrollToBottom(container);
+        }
+
+        function appendStatusMessage(sessionId, content) {
+            if (!messages[sessionId]) {
+                messages[sessionId] = [];
+            }
+            const list = messages[sessionId];
+            const lastMsg = list.length > 0 ? list[list.length - 1] : null;
+            
+            if (lastMsg && lastMsg.type === 'status') {
+                lastMsg.content += ' ' + content;
+                if (sessionId === currentSessionId) {
+                    incrementalUpdateStatus(sessionId);
+                }
+            } else {
+                list.push({
+                    type: 'status',
+                    content: content
+                });
+                if (sessionId === currentSessionId) {
+                    incrementalAppendStatus(sessionId);
+                }
+            }
+        }
+
+        function incrementalAppendStatus(sessionId) {
+            const container = document.getElementById('messages');
+            const msgList = messages[sessionId];
+            const lastMsg = msgList[msgList.length - 1];
+            const div = document.createElement('div');
+            div.className = 'message status-msg';
+            div.setAttribute('data-msg-index', msgList.length - 1);
+            div.textContent = lastMsg.content;
+            container.appendChild(div);
+            smartScrollToBottom(container);
+        }
+
+        function incrementalUpdateStatus(sessionId) {
+            const container = document.getElementById('messages');
+            const msgList = messages[sessionId];
+            const lastStatusIndex = findLastMessageIndex(sessionId, 'status');
+            if (lastStatusIndex === -1) return;
+            
+            const statusDiv = container.querySelector(`.message.status-msg[data-msg-index="${lastStatusIndex}"]`);
+            if (statusDiv) {
+                statusDiv.textContent = msgList[lastStatusIndex].content;
+                smartScrollToBottom(container);
             }
         }
 
@@ -1070,10 +1232,11 @@
             const text = input.value.trim();
             if (!text || !currentSessionId || streamingSessions.has(currentSessionId)) return;
 
-            const sessionId = currentSessionId; // Capture current session ID to prevent issues if user switches sessions
+            const sessionId = currentSessionId;
             input.value = '';
             input.style.height = 'auto';
 
+            showChat();
             addMessage('user', text, { role: 'user', sessionId: sessionId });
             setStreaming(sessionId, true);
             localStorage.setItem(`jiuwen_streaming_query_${sessionId}`, text);
@@ -1082,12 +1245,8 @@
                 await streamChat(text, sessionId);
             } catch (e) {
                 console.error('Chat error:', e);
-                // Only add status to session if it is still active
-                // (If user canceled or switched away, we might not want to show error)
-                // For now, let's keep it simple.
             } finally {
                 setStreaming(sessionId, false);
-                // Reload history for the session that finished
                 loadSessionHistory(sessionId);
                 cleanupStreamingStorage(sessionId);
             }
@@ -1108,8 +1267,7 @@
                     const reader = response.body.getReader();
                     const decoder = new TextDecoder();
                     let buffer = '';
-                    let assistantIndex = -1; // Index of the currently active assistant message bubble
-                    let receivedDone = false; // Track if we successfully received the done event
+                    let receivedDone = false;
 
                     while (true) {
                         const { value, done } = await reader.read();
@@ -1119,7 +1277,7 @@
 
                         buffer += decoder.decode(value, { stream: true });
                         const events = buffer.split('\n\n');
-                        buffer = events.pop(); // Keep incomplete chunk
+                        buffer = events.pop();
 
                         for (const evt of events) {
                             if (!evt.trim()) continue;
@@ -1129,7 +1287,6 @@
                             const lines = evt.split('\n');
                             let hasData = false;
 
-                            // Standard SSE parsing: handle multiple data lines
                             for (const line of lines) {
                                 if (line.startsWith('event: ')) {
                                     eventType = line.slice(7);
@@ -1144,87 +1301,41 @@
 
                             const msgList = messages[sessionId];
 
-                    if (eventType === 'stream') {
+                            if (eventType === 'stream') {
                                 if (!eventData) continue;
                                 
-                                // 检测是否为工具调用 JSON，如果是，拦截并转为 tool 消息
                                 if (eventData.trim().startsWith('{')) {
                                     try {
                                         const parsed = JSON.parse(eventData);
                                         if (parsed.name && (parsed.arguments !== undefined)) {
-                                            // 这是工具调用，不添加到 assistant 消息中，而是创建 tool 消息
-                                            addMessage('tool', '', {
-                                                sessionId: sessionId,
-                                                toolName: parsed.name,
-                                                args: typeof parsed.arguments === 'string' ? parsed.arguments : JSON.stringify(parsed.arguments)
-                                            });
-                                            assistantIndex = -1; // 重置，下次 stream 创建新 assistant
+                                            appendToolMessage(sessionId, parsed.name, typeof parsed.arguments === 'string' ? parsed.arguments : JSON.stringify(parsed.arguments));
                                             continue;
                                         }
                                     } catch (e) {
-                                        // 不是合法 JSON，继续作为文本处理
                                     }
                                 }
 
-                                const list = messages[sessionId];
-                                const lastMsg = list.length > 0 ? list[list.length - 1] : null;
-                                
-                                if (lastMsg && lastMsg.type === 'assistant') {
-                                    assistantIndex = list.length - 1;
-                                    lastMsg.content += eventData;
-                                } else {
-                                    addMessage('assistant', eventData, { sessionId: sessionId });
-                                    assistantIndex = list.length - 1;
-                                }
-                                
-                                // 实时缓存到 SessionStorage
-                                const assistantContent = list[assistantIndex].content;
-                                sessionStorage.setItem(
-                                    `jiuwen_stream_${sessionId}`, 
-                                    JSON.stringify({ content: assistantContent, timestamp: Date.now(), query: lastQuery })
-                                );
+                                appendAssistantMessage(sessionId, eventData, message);
                             } else if (eventType === 'status') {
-                                if (msgList.length > 0 && msgList[msgList.length - 1].type === 'status') {
-                                    msgList[msgList.length - 1].content += ' ' + eventData;
-                                } else {
-                                    addMessage('status', eventData, { sessionId: sessionId });
-                                }
+                                appendStatusMessage(sessionId, eventData);
                             } else if (eventType === 'tool_call') {
                                 try {
                                     const data = JSON.parse(eventData);
                                     const toolName = data.name || 'tool';
-                                    
-                                    // 去重：如果最后一条消息已经是同名 tool，则跳过
-                                    const list = messages[sessionId];
-                                    const lastMsg = list.length > 0 ? list[list.length - 1] : null;
-                                    if (!lastMsg || lastMsg.type !== 'tool' || lastMsg.toolName !== toolName) {
-                                        addMessage('tool', '', {
-                                            sessionId: sessionId,
-                                            toolName: toolName,
-                                            args: data.arguments || JSON.stringify(data)
-                                        });
-                                    }
+                                    appendToolMessage(sessionId, toolName, typeof data.arguments === 'object' ? JSON.stringify(data.arguments) : (data.arguments || JSON.stringify(data)));
                                 } catch {
-                                    addMessage('tool', '', { sessionId: sessionId, toolName: 'tool', args: eventData });
+                                    appendToolMessage(sessionId, 'Unknown Tool', eventData);
                                 }
-                                // Reset assistant index to force a new assistant block next time
-                                assistantIndex = -1;
                             } else if (eventType === 'tool_response') {
-                                // Merge response into the last tool card only, do NOT create assistant message
                                 updateLastToolMsg(eventData, sessionId);
-                                assistantIndex = -1;
                             } else if (eventType === 'done') {
                                 receivedDone = true;
                                 try {
                                     const res = JSON.parse(eventData);
                                     if (!res.success && res.error) {
-                                        addMessage('status', `Error: ${res.error}`, { sessionId: sessionId });
+                                        appendStatusMessage(sessionId, `Error: ${res.error}`);
                                     }
                                 } catch (e) {}
-                            }
-                            // Only render if the streaming session is the currently viewed session
-                            if (sessionId === currentSessionId) {
-                                renderMessages();
                             }
                         }
                     }
@@ -1235,14 +1346,11 @@
                     resolve();
                 }).catch(err => {
                     if (err.name !== 'AbortError') {
-                        // Only show error if the stream didn't finish gracefully
-                        // Sometimes browser throws "Network Error" on SSE close
                         console.error('Stream catch:', err);
                     }
                     reject(err);
                 }).finally(() => {
                     setStreaming(sessionId, false);
-                    // reader.releaseLock() handled by finally cleanup usually but good to be safe
                     if (reader) {
                         reader.releaseLock();
                     }
@@ -1319,12 +1427,19 @@
                                 break;
                             }
                         }
-                        // 如果匹配失败，说明缺失了对应的工具调用记录。
-                        // 为了保持界面整洁，将其显示为一个独立的 Tool 卡片，而不是混入 Assistant 回复。
+                        // 如果匹配失败（例如 LLM 重复调用导致前端 UI 去重，但后端存了多条 response）
+                        // 尝试从历史记录中继承最近的 Tool Name，而不是显示 Unknown Tool
                         if (!matched) {
+                            let fallbackName = 'Unknown Tool';
+                            for (let i = tempMessages.length - 1; i >= 0; i--) {
+                                if (tempMessages[i].type === 'tool' && tempMessages[i].toolName && tempMessages[i].toolName !== 'Unknown Tool') {
+                                    fallbackName = tempMessages[i].toolName;
+                                    break;
+                                }
+                            }
                             tempMessages.push({
                                 type: 'tool',
-                                toolName: 'Unknown Tool',
+                                toolName: fallbackName,
                                 args: '',
                                 result: resultContent,
                                 expanded: false
@@ -1350,11 +1465,7 @@
                         }
 
                         if (isToolCall && parsedTool) {
-                            // 去重：如果上一条已经是同名 tool，则跳过
-                            const lastMsg = tempMessages.length > 0 ? tempMessages[tempMessages.length - 1] : null;
-                            if (!lastMsg || lastMsg.type !== 'tool' || lastMsg.toolName !== parsedTool.toolName) {
-                                tempMessages.push(parsedTool);
-                            }
+                            tempMessages.push(parsedTool);
                         } else if (!isToolCall) {
                             tempMessages.push({ type: 'assistant', content, role: 'assistant' });
                         }
@@ -1362,7 +1473,7 @@
                 });
 
                 messages[sessionId] = tempMessages;
-                renderMessages();
+                renderMessages(true);
             } catch (e) {
                 console.error('Failed to load history:', e);
             }
@@ -1374,8 +1485,25 @@
             for (let i = msgList.length - 1; i >= 0; i--) {
                 if (msgList[i].type === 'tool') {
                     msgList[i].result = resultContent;
+                    if (sessionId === currentSessionId) {
+                        incrementalUpdateTool(sessionId, i);
+                    }
                     break;
                 }
+            }
+        }
+
+        function incrementalUpdateTool(sessionId, index) {
+            const container = document.getElementById('messages');
+            const msg = messages[sessionId][index];
+            const toolDiv = container.querySelector(`.message.tool-card[data-msg-index="${index}"]`);
+            if (toolDiv) {
+                const summary = toolDiv.querySelector('.tool-summary');
+                if (summary) {
+                    summary.innerHTML = `<svg class="tool-icon" viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+                                <span>Completed - click to view details</span>`;
+                }
+                smartScrollToBottom(container);
             }
         }
 
