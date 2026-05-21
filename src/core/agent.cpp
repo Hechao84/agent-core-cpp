@@ -82,14 +82,18 @@ void Agent::SetContextEngineGetter(
 std::string Agent::Invoke(const std::string& sessionId, const std::string& query,
                           std::function<void(const std::string&)> callback)
 {
+    LOG(INFO) << "[Agent] Invoke started for session: " << sessionId;
+
     if (!worker_) {
         callback("[STATUS] Error: Agent not initialized");
+        LOG(ERR) << "[Agent] [" << sessionId << "] Error: Agent not initialized";
         return "Error: Agent not initialized";
     }
 
     auto contextEngine = contextEngineGetter_(sessionId);
     if (!contextEngine) {
         callback("[STATUS] Error: ContextEngine not found for session=" + sessionId);
+        LOG(ERR) << "[Agent] [" << sessionId << "] Error: ContextEngine not found";
         return "Error: Session context not found";
     }
 
@@ -101,7 +105,7 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
 
     // 2b. Record to Dream history store
     if (historyStore_) {
-        historyStore_->AppendEntry("user", query);
+        historyStore_->AppendEntry("user", query, sessionId);
     }
 
     // 3. Call worker and get the final answer (pass contextEngine directly to avoid race conditions)
@@ -148,7 +152,7 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
 
         // 5b. Record to Dream history store
         if (historyStore_) {
-            historyStore_->AppendEntry("assistant", finalAnswer);
+            historyStore_->AppendEntry("assistant", finalAnswer, sessionId);
         }
     }
 

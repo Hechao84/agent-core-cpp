@@ -13,7 +13,7 @@ public:
     explicit HistoryStore(const std::string& basePath);
     ~HistoryStore() = default;
 
-    int AppendEntry(const std::string& role, const std::string& content);
+    int AppendEntry(const std::string& role, const std::string& content, const std::string& sessionId);
     std::vector<HistoryEntry> ReadUnprocessedHistory(int sinceCursor);
     int GetLastDreamCursor() const;
     void SetLastDreamCursor(int cursor);

@@ -177,6 +177,8 @@ SessionInvokeResult SessionManager::Invoke(
     const std::string& message,
     std::function<void(const std::string&)> callback)
 {
+    LOG(INFO) << "[SessionManager] [" << sessionId << "] Invoke requested, message length: " << message.length();
+
     if (!initialized_) {
         return SessionInvokeResult{"[ERROR] SessionManager not initialized", false, "Not initialized", sessionId};
     }
@@ -212,7 +214,7 @@ SessionInvokeResult SessionManager::Invoke(
         }
 
         std::string err = "Invoke failed: " + std::string(e.what());
-        LOG(ERR) << "[SessionManager] " << err;
+        LOG(ERR) << "[SessionManager] [" << sessionId << "] " << err;
 
         return SessionInvokeResult{"", false, e.what(), sessionId};
     }

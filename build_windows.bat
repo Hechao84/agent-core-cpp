@@ -154,5 +154,15 @@ echo To run the demo app:
 echo   cd %SCRIPT_DIR%
 echo   set PATH=%SCRIPT_DIR%\dist\windows;%%PATH%%
 echo   dist\windows\jiuwenClaw.exe
+echo.
+echo Available options:
+echo   --server       Start Agent Server with web UI (default: 127.0.0.1:8080)
+echo   --port ^<N^>     Set server port (default: 8080)
+echo   --host ^<IP^>    Set server host (default: 127.0.0.1)
+echo   --cli          Start CLI mode (default)
+echo   --help         Show this help message
+echo.
+echo Example (Start Agent Server with web UI):
+echo   dist\windows\jiuwenClaw.exe --server --port 8080 --host 127.0.0.1
 
 endlocal

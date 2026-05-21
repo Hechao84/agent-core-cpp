@@ -250,6 +250,8 @@ void WebApi::Start(const WebApiConfig& config)
             return;
         }
 
+        LOG(INFO) << "[WebApi] [" << sessionId << "] Streaming chat requested";
+
         struct SseContext {
             std::vector<std::string> events;
             std::mutex mutex;
@@ -316,7 +318,7 @@ void WebApi::Start(const WebApiConfig& config)
                     streamCallback
                 );
             } catch (...) {
-                LOG(ERR) << "[WebApi] Agent invoke failed";
+                LOG(ERR) << "[WebApi] [" << sessionId << "] Agent invoke failed";
             }
 
             {

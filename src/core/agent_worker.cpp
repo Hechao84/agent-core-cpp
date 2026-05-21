@@ -187,7 +187,12 @@ std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
 
 uint64_t AgentWorker::StartNewInvocation()
 {
-    return cancelGeneration_.fetch_add(1, std::memory_order_relaxed) + 1;
+    // Return the current generation value without incrementing.
+    // Incrementing a global counter for every new request would invalidate
+    // all other concurrently running sessions sharing this worker.
+    // Cancellation is still supported because Cancel() jumps the counter by 100,
+    // making all current myGeneration values smaller than cancelGeneration_.
+    return cancelGeneration_.load(std::memory_order_relaxed);
 }
 
 bool AgentWorker::IsCancelled(uint64_t myGeneration) const

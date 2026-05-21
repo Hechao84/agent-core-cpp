@@ -698,7 +698,7 @@
         const API_BASE = '';
         let sessions = [];
         let currentSessionId = null;
-        let isStreaming = false;
+        const streamingSessions = new Set();
         let currentEventSource = null;
         let messages = {};
 
@@ -801,6 +801,15 @@
             currentSessionId = sessionId;
             localStorage.setItem('jiuwen_session_id', sessionId);
 
+            // UI Reset: Ensure input state matches the new session's status
+            const isSessionStreaming = streamingSessions.has(sessionId);
+            const input = document.getElementById('messageInput');
+            const sendBtn = document.getElementById('sendBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
+            if (input) input.disabled = isSessionStreaming;
+            if (sendBtn) sendBtn.disabled = isSessionStreaming;
+            if (cancelBtn) cancelBtn.classList.toggle('visible', isSessionStreaming);
+
             // 1. Check local cache for seamless resume (if refreshing page)
             const restored = restoreCachedStream(sessionId);
             
@@ -861,34 +870,50 @@
                         loadSessionHistory(sessionId);
                         cleanupStreamingStorage(sessionId);
                     }
-                    setStreaming(false);
+                    streamingSessions.delete(sessionId); // Ensure removed from Set
                 } 
                 // If session IS busy, we show the stream (restored or current) 
                 // and poll for completion.
                 else if (session && session.busy) {
-                    setStreaming(true); 
-                    const pollInterval = setInterval(async () => {
+                    setStreaming(sessionId, true);
+                    const poll = async () => {
                         try {
                             const pollResp = await fetch(`${API_BASE}/api/sessions`);
                             const pollData = await pollResp.json();
                             const pollSession = pollData.sessions.find(s => s.id === sessionId);
                             
                             if (!pollSession || !pollSession.busy) {
-                                clearInterval(pollInterval);
                                 // Task finished, reload history to show the result
                                 loadSessionHistory(sessionId);
                                 cleanupStreamingStorage(sessionId);
-                                setStreaming(false);
+                            }
+                        } catch (e) {}
+                        
+                        // Always clear streaming state for this session after polling logic
+                        setStreaming(sessionId, false);
+                    };
+                    // Start polling loop
+                    const pollLoop = async () => {
+                        try {
+                            const pollResp = await fetch(`${API_BASE}/api/sessions`);
+                            const pollData = await pollResp.json();
+                            const pollSession = pollData.sessions.find(s => s.id === sessionId);
+                            
+                            if (!pollSession || !pollSession.busy) {
+                                loadSessionHistory(sessionId);
+                                cleanupStreamingStorage(sessionId);
+                                setStreaming(sessionId, false); // Stop streaming UI
+                            } else {
+                                setTimeout(pollLoop, 2000);
                             }
                         } catch (e) {
-                            clearInterval(pollInterval);
-                            setStreaming(false);
+                            setStreaming(sessionId, false);
                         }
-                    }, 2000);
+                    };
+                    setTimeout(pollLoop, 2000);
                 } else {
                     // Session not found, clean up
                     cleanupStreamingStorage(sessionId);
-                    setStreaming(false);
                 }
             } catch (e) {
                 console.warn("Failed to check session busy state", e);
@@ -977,7 +1002,7 @@
                         div.className = `message ${msg.type}`;
                         const roleLabel = msg.role === 'user' ? 'You' : (msg.isRestored ? 'Assistant (Recovering...)' : 'Assistant');
                         let contentHtml = formatContent(msg.content);
-                        if (msg.isRestored && isStreaming) {
+                        if (msg.isRestored && streamingSessions.has(currentSessionId)) {
                             contentHtml += '<span class="cursor"></span>';
                         }
                         div.innerHTML = `<div class="role">${roleLabel}</div><div class="content">${contentHtml}</div>`;
@@ -1003,23 +1028,29 @@
             }
         }
 
-        function updateLastToolMsg(resultContent) {
-            if (!currentSessionId || !messages[currentSessionId]) return;
-            for (let i = messages[currentSessionId].length - 1; i >= 0; i--) {
-                if (messages[currentSessionId][i].type === 'tool') {
-                    messages[currentSessionId][i].result = resultContent;
-                    break;
-                }
+        function setStreaming(sessionId, streaming) {
+            if (streaming) {
+                streamingSessions.add(sessionId);
+            } else {
+                streamingSessions.delete(sessionId);
+            }
+
+            // Update UI ONLY if the affected session is the one currently being viewed
+            if (sessionId === currentSessionId) {
+                document.getElementById('sendBtn').disabled = streaming;
+                document.getElementById('cancelBtn').classList.toggle('visible', streaming);
+                document.getElementById('messageInput').disabled = streaming;
             }
         }
 
         function addMessage(type, content, options = {}) {
-            if (!currentSessionId) return;
-            if (!messages[currentSessionId]) {
-                messages[currentSessionId] = [];
+            const targetSessionId = options.sessionId || currentSessionId;
+            if (!targetSessionId) return;
+            if (!messages[targetSessionId]) {
+                messages[targetSessionId] = [];
             }
 
-            messages[currentSessionId].push({
+            messages[targetSessionId].push({
                 type,
                 content,
                 role: options.role || 'assistant',
@@ -1028,46 +1059,52 @@
                 expanded: false
             });
 
-            renderMessages();
+            // Only render if the message belongs to the currently active session view
+            if (targetSessionId === currentSessionId) {
+                renderMessages();
+            }
         }
 
         async function sendMessage() {
             const input = document.getElementById('messageInput');
             const text = input.value.trim();
-            if (!text || !currentSessionId || isStreaming) return;
+            if (!text || !currentSessionId || streamingSessions.has(currentSessionId)) return;
 
+            const sessionId = currentSessionId; // Capture current session ID to prevent issues if user switches sessions
             input.value = '';
             input.style.height = 'auto';
-            lastQuery = text; // Store query for possible recovery
 
-            addMessage('user', text, { role: 'user' });
-            setStreaming(true);
-            localStorage.setItem(`jiuwen_streaming_query_${currentSessionId}`, text);
+            addMessage('user', text, { role: 'user', sessionId: sessionId });
+            setStreaming(sessionId, true);
+            localStorage.setItem(`jiuwen_streaming_query_${sessionId}`, text);
 
             try {
-                await streamChat(text);
+                await streamChat(text, sessionId);
             } catch (e) {
                 console.error('Chat error:', e);
-                addMessage('status', `Error: ${e.message}`);
+                // Only add status to session if it is still active
+                // (If user canceled or switched away, we might not want to show error)
+                // For now, let's keep it simple.
             } finally {
-                setStreaming(false);
-                loadSessionHistory(currentSessionId);
-                cleanupStreamingStorage(currentSessionId);
+                setStreaming(sessionId, false);
+                // Reload history for the session that finished
+                loadSessionHistory(sessionId);
+                cleanupStreamingStorage(sessionId);
             }
         }
 
-        async function streamChat(message) {
+        async function streamChat(message, sessionId) {
             return new Promise((resolve, reject) => {
                 fetch(`${API_BASE}/api/chat/stream`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: currentSessionId, message: message })
+                    body: JSON.stringify({ session_id: sessionId, message: message })
                 }).then(async response => {
                     if (!response.ok) {
                         throw new Error(`HTTP ${response.status}`);
                     }
 
-                    setStreaming(true);
+                    setStreaming(sessionId, true);
                     const reader = response.body.getReader();
                     const decoder = new TextDecoder();
                     let buffer = '';
@@ -1105,7 +1142,7 @@
                                 }
                             }
 
-                            const msgList = messages[currentSessionId];
+                            const msgList = messages[sessionId];
 
                     if (eventType === 'stream') {
                                 if (!eventData) continue;
@@ -1117,6 +1154,7 @@
                                         if (parsed.name && (parsed.arguments !== undefined)) {
                                             // 这是工具调用，不添加到 assistant 消息中，而是创建 tool 消息
                                             addMessage('tool', '', {
+                                                sessionId: sessionId,
                                                 toolName: parsed.name,
                                                 args: typeof parsed.arguments === 'string' ? parsed.arguments : JSON.stringify(parsed.arguments)
                                             });
@@ -1128,28 +1166,28 @@
                                     }
                                 }
 
-                                const list = messages[currentSessionId];
+                                const list = messages[sessionId];
                                 const lastMsg = list.length > 0 ? list[list.length - 1] : null;
                                 
                                 if (lastMsg && lastMsg.type === 'assistant') {
                                     assistantIndex = list.length - 1;
                                     lastMsg.content += eventData;
                                 } else {
-                                    addMessage('assistant', eventData);
+                                    addMessage('assistant', eventData, { sessionId: sessionId });
                                     assistantIndex = list.length - 1;
                                 }
                                 
                                 // 实时缓存到 SessionStorage
                                 const assistantContent = list[assistantIndex].content;
                                 sessionStorage.setItem(
-                                    `jiuwen_stream_${currentSessionId}`, 
+                                    `jiuwen_stream_${sessionId}`, 
                                     JSON.stringify({ content: assistantContent, timestamp: Date.now(), query: lastQuery })
                                 );
                             } else if (eventType === 'status') {
                                 if (msgList.length > 0 && msgList[msgList.length - 1].type === 'status') {
                                     msgList[msgList.length - 1].content += ' ' + eventData;
                                 } else {
-                                    addMessage('status', eventData);
+                                    addMessage('status', eventData, { sessionId: sessionId });
                                 }
                             } else if (eventType === 'tool_call') {
                                 try {
@@ -1157,33 +1195,37 @@
                                     const toolName = data.name || 'tool';
                                     
                                     // 去重：如果最后一条消息已经是同名 tool，则跳过
-                                    const list = messages[currentSessionId];
+                                    const list = messages[sessionId];
                                     const lastMsg = list.length > 0 ? list[list.length - 1] : null;
                                     if (!lastMsg || lastMsg.type !== 'tool' || lastMsg.toolName !== toolName) {
                                         addMessage('tool', '', {
+                                            sessionId: sessionId,
                                             toolName: toolName,
                                             args: data.arguments || JSON.stringify(data)
                                         });
                                     }
                                 } catch {
-                                    addMessage('tool', '', { toolName: 'tool', args: eventData });
+                                    addMessage('tool', '', { sessionId: sessionId, toolName: 'tool', args: eventData });
                                 }
                                 // Reset assistant index to force a new assistant block next time
                                 assistantIndex = -1;
                             } else if (eventType === 'tool_response') {
                                 // Merge response into the last tool card only, do NOT create assistant message
-                                updateLastToolMsg(eventData);
+                                updateLastToolMsg(eventData, sessionId);
                                 assistantIndex = -1;
                             } else if (eventType === 'done') {
                                 receivedDone = true;
                                 try {
                                     const res = JSON.parse(eventData);
                                     if (!res.success && res.error) {
-                                        addMessage('status', `Error: ${res.error}`);
+                                        addMessage('status', `Error: ${res.error}`, { sessionId: sessionId });
                                     }
                                 } catch (e) {}
                             }
-                            renderMessages();
+                            // Only render if the streaming session is the currently viewed session
+                            if (sessionId === currentSessionId) {
+                                renderMessages();
+                            }
                         }
                     }
                     
@@ -1199,7 +1241,7 @@
                     }
                     reject(err);
                 }).finally(() => {
-                    setStreaming(false);
+                    setStreaming(sessionId, false);
                     // reader.releaseLock() handled by finally cleanup usually but good to be safe
                     if (reader) {
                         reader.releaseLock();
@@ -1209,7 +1251,7 @@
         }
 
         async function cancelRequest() {
-            if (currentSessionId && isStreaming) {
+            if (currentSessionId && streamingSessions.has(currentSessionId)) {
                 try {
                     await fetch(`${API_BASE}/api/sessions/${currentSessionId}/cancel`, {
                         method: 'POST'
@@ -1218,13 +1260,6 @@
                     console.error('Cancel error:', e);
                 }
             }
-        }
-
-        function setStreaming(streaming) {
-            isStreaming = streaming;
-            document.getElementById('sendBtn').disabled = streaming;
-            document.getElementById('cancelBtn').classList.toggle('visible', streaming);
-            document.getElementById('messageInput').disabled = streaming;
         }
 
         function handleKeyDown(event) {
@@ -1333,11 +1368,12 @@
             }
         }
 
-        function updateLastToolMsg(resultContent) {
-            if (!currentSessionId || !messages[currentSessionId]) return;
-            for (let i = messages[currentSessionId].length - 1; i >= 0; i--) {
-                if (messages[currentSessionId][i].type === 'tool') {
-                    messages[currentSessionId][i].result = resultContent;
+        function updateLastToolMsg(resultContent, sessionId) {
+            const msgList = messages[sessionId];
+            if (!msgList) return;
+            for (let i = msgList.length - 1; i >= 0; i--) {
+                if (msgList[i].type === 'tool') {
+                    msgList[i].result = resultContent;
                     break;
                 }
             }

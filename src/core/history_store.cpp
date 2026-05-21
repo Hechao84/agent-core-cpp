@@ -61,7 +61,7 @@ int HistoryStore::NextCursor()
     return current + 1;
 }
 
-int HistoryStore::AppendEntry(const std::string& role, const std::string& content)
+int HistoryStore::AppendEntry(const std::string& role, const std::string& content, const std::string& sessionId)
 {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -75,6 +75,7 @@ int HistoryStore::AppendEntry(const std::string& role, const std::string& conten
     nlohmann::json entry;
     entry["cursor"] = cursor;
     entry["timestamp"] = ts.str();
+    entry["session_id"] = sessionId;
     entry["role"] = role;
     entry["content"] = content;
 
