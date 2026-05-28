@@ -16,6 +16,7 @@
 #include "examples/jiuwenClaw/cron_watcher.h"
 #include "examples/jiuwenClaw/heartbeat_manager.h"
 // Demo-specific tools
+#include "examples/jiuwenClaw/models/ark_code_model.h"
 #include "examples/jiuwenClaw/tools/cron_tool.h"
 #include "examples/jiuwenClaw/tools/notebook_edit_tool.h"
 #include "examples/jiuwenClaw/tools/notify_tool.h"
@@ -56,9 +57,10 @@ AgentConfig BuildAgentConfig()
 
     config.skillDirectory = "./my_skills";
 
-    config.modelConfig.baseUrl = "<YOUR_MODEL_BASE_URL>";
-    config.modelConfig.apiKey = "<YOUR_MODEL_API_KEY>";
-    config.modelConfig.modelName = "<YOUR_MODEL_NAME>";
+    config.modelConfig.baseUrl = "<YOUR_ARKCODE_BASE_URL>";
+    config.modelConfig.apiKey = "<YOUR_ARKCODE_API_KEY>";
+    config.modelConfig.modelName = "<YOUR_ARKCODE_MODEL_NAME>";
+    config.modelConfig.provider = "ark_code";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
 
     config.modelConfig.extraParams.Set("max_tokens", 4096);
@@ -96,6 +98,15 @@ AgentConfig BuildAgentConfig()
     return config;
 }
 
+void RegisterArkCodeModel()
+{
+    // ArkCode is OpenAI-compatible but has special handling for tool role messages
+    // Register custom implementation to handle these differences
+    // If fully compatible with OpenAI, no custom Model needed - just set formatType=OPENAI
+    auto& rm = ResourceManager::GetInstance();
+    rm.RegisterModel("ark_code", [](const ModelConfig& cfg) { return std::make_unique<ArkCodeModel>(cfg); });
+}
+
 void RegisterDemoTools()
 {
     auto& rm = ResourceManager::GetInstance();
@@ -110,7 +121,7 @@ void InitMcpServer()
     try {
         std::string amapJson = R"({
             "url": "https://mcp.amap.com",
-            "endpoint": "/mcp?key=<YOUR_AMAP_KEY>",
+            "endpoint": "/mcp?key=<YOUR_AMAP_API_KEY>",
             "isActive": "true",
             "description": "this is a mcp map server",
             "type": "streamable-http-client"
@@ -340,6 +351,10 @@ int main(int argc, char* argv[])
             return 0;
         }
     }
+
+    // Register custom ArkCode model provider
+    RegisterArkCodeModel();
+    std::cout << "[Boot] ArkCode model provider registered\n" << std::flush;
 
     // Register additional tools
     RegisterDemoTools();

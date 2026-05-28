@@ -76,6 +76,12 @@ void ResourceManager::RegisterModel(ModelFormatType type, std::function<std::uni
     modelFactories_[type] = std::move(factory);
 }
 
+void ResourceManager::RegisterModel(const std::string& provider, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    providerModelFactories_[provider] = std::move(factory);
+}
+
 void ResourceManager::RegisterMCPServer(const std::string& name, const std::string& jsonConfig)
 {
     MCPEndpointConfig endpointCfg;
@@ -179,9 +185,17 @@ std::string ResourceManager::GetToolSchema(const std::string& name)
 std::unique_ptr<Model> ResourceManager::CreateModel(const ModelConfig& config)
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    
+    // 1. First match custom provider implementation (for vendor-specific behavior)
+    if (!config.provider.empty()) {
+        auto it = providerModelFactories_.find(config.provider);
+        if (it != providerModelFactories_.end()) return it->second(config);
+    }
+    
+    // 2. Fall back to standard format implementation
     auto it = modelFactories_.find(config.formatType);
     if (it != modelFactories_.end()) return it->second(config);
-    throw std::runtime_error("Model format not registered");
+    throw std::runtime_error("Model format not registered: use ModelFormatType or register custom provider");
 }
 
 std::shared_ptr<MCPServer> ResourceManager::GetMCPServer(const std::string& name)
@@ -211,6 +225,9 @@ std::vector<std::string> ResourceManager::GetAvailableModels() const
     for (const auto& p : modelFactories_) {
         if (typeMap.count(p.first)) names.push_back(typeMap[p.first]);
     }
+    for (const auto& p : providerModelFactories_) {
+        names.push_back(p.first);
+    }
     return names;
 }
 
@@ -232,6 +249,12 @@ bool ResourceManager::HasModel(ModelFormatType type) const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return modelFactories_.count(type) > 0;
+}
+
+bool ResourceManager::HasModel(const std::string& provider) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return providerModelFactories_.count(provider) > 0;
 }
 
 bool ResourceManager::HasMCPServer(const std::string& name) const

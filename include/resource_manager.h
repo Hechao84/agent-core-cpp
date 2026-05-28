@@ -18,7 +18,10 @@ public:
     static ResourceManager& GetInstance();
 
     void RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory);
-    void RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory);
+    
+    // Register custom provider model (for integration partners to use)
+    void RegisterModel(const std::string& provider, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory);
+    
     void RegisterMCPServer(const std::string& name, const std::string& jsonConfig);
 
     std::unique_ptr<Tool> CreateTool(const std::string& name);
@@ -32,6 +35,7 @@ public:
 
     bool HasTool(const std::string& name) const;
     bool HasModel(ModelFormatType type) const;
+    bool HasModel(const std::string& provider) const;
     bool HasMCPServer(const std::string& name) const;
 
 private:
@@ -39,10 +43,14 @@ private:
     void RegisterBuiltinTools();
     void RegisterBuiltinModels();
 
+    // Internal use only: register built-in models by format type
+    void RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory);
+
     mutable std::mutex mutex_;
     std::unordered_map<std::string, std::function<std::unique_ptr<Tool>()>> toolFactories_;
     std::unordered_map<std::string, std::string> toolSchemas_;
     std::unordered_map<ModelFormatType, std::function<std::unique_ptr<Model>(const ModelConfig&)>> modelFactories_;
+    std::unordered_map<std::string, std::function<std::unique_ptr<Model>(const ModelConfig&)>> providerModelFactories_;
     std::unordered_map<std::string, std::shared_ptr<MCPServer>> mcpServers_;
 };
 

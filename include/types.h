@@ -93,9 +93,20 @@ enum class ModelFormatType
 
 struct ModelConfig 
 {
-    std::string baseUrl;
-    std::string apiKey;
-    std::string modelName;
+    std::string baseUrl;      // API endpoint address
+    std::string apiKey;       // API authentication key
+    std::string modelName;    // Specific model name (e.g., gpt-4o, claude-3-opus, ark-code-latest)
+    
+    // Provider: Model provider identifier (optional)
+    // - Empty string: Use standard implementation for formatType
+    // - Non-empty: Prefer custom implementation registered for this provider
+    // Purpose: Handle subtle protocol differences from specific vendors
+    // (e.g., some OpenAI-compatible APIs don't support role=tool)
+    std::string provider;
+    
+    // FormatType: API protocol format
+    // - Determines request/response serialization format
+    // - Any OpenAI-compatible service can use ModelFormatType::OPENAI
     ModelFormatType formatType{ModelFormatType::OPENAI};
 
     // Extended parameters supporting hierarchy (e.g., "model.temperature")

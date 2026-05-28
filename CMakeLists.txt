@@ -202,6 +202,7 @@ add_executable(jiuwenClaw
     examples/jiuwenClaw/main.cpp
     examples/jiuwenClaw/heartbeat_manager.cpp
     examples/jiuwenClaw/cron_watcher.cpp
+    examples/jiuwenClaw/models/ark_code_model.cpp
     examples/jiuwenClaw/tools/notebook_edit_tool.cpp
     examples/jiuwenClaw/tools/cron_tool.cpp
     examples/jiuwenClaw/tools/notify_tool.cpp
