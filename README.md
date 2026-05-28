@@ -1,6 +1,6 @@
 # jiuwen-lite
 
-A lightweight, modular C++ AI agent framework library for building reasoning agents. Provides shared library with multiple LLM providers, agent work modes, built-in tools, MCP integration, and skill management.
+A lightweight, modular C++ AI agent framework library for building reasoning agents. Provides shared library with multiple LLM providers, agent work modes, built-in tools, MCP integration, skill management, and multi-channel communication.
 
 ## Artifacts
 
@@ -22,6 +22,7 @@ After building, the following artifacts are produced:
 ### LLM Support
 - OpenAI-compatible API format
 - Anthropic API format
+- **Provider-based custom model extension** — Extensible model provider system for adding new LLM backends
 
 ### Built-in Tools (12)
 | Tool | Purpose |
@@ -53,7 +54,7 @@ After building, the following artifacts are produced:
 ### Context Engine
 - **Memory Only** — Ephemeral storage
 - **JSON File** — Persist messages as `.json` files (default)
-- **Database** — SQLite-backed persistent storage (implemented)
+- **Database** — SQLite-backed persistent storage
 - Common base class (`ContextStorageBase`) for shared logic, with specialized backends
 - Automatic token estimation and context window management
 
@@ -63,6 +64,7 @@ After building, the following artifacts are produced:
 - **Concurrency Gate** — Global limit on concurrent session invocations (`maxConcurrentSessions`)
 - **Channel Routing** — Auto-derives session key from channel type (websocket, feishu, telegram, cli) + chatId
 - **Reserved Sessions** — Built-in sessions for internal tasks (`__HEARTBEAT__`, `__CRON__`, `__UNIFIED__`)
+- **Multi-session History Tracking** — Per-session history entries with session ID association
 
 ### Dream Memory Consolidation
 - **Background Consolidation** — Idle sessions trigger Dream processor to consolidate memory
@@ -73,6 +75,16 @@ After building, the following artifacts are produced:
 ### Skill System
 - Load skills from directory structure with `SKILL.md` and YAML frontmatter
 - Progressive disclosure: metadata always available, full instructions loaded on-demand
+
+### Multi-Channel Communication
+- **Web API + Web UI** — HTTP REST API with SSE streaming and built-in web interface
+  - Real-time streaming responses
+  - Multi-session support in UI
+  - Tool call visualization
+- **Feishu (Lark) WebSocket Channel** — Native Feishu bot integration via WebSocket
+  - Direct message and group chat support
+  - Message card formatting
+- **Channel Manager** — Web UI for channel configuration and management
 
 ## Requirements
 
@@ -150,6 +162,31 @@ $env:PATH = "$PWD\dist\windows;$env:PATH"
 .\dist\windows\jiuwenClaw.exe
 ```
 
+### Web UI Mode
+Start with web server enabled:
+```bash
+# Linux
+./dist/linux/jiuwenClaw --server
+
+# With custom host/port
+./dist/linux/jiuwenClaw --server --host 0.0.0.0 --port 9000
+```
+
+Access the UI at:
+```
+http://localhost:8080
+```
+
+### Command Line Options
+```
+jiuwenClaw [OPTIONS]
+  --server     Start Agent Server with web UI (default: 127.0.0.1:8080)
+  --port <N>   Set server port (default: 8080)
+  --host <IP>  Set server host (default: 127.0.0.1)
+  --cli        Start CLI mode (default)
+  --help       Show help message
+```
+
 ## Using the Library in Your Project
 
 ### CMake Integration
@@ -165,9 +202,9 @@ target_include_directories(your_app PRIVATE /path/to/jiuwen-lite/include)
 See `examples/jiuwenClaw/main.cpp` for a complete working example. The core usage pattern is:
 
 ```cpp
-#include "agent.h"
-#include "resource_manager"
-#include "session_manager.h"
+#include "include/agent.h"
+#include "include/resource_manager.h"
+#include "include/session_manager.h"
 
 using namespace jiuwen;
 
@@ -239,8 +276,14 @@ jiuwen-lite/
 │   │   └── history_store.h/cpp     # Interaction history tracking
 │   ├── session/         # Session management
 │   │   └── session_manager.cpp
+│   ├── channels/        # Communication channels (Web, Feishu, etc.)
+│   │   ├── channel_manager.h/cpp   # Channel configuration UI
+│   │   └── feishu_channel.h/cpp    # Feishu/Lark WebSocket bot
+│   ├── web/             # Web API and UI
+│   │   ├── web_api.h/cpp           # HTTP server with SSE streaming
+│   │   └── public/index.html       # Built-in web UI
 │   ├── workers/         # ReAct, Plan-and-Execute, Workflow workers
-│   ├── models/          # OpenAI and Anthropic model implementations
+│   ├── models/          # OpenAI, Anthropic, and custom model implementations
 │   ├── tools/           # Built-in tools (framework) and MCP integration
 │   │   └── builtin_tools/
 │   ├── protocol/        # MCP JSON-RPC client
@@ -257,9 +300,12 @@ jiuwen-lite/
 │       ├── heartbeat_manager.h/cpp
 │       ├── templates/          # Prompt templates
 │       └── tools/              # Demo-specific tools
+├── doc/                 # Documentation
+│   ├── en/              # English documentation
+│   └── cn/              # Chinese documentation
+├── release_notes/       # Release notes
 ├── unittest/            # Unit tests
 ├── testcases/           # Functional tests
-├── cmake/               # CMake helper modules
 ├── libs/                # Third-party shared libraries (gitignored)
 └── dist/                # Build output (gitignored)
     ├── linux/
@@ -269,6 +315,11 @@ jiuwen-lite/
         ├── agent_framework.dll
         └── jiuwenClaw.exe
 ```
+
+## Documentation
+
+- **English**: See `doc/en/` directory
+- **中文**: 请查看 `doc/cn/` 目录
 
 ## License
 
