@@ -56,9 +56,9 @@ AgentConfig BuildAgentConfig()
 
     config.skillDirectory = "./my_skills";
 
-    config.modelConfig.baseUrl = "<YOUR_BASE_URL_HERE>";
-    config.modelConfig.apiKey = "<YOUR_API_KEY_HERE>";
-    config.modelConfig.modelName = "Qwen3.6-Plus";
+    config.modelConfig.baseUrl = "<YOUR_MODEL_BASE_URL>";
+    config.modelConfig.apiKey = "<YOUR_MODEL_API_KEY>";
+    config.modelConfig.modelName = "<YOUR_MODEL_NAME>";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
 
     config.modelConfig.extraParams.Set("max_tokens", 4096);
@@ -110,7 +110,7 @@ void InitMcpServer()
     try {
         std::string amapJson = R"({
             "url": "https://mcp.amap.com",
-            "endpoint": "/mcp?key=<YOUR_AMAP_KEY_HERE>",
+            "endpoint": "/mcp?key=<YOUR_AMAP_KEY>",
             "isActive": "true",
             "description": "this is a mcp map server",
             "type": "streamable-http-client"
@@ -343,13 +343,17 @@ int main(int argc, char* argv[])
 
     // Register additional tools
     RegisterDemoTools();
+    std::cout << "[Boot] Demo tools registered\n" << std::flush;
 
     // Initialize MCP server
     InitMcpServer();
+    std::cout << "[Boot] MCP server initialized\n" << std::flush;
 
     // Build and initialize SessionManager
     AgentConfig config = BuildAgentConfig();
+    std::cout << "[Boot] AgentConfig built\n" << std::flush;
     InitSessionManager(config);
+    std::cout << "[Boot] SessionManager initialized\n" << std::flush;
 
     // Initialize heartbeat and cron using reserved sessions
     HeartbeatManager heartbeat(
@@ -357,8 +361,10 @@ int main(int argc, char* argv[])
         config.modelConfig,
         300
     );
+    std::cout << "[Boot] HeartbeatManager constructed\n" << std::flush;
 
     CronWatcher cronWatcher("./data", config.modelConfig, 60);
+    std::cout << "[Boot] CronWatcher constructed\n" << std::flush;
 
     if (serverMode) {
         // Override web config from command line
@@ -367,6 +373,7 @@ int main(int argc, char* argv[])
         webConfig.port = serverPort;
         webConfig.staticDir = "./web";
 
+        std::cout << "[Boot] Entering RunServerMode\n" << std::flush;
         RunServerMode(config);
     } else {
         RunCliMode(config);

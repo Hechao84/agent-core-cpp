@@ -128,12 +128,62 @@ if exist "%SCRIPT_DIR%\libs\sqlite3.lib" (
     copy "%SCRIPT_DIR%\libs\sqlite3.lib" "%SCRIPT_DIR%\dist\windows\" >nul
 )
 
-REM Copy vcpkg DLLs (CURL, OpenSSL, zlib, etc.)
-if defined VCPKG_ROOT (
-    copy "%VCPKG_ROOT%\installed\x64-windows\bin\*.dll" "%SCRIPT_DIR%\dist\windows\" >nul 2>nul
-) else if defined VCPKG_INSTALLATION_ROOT (
-    copy "%VCPKG_INSTALLATION_ROOT%\installed\x64-windows\bin\*.dll" "%SCRIPT_DIR%\dist\windows\" >nul 2>nul
+REM Copy vcpkg DLLs (CURL, OpenSSL, zlib, etc.) to both dist/ and build Release/
+REM
+REM Search order:
+REM   1) build-windows\vcpkg_installed\x64-windows\bin\  (manifest mode default)
+REM   2) %VCPKG_ROOT%\installed\x64-windows\bin\          (classic mode)
+REM   3) %VCPKG_ROOT%\packages\<port>_x64-windows\bin\    (manifest fallback)
+set "VCPKG_CANDIDATES="
+if exist "%BUILD_DIR%\vcpkg_installed\x64-windows\bin" (
+    set "VCPKG_CANDIDATES=%BUILD_DIR%\vcpkg_installed\x64-windows\bin"
 )
+if defined VCPKG_ROOT (
+    if exist "%VCPKG_ROOT%\installed\x64-windows\bin" (
+        set "VCPKG_CANDIDATES=!VCPKG_CANDIDATES!;%VCPKG_ROOT%\installed\x64-windows\bin"
+    )
+)
+
+call :CopyVcpkgDll libssl-3-x64.dll
+call :CopyVcpkgDll libcrypto-3-x64.dll
+call :CopyVcpkgDll libcurl.dll
+call :CopyVcpkgDll zlib1.dll
+goto :AfterDllCopy
+
+:CopyVcpkgDll
+set "DLL_NAME=%~1"
+set "DLL_FOUND="
+for %%D in (%VCPKG_CANDIDATES:;= %) do (
+    if not defined DLL_FOUND (
+        if exist "%%D\%DLL_NAME%" (
+            copy /Y "%%D\%DLL_NAME%" "%SCRIPT_DIR%\dist\windows\" >nul
+            copy /Y "%%D\%DLL_NAME%" "%BUILD_DIR%\Release\" >nul
+            set "DLL_FOUND=1"
+            echo   Copied %DLL_NAME% from %%D
+        )
+    )
+)
+if not defined DLL_FOUND (
+    REM Fallback: scan packages\<port>_x64-windows\bin\
+    if defined VCPKG_ROOT (
+        for /d %%P in ("%VCPKG_ROOT%\packages\*_x64-windows") do (
+            if not defined DLL_FOUND (
+                if exist "%%P\bin\%DLL_NAME%" (
+                    copy /Y "%%P\bin\%DLL_NAME%" "%SCRIPT_DIR%\dist\windows\" >nul
+                    copy /Y "%%P\bin\%DLL_NAME%" "%BUILD_DIR%\Release\" >nul
+                    set "DLL_FOUND=1"
+                    echo   Copied %DLL_NAME% from %%P\bin
+                )
+            )
+        )
+    )
+)
+if not defined DLL_FOUND (
+    echo   WARNING: %DLL_NAME% not found in any vcpkg location
+)
+exit /b 0
+
+:AfterDllCopy
 
 REM Copy skills directory if exists
 if exist "%SCRIPT_DIR%\my_skills" (

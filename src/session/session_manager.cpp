@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <system_error>
 #include "include/agent.h"
 #include "src/context_engine/context_engine.h"
 #include "src/utils/data_dir.h"
@@ -38,6 +39,46 @@ void InitSessionManager(const AgentConfig& config)
     g_sessionManager = new SessionManager();
     g_sessionManager->Initialize(config);
 }
+
+namespace {
+
+// Sanitizes a string to be safe for use as a directory/file name on all OS.
+// - Replaces Windows reserved chars: \/:*?"<>|
+// - Replaces ASCII control characters (0x00-0x1F, 0x7F)
+// - Replaces '.' and '..' to prevent path traversal
+// - Ensures non-empty result
+std::string SanitizePathName(const std::string& name)
+{
+    if (name.empty())
+        return "unnamed";
+    if (name == ".")
+        return "dot";
+    if (name == "..")
+        return "dotdot";
+
+    std::string result;
+    result.reserve(name.size());
+    for (char ch : name) {
+        auto c = static_cast<unsigned char>(ch);
+        if (c <= 0x1F || c == 0x7F) {
+            // Control chars
+            result += '_';
+        } else if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' ||
+                   c == '"' || c == '<' || c == '>' || c == '|') {
+            // Windows reserved
+            result += '_';
+        } else {
+            result += static_cast<char>(c);
+        }
+    }
+
+    // Still empty after sanitize
+    if (result.empty())
+        return "unnamed";
+    return result;
+}
+
+} // namespace
 
 SessionManager::SessionManager() = default;
 
@@ -91,20 +132,29 @@ void SessionManager::Initialize(const AgentConfig& config)
 
     // Restore existing sessions from disk
     fs::path sessionsDir = fs::path(basePath) / "sessions";
-    if (fs::exists(sessionsDir) && fs::is_directory(sessionsDir)) {
+    std::error_code ec;
+    bool dirExists = fs::exists(sessionsDir, ec);
+    bool isDir = dirExists ? fs::is_directory(sessionsDir, ec) : false;
+
+    if (dirExists && isDir && !ec) {
         int count = 0;
-        for (const auto& dirEntry : fs::directory_iterator(sessionsDir)) {
-            if (dirEntry.is_directory()) {
-                auto dirName = dirEntry.path().filename().string();
-                if (dirName.find('.') != 0 && !dirName.empty()) {
-                    try {
-                        FindOrCreateEntry(dirName);
-                        count++;
-                    } catch (const std::exception& e) {
-                        LOG(ERR) << "[SessionManager] Failed to restore session '" << dirName << "': " << e.what();
+        try {
+            for (const auto& dirEntry : fs::directory_iterator(sessionsDir, ec)) {
+                if (ec) break;
+                if (dirEntry.is_directory()) {
+                    auto dirName = dirEntry.path().filename().string();
+                    if (dirName.find('.') != 0 && !dirName.empty()) {
+                        try {
+                            FindOrCreateEntry(dirName);
+                            count++;
+                        } catch (const std::exception& e) {
+                            LOG(ERR) << "[SessionManager] Failed to restore session '" << dirName << "': " << e.what();
+                        }
                     }
                 }
             }
+        } catch (...) {
+            // directory_iterator may throw on Windows even with ec; swallow
         }
         LOG(INFO) << "[SessionManager] Successfully restored " << count << " sessions from disk.";
     } else {
@@ -161,7 +211,7 @@ SessionEntry* SessionManager::FindOrCreateEntry(const std::string& sessionId)
     ctxConfig.sessionId = sessionId;
 
     std::string basePath = config_.dataBasePath.empty() ? "./data" : config_.dataBasePath;
-    fs::path sessionDir = fs::path(basePath) / "sessions" / sessionId;
+    fs::path sessionDir = fs::path(basePath) / "sessions" / SanitizePathName(sessionId);
     fs::create_directories(sessionDir / "context");
     ctxConfig.storagePath = (sessionDir / "context").string();
 
@@ -270,7 +320,7 @@ void SessionManager::RemoveSession(const std::string& sessionId)
     }
 
     std::string basePath = config_.dataBasePath.empty() ? "./data" : config_.dataBasePath;
-    fs::path sessionDir = fs::path(basePath) / "sessions" / sessionId;
+    fs::path sessionDir = fs::path(basePath) / "sessions" / SanitizePathName(sessionId);
 
     bool isBusy = false;
     {

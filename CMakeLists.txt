@@ -33,6 +33,15 @@ endif()
 find_package(CURL REQUIRED)
 set(CURL_LIB CURL::libcurl)
 
+# OpenSSL (required for httplib WebSocket wss:// support)
+find_package(OpenSSL)
+if(OpenSSL_FOUND)
+    message(STATUS "OpenSSL ${OpenSSL_VERSION} found, enabling httplib WebSocket TLS support")
+    add_compile_definitions(CPPHTTPLIB_OPENSSL_SUPPORT)
+else()
+    message(WARNING "OpenSSL not found. httplib wss:// WebSocket support will be disabled.")
+endif()
+
 # ============================================================
 # 2. SQLite3 (Pre-built shared library)
 # ============================================================
@@ -106,22 +115,6 @@ if(EXISTS "${TRIRD_PARTY_INCLUDE_DIR}/httplib.h")
 endif()
 
 # ============================================================
-# 5. OpenSSL (required for httplib WebSocketClient wss:// support)
-# ============================================================
-find_package(OpenSSL)
-if(OPENSSL_FOUND)
-    message(STATUS "OpenSSL ${OPENSSL_VERSION} found, enabling httplib WebSocket TLS support")
-    add_compile_definitions(CPPHTTPLIB_OPENSSL_SUPPORT)
-    add_library(openssl INTERFACE IMPORTED)
-    set_target_properties(openssl PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}"
-        INTERFACE_LINK_LIBRARIES "OpenSSL::SSL;OpenSSL::Crypto"
-    )
-else()
-    message(WARNING "OpenSSL not found. httplib wss:// WebSocket support will be disabled.")
-endif()
-
-# ============================================================
 # Shared Library: agent_framework
 # ============================================================
 add_library(agent_framework SHARED
@@ -186,8 +179,8 @@ if(WIN32)
         ${SQLITE_LIB}
         nlohmann_json::nlohmann_json
         httplib
-        ws2_32  # Windows Sockets (required by libcurl on Windows)
-        crypt32 # Required by libcurl for SSL
+        ws2_32
+        crypt32
     )
 else()
     target_link_libraries(agent_framework PRIVATE 
@@ -197,9 +190,9 @@ else()
         httplib
         pthread
     )
-    if(OPENSSL_FOUND)
-        target_link_libraries(agent_framework PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-    endif()
+endif()
+if(OpenSSL_FOUND)
+    target_link_libraries(agent_framework PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
 # ============================================================
