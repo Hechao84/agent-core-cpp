@@ -106,6 +106,22 @@ if(EXISTS "${TRIRD_PARTY_INCLUDE_DIR}/httplib.h")
 endif()
 
 # ============================================================
+# 5. OpenSSL (required for httplib WebSocketClient wss:// support)
+# ============================================================
+find_package(OpenSSL)
+if(OPENSSL_FOUND)
+    message(STATUS "OpenSSL ${OPENSSL_VERSION} found, enabling httplib WebSocket TLS support")
+    add_compile_definitions(CPPHTTPLIB_OPENSSL_SUPPORT)
+    add_library(openssl INTERFACE IMPORTED)
+    set_target_properties(openssl PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}"
+        INTERFACE_LINK_LIBRARIES "OpenSSL::SSL;OpenSSL::Crypto"
+    )
+else()
+    message(WARNING "OpenSSL not found. httplib wss:// WebSocket support will be disabled.")
+endif()
+
+# ============================================================
 # Shared Library: agent_framework
 # ============================================================
 add_library(agent_framework SHARED
@@ -149,6 +165,8 @@ add_library(agent_framework SHARED
     src/utils/tool_parser.cpp
     src/session/session_manager.cpp
     src/web/web_api.cpp
+    src/channels/feishu_channel.cpp
+    src/channels/channel_manager.cpp
 )
 
 target_include_directories(agent_framework PRIVATE 
@@ -179,6 +197,9 @@ else()
         httplib
         pthread
     )
+    if(OPENSSL_FOUND)
+        target_link_libraries(agent_framework PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    endif()
 endif()
 
 # ============================================================

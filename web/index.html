@@ -649,16 +649,348 @@
             color: var(--text-secondary);
             font-size: 14px;
         }
+
+        /* ===== Sidebar nav tabs + two-level lists ===== */
+        .nav-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-secondary);
+        }
+
+        .nav-tab {
+            flex: 1;
+            padding: 12px 8px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            cursor: pointer;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+
+        .nav-tab:hover {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+
+        .nav-tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .nav-view {
+            flex: 1;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .nav-view.active {
+            display: block;
+        }
+
+        /* Section header (shown inside each view, e.g. "Sessions", "Feishu") */
+        .nav-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px 6px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+        }
+
+        .nav-group {
+            margin-bottom: 4px;
+        }
+
+        .nav-group-header {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            font-size: 13px;
+            color: var(--text-primary);
+            cursor: pointer;
+            user-select: none;
+            border-radius: 6px;
+            margin: 0 4px;
+        }
+
+        .nav-group-header:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .nav-group-arrow {
+            display: inline-block;
+            width: 14px;
+            transition: transform 0.15s;
+            color: var(--text-secondary);
+            font-size: 10px;
+        }
+
+        .nav-group.expanded .nav-group-arrow {
+            transform: rotate(90deg);
+        }
+
+        .nav-group-title {
+            flex: 1;
+            font-weight: 600;
+        }
+
+        .nav-group-add {
+            opacity: 0;
+            background: transparent;
+            border: none;
+            color: var(--accent);
+            font-size: 16px;
+            cursor: pointer;
+            padding: 0 4px;
+        }
+
+        .nav-group-header:hover .nav-group-add {
+            opacity: 1;
+        }
+
+        .nav-children {
+            display: none;
+            padding: 2px 0 4px 0;
+        }
+
+        .nav-group.expanded .nav-children {
+            display: block;
+        }
+
+        .nav-child {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px 8px 32px;
+            margin: 0 4px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-secondary);
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .nav-child:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .nav-child.active {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border-left: 2px solid var(--accent);
+            padding-left: 30px;
+        }
+
+        .nav-child .label {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .nav-child .meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-left: 6px;
+        }
+
+        .nav-empty {
+            padding: 10px 12px 10px 32px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        /* ===== Channel detail panel (right side) ===== */
+        .channel-detail {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .channel-detail.active {
+            display: flex;
+        }
+
+        .channel-detail-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-secondary);
+        }
+
+        .channel-detail-header h2 {
+            font-size: 18px;
+            margin-bottom: 4px;
+        }
+
+        .channel-detail-header .sub {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .channel-detail-body {
+            padding: 24px;
+            max-width: 640px;
+        }
+
+        .channel-detail-body .field {
+            margin-bottom: 16px;
+        }
+
+        .channel-detail-body .field label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        .channel-detail-body .field input,
+        .channel-detail-body .field textarea {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        .channel-detail-body .field input:focus,
+        .channel-detail-body .field textarea:focus {
+            border-color: var(--accent);
+        }
+
+        .channel-detail-body .field .hint {
+            margin-top: 4px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .channel-detail-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .btn-danger-solid {
+            background: var(--error);
+            color: #1e1e2e;
+            font-weight: 600;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: filter 0.15s;
+        }
+
+        .btn-danger-solid:hover {
+            filter: brightness(1.1);
+        }
+
+        .channel-detail-empty {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .channel-status-pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 500;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            margin-left: 8px;
+        }
+
+        .channel-status-pill.enabled {
+            background: rgba(166, 227, 161, 0.15);
+            color: var(--success);
+        }
+
+        .channel-status-pill.disabled {
+            background: rgba(243, 139, 168, 0.15);
+            color: var(--error);
+        }
+
+        /* Input with a trailing toggle button (e.g. show/hide secret) */
+        .input-with-toggle {
+            position: relative;
+        }
+
+        .input-with-toggle input {
+            padding-right: 56px;
+        }
+
+        .input-toggle-btn {
+            position: absolute;
+            top: 50%;
+            right: 6px;
+            transform: translateY(-50%);
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 4px 8px;
+            font-size: 11px;
+            font-weight: 500;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+
+        .input-toggle-btn:hover {
+            color: var(--text-primary);
+            border-color: var(--accent);
+            background: var(--bg-tertiary);
+        }
     </style>
-</head>
-<body>
+
     <div class="container">
         <aside class="sidebar">
             <div class="sidebar-header">
                 <h1>jiuwenClaw</h1>
-                <button class="btn btn-primary btn-small" onclick="createSession()">+ New</button>
             </div>
-            <div class="session-list" id="sessionList"></div>
+
+            <div class="nav-tabs">
+                <button class="nav-tab active" data-view="sessions" onclick="switchNavView('sessions')">Sessions</button>
+                <button class="nav-tab" data-view="channels" onclick="switchNavView('channels')">Channels</button>
+            </div>
+
+            <!-- Sessions view -->
+            <div class="nav-view active" id="navViewSessions">
+                <div class="nav-section-header">
+                    <span>Sessions</span>
+                    <button class="btn btn-primary btn-small" onclick="createSession()">+ New</button>
+                </div>
+                <div class="session-list" id="sessionList"></div>
+            </div>
+
+            <!-- Channels view -->
+            <div class="nav-view" id="navViewChannels">
+                <div class="nav-section-header">
+                    <span>Channels</span>
+                </div>
+                <div id="channelTree"></div>
+            </div>
         </aside>
 
         <main class="main" id="mainArea">
@@ -690,6 +1022,15 @@
                         <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
                     </button>
                 </div>
+            </div>
+
+            <!-- Channel detail / editor panel -->
+            <div class="channel-detail" id="channelDetail">
+                <div class="channel-detail-header">
+                    <h2 id="channelDetailTitle">Channel</h2>
+                    <div class="sub" id="channelDetailSub"></div>
+                </div>
+                <div class="channel-detail-body" id="channelDetailBody"></div>
             </div>
         </main>
     </div>
@@ -930,6 +1271,7 @@
             document.getElementById('chatHeader').style.display = 'none';
             document.getElementById('messages').style.display = 'none';
             document.getElementById('inputArea').style.display = 'none';
+            document.getElementById('channelDetail').classList.remove('active');
         }
 
         function showChat() {
@@ -937,7 +1279,16 @@
             document.getElementById('chatHeader').style.display = 'flex';
             document.getElementById('messages').style.display = 'flex';
             document.getElementById('inputArea').style.display = 'block';
+            document.getElementById('channelDetail').classList.remove('active');
             document.getElementById('currentSessionName').textContent = currentSessionId;
+        }
+
+        function showChannelDetail() {
+            document.getElementById('welcomeScreen').style.display = 'none';
+            document.getElementById('chatHeader').style.display = 'none';
+            document.getElementById('messages').style.display = 'none';
+            document.getElementById('inputArea').style.display = 'none';
+            document.getElementById('channelDetail').classList.add('active');
         }
 
         function renderMessages(forceScrollToBottom = false) {
@@ -1668,6 +2019,321 @@
         window.clearChat = clearChat;
         window.switchSession = switchSession;
         window.toggleTool = toggleTool;
+
+        // ==================== Channels ====================
+        // Channel types supported on the frontend. Backend currently only
+        // implements 'feishu'; others will be added later.
+        const CHANNEL_TYPES = [
+            { key: 'feishu', label: 'Feishu' },
+        ];
+
+        // type -> expanded(bool) for the sidebar tree groups.
+        const channelGroupState = { feishu: true };
+
+        // Currently selected channel id (string) or pseudo-id 'new:<type>' for
+        // an unsaved draft. null when nothing is shown in detail panel.
+        let selectedChannelId = null;
+
+        // In-memory cache of channels last fetched from the backend.
+        let channelsCache = [];
+
+        async function fetchChannels() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/channels`);
+                if (!resp.ok) return [];
+                const data = await resp.json();
+                return Array.isArray(data) ? data : [];
+            } catch (e) {
+                console.error('Failed to fetch channels:', e);
+                return [];
+            }
+        }
+
+        async function createChannel(type, name, params) {
+            const resp = await fetch(`${API_BASE}/api/channels`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type, name, enabled: true, params })
+            });
+            if (!resp.ok) return null;
+            try {
+                return await resp.json();
+            } catch (e) {
+                return {};
+            }
+        }
+
+        async function updateChannel(id, payload) {
+            const resp = await fetch(`${API_BASE}/api/channels/${encodeURIComponent(id)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            return resp.ok;
+        }
+
+        async function deleteChannel(id) {
+            const resp = await fetch(`${API_BASE}/api/channels/${encodeURIComponent(id)}`, {
+                method: 'DELETE'
+            });
+            return resp.ok;
+        }
+
+        function switchNavView(view) {
+            document.querySelectorAll('.nav-tab').forEach(t => {
+                t.classList.toggle('active', t.dataset.view === view);
+            });
+            document.querySelectorAll('.nav-view').forEach(v => {
+                v.classList.toggle('active', v.id === `navView${view.charAt(0).toUpperCase()}${view.slice(1)}`);
+            });
+            if (view === 'channels') {
+                refreshChannelTree();
+                if (!selectedChannelId) {
+                    showChannelEmpty();
+                }
+            } else {
+                // Switching back to sessions view restores chat or welcome.
+                if (currentSessionId) {
+                    showChat();
+                } else {
+                    showWelcome();
+                }
+            }
+        }
+
+        async function refreshChannelTree() {
+            channelsCache = await fetchChannels();
+            const tree = document.getElementById('channelTree');
+            tree.innerHTML = '';
+
+            for (const t of CHANNEL_TYPES) {
+                const instances = channelsCache.filter(c => c.type === t.key);
+                const expanded = !!channelGroupState[t.key];
+
+                const group = document.createElement('div');
+                group.className = `nav-group${expanded ? ' expanded' : ''}`;
+
+                const header = document.createElement('div');
+                header.className = 'nav-group-header';
+                header.innerHTML = `
+                    <span class="nav-group-arrow">▶</span>
+                    <span class="nav-group-title">${escapeHtml(t.label)}</span>
+                    <span class="meta" style="font-size:11px;color:var(--text-secondary);margin-right:4px">${instances.length}</span>
+                    <button class="nav-group-add" title="Add ${escapeHtml(t.label)} channel">+</button>
+                `;
+                header.querySelector('.nav-group-add').onclick = (e) => {
+                    e.stopPropagation();
+                    channelGroupState[t.key] = true;
+                    startNewChannel(t.key);
+                };
+                header.onclick = () => {
+                    channelGroupState[t.key] = !channelGroupState[t.key];
+                    refreshChannelTree();
+                };
+
+                const children = document.createElement('div');
+                children.className = 'nav-children';
+
+                if (!instances.length) {
+                    const empty = document.createElement('div');
+                    empty.className = 'nav-empty';
+                    empty.textContent = 'No channels yet';
+                    children.appendChild(empty);
+                } else {
+                    for (const ch of instances) {
+                        const item = document.createElement('div');
+                        item.className = `nav-child${selectedChannelId === ch.id ? ' active' : ''}`;
+                        item.innerHTML = `
+                            <span class="label">${escapeHtml(ch.name || ch.id)}</span>
+                            <span class="meta">${ch.enabled ? '' : 'off'}</span>
+                        `;
+                        item.onclick = () => selectChannel(ch.id);
+                        children.appendChild(item);
+                    }
+                }
+
+                group.appendChild(header);
+                group.appendChild(children);
+                tree.appendChild(group);
+            }
+        }
+
+        function selectChannel(id) {
+            selectedChannelId = id;
+            const ch = channelsCache.find(c => c.id === id);
+            refreshChannelTree();
+            showChannelDetail();
+            if (ch) {
+                renderChannelEditor(ch);
+            } else {
+                showChannelEmpty('Channel not found.');
+            }
+        }
+
+        function startNewChannel(type) {
+            selectedChannelId = `new:${type}`;
+            refreshChannelTree();
+            showChannelDetail();
+            renderChannelEditor({ type, _isNew: true });
+        }
+
+        function showChannelEmpty(message) {
+            document.getElementById('channelDetailTitle').textContent = 'Channels';
+            document.getElementById('channelDetailSub').textContent = '';
+            const body = document.getElementById('channelDetailBody');
+            body.innerHTML = `
+                <div class="channel-detail-empty">
+                    ${escapeHtml(message || 'Select a channel from the left, or click + to add a new one.')}
+                </div>
+            `;
+        }
+
+        function renderChannelEditor(ch) {
+            const isNew = !!ch._isNew;
+            const type = ch.type || 'feishu';
+            const params = ch.params || {};
+
+            document.getElementById('channelDetailTitle').textContent =
+                isNew ? `New ${capitalize(type)} Channel` : (ch.name || ch.id);
+            document.getElementById('channelDetailSub').innerHTML = isNew
+                ? `Type: <b>${escapeHtml(type)}</b>`
+                : `ID: <code>${escapeHtml(ch.id)}</code> · Type: <b>${escapeHtml(type)}</b>` +
+                  (ch.enabled
+                      ? '<span class="channel-status-pill enabled">enabled</span>'
+                      : '<span class="channel-status-pill disabled">disabled</span>');
+
+            const body = document.getElementById('channelDetailBody');
+
+            if (type === 'feishu') {
+                body.innerHTML = `
+                    <div class="field">
+                        <label>Name</label>
+                        <input id="chName" value="${escapeHtml(ch.name || '')}" placeholder="My Bot">
+                    </div>
+                    <div class="field">
+                        <label>App ID *</label>
+                        <input id="chAppId" value="${escapeHtml(params.appId || '')}" placeholder="cli_xxxxxxxxxx">
+                    </div>
+                    <div class="field">
+                        <label>App Secret *</label>
+                        <div class="input-with-toggle">
+                            <input id="chAppSecret" type="password" value="${escapeHtml(params.appSecret || '')}" placeholder="your secret">
+                            <button type="button" class="input-toggle-btn" id="chAppSecretToggle" onclick="toggleSecretVisibility('chAppSecret', 'chAppSecretToggle')">Show</button>
+                        </div>
+                        <div class="hint">Stored as-is on the server.</div>
+                    </div>
+                    <div class="field">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                            <input type="checkbox" id="chEnabled" ${ch.enabled !== false ? 'checked' : ''} style="width:auto">
+                            <span>Enabled (connects on save)</span>
+                        </label>
+                    </div>
+                    <div class="channel-detail-actions">
+                        <button class="btn btn-primary" id="chSaveBtn">${isNew ? 'Create' : 'Save'}</button>
+                        ${isNew ? '' : '<button class="btn-danger-solid" id="chDeleteBtn">Delete</button>'}
+                    </div>
+                `;
+                body.querySelector('#chSaveBtn').onclick = () => saveCurrentChannel();
+                if (!isNew) {
+                    body.querySelector('#chDeleteBtn').onclick = () => deleteCurrentChannel();
+                }
+            } else {
+                body.innerHTML = `
+                    <div class="channel-detail-empty">
+                        ${escapeHtml(capitalize(type))} channel editor is not implemented yet.
+                    </div>
+                `;
+            }
+        }
+
+        async function saveCurrentChannel() {
+            const isNew = selectedChannelId && selectedChannelId.startsWith('new:');
+            const type = isNew ? selectedChannelId.split(':')[1] : (channelsCache.find(c => c.id === selectedChannelId) || {}).type;
+            if (!type) {
+                alert('Cannot determine channel type.');
+                return;
+            }
+
+            if (type === 'feishu') {
+                const name = document.getElementById('chName').value.trim();
+                const appId = document.getElementById('chAppId').value.trim();
+                const appSecret = document.getElementById('chAppSecret').value.trim();
+                const enabled = document.getElementById('chEnabled').checked;
+
+                if (!appId || !appSecret) {
+                    alert('App ID and App Secret are required.');
+                    return;
+                }
+
+                const payload = {
+                    type: 'feishu',
+                    name: name || `Feishu ${appId.slice(-4)}`,
+                    enabled,
+                    params: { appId, appSecret }
+                };
+
+                if (isNew) {
+                    const result = await createChannel(payload.type, payload.name, payload.params);
+                    if (!result) {
+                        alert('Create failed.');
+                        return;
+                    }
+                    selectedChannelId = result.id || null;
+                    await refreshChannelTree();
+                    if (selectedChannelId) {
+                        selectChannel(selectedChannelId);
+                    }
+                } else {
+                    const ok = await updateChannel(selectedChannelId, payload);
+                    if (!ok) {
+                        alert('Save failed.');
+                        return;
+                    }
+                    await refreshChannelTree();
+                    selectChannel(selectedChannelId);
+                }
+            }
+        }
+
+        async function deleteCurrentChannel() {
+            if (!selectedChannelId || selectedChannelId.startsWith('new:')) return;
+            const ch = channelsCache.find(c => c.id === selectedChannelId);
+            const name = ch ? (ch.name || ch.id) : selectedChannelId;
+            if (!confirm(`Delete channel "${name}"? This cannot be undone.`)) return;
+
+            const ok = await deleteChannel(selectedChannelId);
+            if (!ok) {
+                alert('Delete failed.');
+                return;
+            }
+            selectedChannelId = null;
+            await refreshChannelTree();
+            showChannelEmpty('Channel deleted.');
+        }
+
+        function capitalize(s) {
+            if (!s) return '';
+            return s.charAt(0).toUpperCase() + s.slice(1);
+        }
+
+        function toggleSecretVisibility(inputId, btnId) {
+            const input = document.getElementById(inputId);
+            const btn = document.getElementById(btnId);
+            if (!input || !btn) return;
+            if (input.type === 'password') {
+                input.type = 'text';
+                btn.textContent = 'Hide';
+            } else {
+                input.type = 'password';
+                btn.textContent = 'Show';
+            }
+        }
+
+        // Expose
+        window.switchNavView = switchNavView;
+        window.toggleSecretVisibility = toggleSecretVisibility;
+
+        // ==================== End Channels ====================
 
         // Initialize
         async function init() {
