@@ -18,6 +18,12 @@ namespace fs = std::filesystem;
 
 namespace {
 
+#ifdef _WIN32
+inline time_t TimegmCompat(std::tm* tm) { return _mkgmtime(tm); }
+#else
+inline time_t TimegmCompat(std::tm* tm) { return timegm(tm); }
+#endif
+
 bool MatchesField(const std::string& field, int value, int minVal, int maxVal)
 {
     if (field == "*" || field == "?") return true;
@@ -97,7 +103,7 @@ time_t CalculateNextFire(const std::string& cronExpr, time_t afterTime)
     bool dowIsWildcard = (weekdayStr == "*" || weekdayStr == "?");
 
     for (int i = 0; i < 525600; ++i) {
-        time_t currentTime = timegm(&tm);
+        time_t currentTime = TimegmCompat(&tm);
         if (currentTime == -1) {
             return afterTime + 60;
         }
