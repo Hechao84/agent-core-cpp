@@ -1,16 +1,16 @@
-#include "src/channels/channel_manager.h"
+#include "examples/jiuwenClaw/channels/channel_manager.h"
 
 #include <filesystem>
 #include <fstream>
 #include <string>
 
-#include "src/utils/logger.h"
+#include "examples/jiuwenClaw/utils/logger.h"
 
-#include "nlohmann/json.hpp"
+#include "third_party/include/nlohmann/json.hpp"
 
 namespace fs = std::filesystem;
 
-namespace jiuwen {
+namespace jiuwenClaw {
 
 ChannelManager& ChannelManager::GetInstance()
 {
@@ -169,4 +169,4 @@ void ChannelManager::RecalcNextId()
     }
 }
 
-} // namespace jiuwen
+} // namespace jiuwenClaw

@@ -3,7 +3,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include "src/utils/encoding.h"
+#include "examples/jiuwenClaw/utils/encoding.h"
 #include "third_party/include/curl/curl.h"
 #include "third_party/include/nlohmann/json.hpp"
 
@@ -80,10 +80,10 @@ std::string ArkCodeModel::Format(const std::string& systemPrompt, const std::vec
 
     for (const auto& msg : messages) {
         if (msg.role == "tool") {
-            std::string content = "[Tool Result]\n" + FixStringUTF8(msg.content);
+            std::string content = "[Tool Result]\n" + jiuwenClaw::FixUTF8(msg.content);
             msgs.push_back({{"role", "user"}, {"content", content}});
         } else {
-            msgs.push_back({{"role", msg.role}, {"content", FixStringUTF8(msg.content)}});
+            msgs.push_back({{"role", msg.role}, {"content", jiuwenClaw::FixUTF8(msg.content)}});
         }
     }
     payload["messages"] = msgs;

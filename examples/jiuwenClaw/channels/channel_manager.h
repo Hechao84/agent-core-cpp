@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace jiuwen {
+namespace jiuwenClaw {
 
 struct ChannelConfig
 {
@@ -43,4 +43,4 @@ private:
     int nextId_{1};
 };
 
-} // namespace jiuwen
+} // namespace jiuwenClaw

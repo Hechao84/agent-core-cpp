@@ -1,34 +1,29 @@
 #pragma once
 
 #include <functional>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
-#include <unordered_map>
 #include <atomic>
 
-#include "include/agent_export.h"
-#include "include/session_manager.h"
+namespace jiuwenClaw {
 
-namespace jiuwen {
-
-struct WebApiConfig
+struct HttpServerConfig
 {
     std::string host = "127.0.0.1";
     int port = 8080;
     bool enableCors = true;
-    std::string staticDir; // Path to frontend static files (empty to disable)
+    std::string staticDir;
 };
 
-class AGENT_API WebApi
+class HttpServer
 {
 public:
-    WebApi();
-    ~WebApi();
+    HttpServer();
+    ~HttpServer();
 
-    void Start(const WebApiConfig& config);
+    void Start(const HttpServerConfig& config);
     void Stop();
 
     bool IsRunning() const;
@@ -42,4 +37,4 @@ private:
     std::string url_;
 };
 
-} // namespace jiuwen
+} // namespace jiuwenClaw

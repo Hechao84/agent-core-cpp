@@ -11,7 +11,9 @@
 #include "include/agent.h"
 #include "include/resource_manager.h"
 #include "include/session_manager.h"
-#include "src/web/web_api.h"
+#include "examples/jiuwenClaw/adapters/http_server/http_server.h"
+#include "examples/jiuwenClaw/adapters/feishu/feishu_bot.h"
+#include "examples/jiuwenClaw/channels/channel_manager.h"
 // Heartbeat management & Cron watcher module
 #include "examples/jiuwenClaw/cron_watcher.h"
 #include "examples/jiuwenClaw/heartbeat_manager.h"
@@ -29,12 +31,14 @@
 using namespace jiuwen;
 using namespace jiuwenClaw;
 
-std::atomic<bool> g_ServerRunning{true};
+std::atomic<bool> g_Running{true};
+std::unique_ptr<HttpServer> g_HttpServer;
+std::vector<std::unique_ptr<FeishuBot>> g_FeishuBots;
 
 void SignalHandler(int signum)
 {
     if (signum == SIGINT || signum == SIGTERM) {
-        g_ServerRunning = false;
+        g_Running = false;
     }
 }
 
@@ -57,10 +61,13 @@ AgentConfig BuildAgentConfig()
 
     config.skillDirectory = "./my_skills";
 
-    config.modelConfig.baseUrl = "<YOUR_ARKCODE_BASE_URL>";
-    config.modelConfig.apiKey = "<YOUR_ARKCODE_API_KEY>";
-    config.modelConfig.modelName = "<YOUR_ARKCODE_MODEL_NAME>";
-    config.modelConfig.provider = "ark_code";
+    // config.modelConfig.baseUrl = "<your-llm-endpoint>/v3";
+    // config.modelConfig.apiKey = "<your-api-key>";
+    // config.modelConfig.modelName = "ark-code-latest";
+    // config.modelConfig.provider = "ark_code";
+    config.modelConfig.baseUrl = "<your-llm-endpoint>/v1";
+    config.modelConfig.apiKey = "<your-api-key>";
+    config.modelConfig.modelName = "Qwen3.6-Plus";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
 
     config.modelConfig.extraParams.Set("max_tokens", 4096);
@@ -121,7 +128,7 @@ void InitMcpServer()
     try {
         std::string amapJson = R"({
             "url": "https://mcp.amap.com",
-            "endpoint": "/mcp?key=<YOUR_AMAP_API_KEY>",
+            "endpoint": "/mcp?key=<your-amap-key>",
             "isActive": "true",
             "description": "this is a mcp map server",
             "type": "streamable-http-client"
@@ -140,45 +147,7 @@ void InitMcpServer()
     }
 }
 
-void RunServerMode(const AgentConfig& /* config */)
-{
-    std::signal(SIGINT, SignalHandler);
-    std::signal(SIGTERM, SignalHandler);
-
-    std::cout << "[Server] Starting jiuwenClaw Agent Server...\n" << std::flush;
-
-    WebApi server;
-    WebApiConfig webConfig;
-    webConfig.host = "127.0.0.1";
-    webConfig.port = 8080;
-    webConfig.staticDir = "./web";
-
-    server.Start(webConfig);
-
-    std::cout << "[Server] Agent Server running at " << server.GetUrl() << "\n" << std::flush;
-    std::cout << "[Server] Open http://" << webConfig.host << ":" << webConfig.port << " in your browser\n" << std::flush;
-    std::cout << "[Server] Type '/exit' or press Ctrl+C to stop...\n" << std::flush;
-
-    // Wait for exit command or signal
-    while (g_ServerRunning) {
-        std::string cmd;
-        if (std::getline(std::cin, cmd)) {
-            if (cmd == "/exit" || cmd == "exit" || cmd == "quit") {
-                g_ServerRunning = false;
-                break;
-            }
-        } else {
-            // EOF reached
-            break;
-        }
-    }
-
-    std::cout << "\n[Server] Stopping server...\n" << std::flush;
-    server.Stop();
-    std::cout << "[Server] Goodbye.\n" << std::flush;
-}
-
-void RunCliMode(const AgentConfig& /* config */)
+void RunCliMode()
 {
     std::cout << "\nEnter '/exit' to quit, '/session <id>' to switch session.\n" << std::flush;
 
@@ -186,12 +155,15 @@ void RunCliMode(const AgentConfig& /* config */)
     std::string currentSession = kDefaultSessionId;
 
     std::string query;
-    while (true) {
+    while (g_Running) {
         std::cout << "[" << currentSession << "]> " << std::flush;
-        std::getline(std::cin, query);
+        if (!std::getline(std::cin, query)) {
+            break;
+        }
 
         if (query == "/exit") {
             LOG(INFO) << "User input: " << query;
+            g_Running = false;
             break;
         }
 
@@ -319,19 +291,29 @@ void PrintUsage()
     std::cout << "Usage: jiuwenClaw [OPTIONS]\n"
               << "\n"
               << "Options:\n"
-              << "  --server     Start Agent Server with web UI (default: 127.0.0.1:8080)\n"
-              << "  --port <N>   Set server port (default: 8080)\n"
-              << "  --host <IP>  Set server host (default: 127.0.0.1)\n"
-              << "  --cli        Start CLI mode (default)\n"
-              << "  --help       Show this help message\n"
+              << "  --server       Enable all integrations (HTTP REST API + configured channels)\n"
+              << "  --port <N>     Set server port (default: 8080)\n"
+              << "  --host <IP>    Set server host (default: 127.0.0.1)\n"
+              << "  --no-cli       Disable CLI mode (run only as daemon)\n"
+              << "  --help         Show this help message\n"
+              << "\n"
+              << "Notes:\n"
+              << "  Channels (e.g. Feishu) are loaded from ./data/channels.json.\n"
+              << "  Use the web UI (/api/channels) or edit the file directly to configure them.\n"
+              << "\n"
+              << "Examples:\n"
+              << "  jiuwenClaw                          # CLI only (default)\n"
+              << "  jiuwenClaw --server                 # CLI + HTTP server + all configured channels\n"
+              << "  jiuwenClaw --server --no-cli        # Daemon mode (HTTP + channels)\n"
               << std::endl;
 }
 
 int main(int argc, char* argv[])
 {
-    std::cout << "jiuwenClaw is an Agent powered by jiuwen-lite Agent Framework\n====================\n" << std::flush;
+    std::cout << "jiuwenClaw - Agent powered by jiuwen-lite Agent Framework\n====================\n" << std::flush;
 
-    bool serverMode = false;
+    bool enableServer = false;
+    bool enableCli = true;
     std::string serverHost = "127.0.0.1";
     int serverPort = 8080;
 
@@ -339,9 +321,9 @@ int main(int argc, char* argv[])
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--server") {
-            serverMode = true;
-        } else if (arg == "--cli") {
-            serverMode = false;
+            enableServer = true;
+        } else if (arg == "--no-cli") {
+            enableCli = false;
         } else if (arg == "--port" && i + 1 < argc) {
             serverPort = std::stoi(argv[++i]);
         } else if (arg == "--host" && i + 1 < argc) {
@@ -381,18 +363,81 @@ int main(int argc, char* argv[])
     CronWatcher cronWatcher("./data", config.modelConfig, 60);
     std::cout << "[Boot] CronWatcher constructed\n" << std::flush;
 
-    if (serverMode) {
-        // Override web config from command line
-        WebApiConfig webConfig;
-        webConfig.host = serverHost;
-        webConfig.port = serverPort;
-        webConfig.staticDir = "./web";
+    // Start HTTP server if enabled
+    if (enableServer) {
+        g_HttpServer = std::make_unique<HttpServer>();
+        HttpServerConfig httpConfig;
+        httpConfig.host = serverHost;
+        httpConfig.port = serverPort;
+        httpConfig.staticDir = "./examples/jiuwenClaw/web";
+        g_HttpServer->Start(httpConfig);
+        std::cout << "[Boot] HTTP server started at " << serverHost << ":" << serverPort << "\n" << std::flush;
 
-        std::cout << "[Boot] Entering RunServerMode\n" << std::flush;
-        RunServerMode(config);
-    } else {
-        RunCliMode(config);
+        // Load channels from disk and start each enabled channel
+        auto& channelMgr = ChannelManager::GetInstance();
+        channelMgr.SetPersistPath("./data/channels.json");
+        channelMgr.Load();
+        for (const auto& ch : channelMgr.GetAllChannels()) {
+            if (!ch.enabled) {
+                continue;
+            }
+            if (ch.type == "feishu") {
+                auto bot = std::make_unique<FeishuBot>();
+                FeishuBotConfig cfg;
+                auto itId = ch.params.find("appId");
+                auto itSec = ch.params.find("appSecret");
+                cfg.appId = itId != ch.params.end() ? itId->second : "";
+                cfg.appSecret = itSec != ch.params.end() ? itSec->second : "";
+                if (cfg.appId.empty() || cfg.appSecret.empty()) {
+                    std::cout << "[Boot] Skip Feishu channel '" << ch.id
+                              << "': appId/appSecret missing\n" << std::flush;
+                    continue;
+                }
+                bot->Start(cfg);
+                if (bot->IsRunning()) {
+                    std::cout << "[Boot] Feishu channel '" << ch.id
+                              << "' (" << ch.name << ") connected\n" << std::flush;
+                    g_FeishuBots.push_back(std::move(bot));
+                } else {
+                    std::cout << "[Boot] Feishu channel '" << ch.id
+                              << "' failed to connect\n" << std::flush;
+                }
+            }
+        }
+        if (g_FeishuBots.empty()) {
+            std::cout << "[Boot] No channels active (edit ./data/channels.json or use the web UI to add)\n" << std::flush;
+        }
     }
+
+    std::signal(SIGINT, SignalHandler);
+    std::signal(SIGTERM, SignalHandler);
+
+    if (enableCli) {
+        RunCliMode();
+    } else {
+        // Daemon mode: wait for signal
+        std::cout << "[Boot] Running in daemon mode. Press Ctrl+C to stop...\n" << std::flush;
+        while (g_Running) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
+
+    // Cleanup
+    std::cout << "\n[Shutdown] Stopping services...\n" << std::flush;
+
+    if (!g_FeishuBots.empty()) {
+        for (auto& bot : g_FeishuBots) {
+            bot->Stop();
+        }
+        g_FeishuBots.clear();
+    }
+
+    if (g_HttpServer) {
+        g_HttpServer->Stop();
+        g_HttpServer.reset();
+    }
+
+    std::cout << "[Shutdown] Goodbye.\n" << std::flush;
 
     return 0;
 }

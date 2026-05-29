@@ -1,6 +1,6 @@
 #define CPPHTTPLIB_KEEPALIVE_TIMEOUT_SECOND 10
 #define CPPHTTPLIB_KEEPALIVE_MAX_COUNT 5
-#include "src/channels/feishu_channel.h"
+#include "examples/jiuwenClaw/adapters/feishu/feishu_channel.h"
 
 #include <chrono>
 #include <cstdint>
@@ -15,13 +15,13 @@
 #include <utility>
 #include <vector>
 
-#include "src/utils/logger.h"
+#include "examples/jiuwenClaw/utils/logger.h"
 
 #include "curl/curl.h"
 #include "httplib.h"
 #include "nlohmann/json.hpp"
 
-namespace jiuwen {
+namespace jiuwenClaw {
 
 // ============================================================
 // pbbp2 Protobuf Frame encoder/decoder (minimal varint impl)
@@ -827,4 +827,4 @@ bool FeishuChannel::SendTextMessage(const std::string& chatId,
     return impl_->SendTextMessageToFeishu(chatId, text);
 }
 
-} // namespace jiuwen
+} // namespace jiuwenClaw

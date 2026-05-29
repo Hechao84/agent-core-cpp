@@ -8,7 +8,7 @@
 #include <string>
 #include <thread>
 
-namespace jiuwen {
+namespace jiuwenClaw {
 
 // Feishu long connection (WebSocket persistent) configuration.
 // Only appId + appSecret are needed.
@@ -50,4 +50,4 @@ private:
     EventCallback eventCallback_;
 };
 
-} // namespace jiuwen
+} // namespace jiuwenClaw

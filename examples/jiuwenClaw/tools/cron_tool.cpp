@@ -7,11 +7,11 @@
 #include <string>
 #include <vector>
 #include "examples/jiuwenClaw/cron_watcher.h"
-#include "src/utils/data_dir.h"
+#include "examples/jiuwenClaw/utils/data_dir.h"
 #include "examples/jiuwenClaw/utils/logger.h"
 #include "third_party/include/nlohmann/json.hpp"
 
-using namespace jiuwen;
+using namespace jiuwenClaw;
 
 namespace fs = std::filesystem;
 

@@ -2,12 +2,11 @@
 #define CPPHTTPLIB_KEEPALIVE_MAX_COUNT 5
 #include "httplib.h"
 
-#include "src/web/web_api.h"
+#include "examples/jiuwenClaw/adapters/http_server/http_server.h"
 
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
-#include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -15,311 +14,35 @@
 #include <thread>
 #include <utility>
 
-#include "src/channels/channel_manager.h"
-#include "src/channels/feishu_channel.h"
-#include "src/context_engine/context_engine.h"
-#include "src/utils/logger.h"
+#include "include/session_manager.h"
+#include "examples/jiuwenClaw/channels/channel_manager.h"
+#include "examples/jiuwenClaw/utils/logger.h"
 
 #include "third_party/include/nlohmann/json.hpp"
 
-namespace jiuwen {
+namespace jiuwenClaw {
 
-namespace {
+using namespace jiuwen;
 
-// Window during which the same Feishu event_id should be ignored as a redelivery.
-constexpr auto kFeishuDedupWindow = std::chrono::minutes(5);
-
-// Stream-callback tags emitted by the agent loop.
-constexpr const char* kTagToolCalls = "[TOOL_CALLS]";
-constexpr const char* kTagToolResponse = "[TOOL_RESPONSE]";
-constexpr const char* kTagFinal = "[FINAL]";
-
-constexpr const char* kStatusProcessing = "[Status] Processing...";
-constexpr const char* kStatusComplete = "[Status] Complete";
-
-// Aggregated state shared between the agent worker thread and the bubble-sender
-// thread for a single Feishu inbound event.
-struct FeishuTurnContext
-{
-    std::string finalText;
-    std::mutex mtx;
-    std::condition_variable cv;
-    bool done = false;
-    SessionInvokeResult result;
-};
-
-void TrimAround(std::string& s)
-{
-    while (!s.empty() && (s.front() == ' ' || s.front() == '\n' || s.front() == '\r')) {
-        s.erase(0, 1);
-    }
-    while (!s.empty() && (s.back() == ' ' || s.back() == '\n' || s.back() == '\r')) {
-        s.pop_back();
-    }
-}
-
-// Returns true and writes the trimmed remainder if `text` starts (or contains
-// at offset 0..n) the tag; otherwise returns false.
-bool TryExtractTag(const std::string& text, const char* tag, std::string& body)
-{
-    size_t pos = text.find(tag);
-    if (pos == std::string::npos) {
-        return false;
-    }
-    body = text.substr(pos + std::char_traits<char>::length(tag));
-    TrimAround(body);
-    return true;
-}
-
-// Returns JSON field as string. Non-string scalars are dump()'d; missing/null
-// returns empty string.
-std::string JsonFieldAsString(const nlohmann::json& j, const char* key)
-{
-    if (!j.contains(key) || j[key].is_null()) {
-        return "";
-    }
-    if (j[key].is_string()) {
-        return j[key].get<std::string>();
-    }
-    return j[key].dump();
-}
-
-// Returns true if `messageId` is a fresh Feishu event (not seen within the
-// dedup window). On true, the id is recorded; on false, the caller should
-// skip processing because Feishu re-delivered the same event.
-bool RegisterFeishuEventOnce(const std::string& messageId)
-{
-    using TimePoint = std::chrono::steady_clock::time_point;
-    static std::mutex mutex;
-    static std::deque<std::pair<std::string, TimePoint>> seen;
-
-    std::lock_guard<std::mutex> lock(mutex);
-    auto now = std::chrono::steady_clock::now();
-    while (!seen.empty() && now - seen.front().second > kFeishuDedupWindow) {
-        seen.pop_front();
-    }
-    for (const auto& entry : seen) {
-        if (entry.first == messageId) {
-            return false;
-        }
-    }
-    seen.push_back({messageId, now});
-    return true;
-}
-
-// Sends a single text message to Feishu as one bubble. Empty strings are
-// ignored so callers can pass intermediate computed text freely.
-void SendBubble(FeishuChannel* channel, const std::string& chatId, const std::string& text)
-{
-    if (text.empty()) {
-        return;
-    }
-    LOG(INFO) << "[WebApi/Feishu] Bubble to chat=" << chatId
-              << ", size=" << text.size()
-              << ", first=" << text.substr(0, 80);
-    channel->SendTextMessage(chatId, text);
-}
-
-// Renders a [TOOL_CALLS] stream chunk as a Feishu bubble.
-// The chunk body is a JSON object {"name": "...", "arguments": ...}; we fall
-// back to the raw body if parsing fails.
-void EmitToolCallBubble(FeishuChannel* channel, const std::string& chatId,
-                        const std::string& body)
-{
-    std::string name = body;
-    std::string args;
-    try {
-        auto j = nlohmann::json::parse(body);
-        name = JsonFieldAsString(j, "name");
-        args = JsonFieldAsString(j, "arguments");
-    } catch (...) {
-        // Leave name as raw body, args empty.
-    }
-    std::string bubble = "[TOOL_CALL]" + name;
-    if (!args.empty()) {
-        bubble += " args=" + args;
-    }
-    SendBubble(channel, chatId, bubble);
-}
-
-// Routes one stream chunk from the agent loop into Feishu bubbles.
-//   [TOOL_CALLS]  -> immediate [TOOL_CALL] bubble
-//   [TOOL_RESPONSE] -> immediate [TOOL_RESULT] bubble (raw observation)
-//   [FINAL]       -> buffered to ctx->finalText; emitted after agent ends
-//   [STATUS]/[STREAM] -> dropped (only opening/closing status are shown)
-void RouteAgentStreamChunk(const std::shared_ptr<FeishuTurnContext>& ctx,
-                           FeishuChannel* channel, const std::string& chatId,
-                           const std::string& resp)
-{
-    if (resp.empty()) {
-        return;
-    }
-    std::string body;
-    if (TryExtractTag(resp, kTagToolCalls, body)) {
-        EmitToolCallBubble(channel, chatId, body);
-        return;
-    }
-    if (TryExtractTag(resp, kTagToolResponse, body)) {
-        SendBubble(channel, chatId, std::string("[TOOL_RESULT]\n") + body);
-        return;
-    }
-    if (TryExtractTag(resp, kTagFinal, body)) {
-        std::lock_guard<std::mutex> lk(ctx->mtx);
-        ctx->finalText = body;
-        ctx->cv.notify_all();
-        return;
-    }
-    // Other tags ([STATUS]/[STREAM]) are intentionally dropped.
-}
-
-// Invokes the agent in a detached worker thread, streaming chunks through
-// RouteAgentStreamChunk. Signals ctx->done on completion.
-void SpawnAgentWorker(const std::shared_ptr<FeishuTurnContext>& ctx,
-                      const ChannelMessage& msg,
-                      std::function<void(const std::string&)> streamCb)
-{
-    std::thread([ctx, msg, streamCb = std::move(streamCb)]() {
-        try {
-            ctx->result = GetSessionManager().InvokeChannel(msg, streamCb);
-            LOG(INFO) << "[WebApi/Feishu] Agent done, success=" << ctx->result.success;
-        } catch (const std::exception& e) {
-            LOG(ERR) << "[WebApi/Feishu] InvokeChannel: " << e.what();
-            ctx->result.success = false;
-            ctx->result.errorMessage = e.what();
-        }
-        {
-            std::lock_guard<std::mutex> lk(ctx->mtx);
-            ctx->done = true;
-        }
-        ctx->cv.notify_all();
-    }).detach();
-}
-
-// Waits in a detached thread for the agent to finish, then sends the final
-// answer bubble followed by the closing status bubble.
-void SpawnClosingSender(const std::shared_ptr<FeishuTurnContext>& ctx,
-                        FeishuChannel* channel, const std::string& chatId)
-{
-    std::thread([ctx, channel, chatId]() {
-        std::unique_lock<std::mutex> lk(ctx->mtx);
-        ctx->cv.wait(lk, [&]() { return ctx->done; });
-
-        std::string finalText = ctx->finalText;
-        if (finalText.empty()) {
-            if (ctx->result.success && !ctx->result.content.empty()) {
-                finalText = ctx->result.content;
-            } else if (!ctx->result.errorMessage.empty()) {
-                finalText = "Error: " + ctx->result.errorMessage;
-            }
-        }
-        lk.unlock();
-
-        SendBubble(channel, chatId, finalText);
-        SendBubble(channel, chatId, kStatusComplete);
-    }).detach();
-}
-
-// Top-level Feishu inbound event handler. Splits stream events into the
-// bubble sequence specified by the product (Processing -> tool calls/results
-// -> final answer -> Complete).
-void HandleFeishuEvent(FeishuChannel* channel,
-                       const std::string& chatId,
-                       const std::string& messageId,
-                       const std::string& senderId,
-                       const std::string& msgContent)
-{
-    if (!RegisterFeishuEventOnce(messageId)) {
-        LOG(INFO) << "[WebApi/Feishu] Duplicate event skipped: messageId=" << messageId;
-        return;
-    }
-
-    LOG(INFO) << "[WebApi/Feishu] Event from chat=" << chatId
-              << ", messageId=" << messageId
-              << ", content=" << msgContent.substr(0, 100);
-
-    SendBubble(channel, chatId, kStatusProcessing);
-
-    auto ctx = std::make_shared<FeishuTurnContext>();
-
-    auto streamCb = [ctx, channel, chatId](const std::string& resp) {
-        RouteAgentStreamChunk(ctx, channel, chatId, resp);
-    };
-
-    ChannelMessage msg;
-    msg.channel = "feishu";
-    msg.chatId = chatId;
-    msg.senderId = senderId;
-    msg.content = msgContent;
-
-    LOG(INFO) << "[WebApi/Feishu] Invoking agent...";
-    SpawnAgentWorker(ctx, msg, streamCb);
-    SpawnClosingSender(ctx, channel, chatId);
-}
-
-} // namespace
-
-struct RunningChannel
-{
-    ChannelConfig config;
-};
-
-struct WebApi::Impl
+struct HttpServer::Impl
 {
     std::unique_ptr<httplib::Server> server;
     std::thread serverThread;
-    WebApiConfig config;
-    std::map<std::string, RunningChannel> channels;
-    std::unique_ptr<FeishuChannel> feishuChannel; ///< Single Feishu long-connection channel
-    std::mutex channelsMutex;
-
-    void StartFeishu(const ChannelConfig& ch)
-    {
-        if (feishuChannel) {
-            feishuChannel->Stop();
-        }
-
-        FeishuConfig fc;
-        fc.appId = ch.params.count("appId") ? ch.params.at("appId") : "";
-        fc.appSecret = ch.params.count("appSecret") ? ch.params.at("appSecret") : "";
-
-        if (fc.appId.empty() || fc.appSecret.empty()) {
-            LOG(WARN) << "[WebApi] Skipping Feishu channel " << ch.id
-                      << ": appId or appSecret missing";
-            return;
-        }
-
-        feishuChannel = std::make_unique<FeishuChannel>();
-        FeishuChannel* channelPtr = feishuChannel.get();
-
-        feishuChannel->SetEventCallback(
-            [channelPtr](const std::string& chatId, const std::string& messageId,
-                         const std::string& senderId, const std::string& msgContent) {
-                HandleFeishuEvent(channelPtr, chatId, messageId, senderId, msgContent);
-            });
-
-        LOG(INFO) << "[WebApi] Starting Feishu long connection: appId=" << fc.appId;
-        feishuChannel->Start(fc);
-        if (feishuChannel->IsRunning()) {
-            LOG(INFO) << "[WebApi] Feishu channel " << ch.id << " connected successfully";
-        } else {
-            LOG(ERR) << "[WebApi] Feishu channel " << ch.id << " FAILED to connect";
-            feishuChannel.reset();
-        }
-    }
+    HttpServerConfig config;
 };
 
-WebApi::WebApi() = default;
+HttpServer::HttpServer() = default;
 
-WebApi::~WebApi()
+HttpServer::~HttpServer()
 {
     Stop();
 }
 
-void WebApi::Start(const WebApiConfig& config)
+void HttpServer::Start(const HttpServerConfig& config)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     if (running_) {
-        LOG(WARN) << "[WebApi] Already running";
+        LOG(WARN) << "[HttpServer] Already running";
         return;
     }
 
@@ -328,18 +51,6 @@ void WebApi::Start(const WebApiConfig& config)
     impl_->server = std::make_unique<httplib::Server>();
 
     url_ = "http://" + config.host + ":" + std::to_string(config.port);
-
-    // ============================================================
-    // Load persistent channels and auto-start Feishu WebSocket
-    // ============================================================
-    ChannelManager::GetInstance().SetPersistPath("./data/channels.json");
-    ChannelManager::GetInstance().Load();
-    for (const auto& ch : ChannelManager::GetInstance().GetAllChannels()) {
-        if (ch.type == "feishu" && ch.enabled) {
-            impl_->StartFeishu(ch);
-            break; // Only one Feishu channel for now
-        }
-    }
 
     if (config.enableCors) {
         impl_->server->set_pre_routing_handler(
@@ -452,16 +163,7 @@ void WebApi::Start(const WebApiConfig& config)
         std::string sessionId = req.matches[1];
 
         try {
-            auto ctx = GetSessionManager().GetOrCreateSession(sessionId);
-            if (!ctx) {
-                nlohmann::json err;
-                err["error"] = "Session not found";
-                res.status = 404;
-                res.set_content(err.dump(2), "application/json");
-                return;
-            }
-
-            auto messages = ctx->GetAllMessages();
+            auto messages = GetSessionManager().GetSessionMessages(sessionId);
             nlohmann::json history = nlohmann::json::array();
             for (const auto& msg : messages) {
                 nlohmann::json entry;
@@ -550,7 +252,7 @@ void WebApi::Start(const WebApiConfig& config)
             return;
         }
 
-        LOG(INFO) << "[WebApi] [" << sessionId << "] Streaming chat requested";
+        LOG(INFO) << "[HttpServer] [" << sessionId << "] Streaming chat requested";
 
         struct SseContext {
             std::vector<std::string> events;
@@ -594,7 +296,6 @@ void WebApi::Start(const WebApiConfig& config)
             }
 
             if (!data.empty()) {
-                // Format as proper SSE with multiline data support
                 std::string sseEvent = "event: " + eventType + "\n";
                 size_t start = 0;
                 size_t end = data.find('\n');
@@ -611,7 +312,6 @@ void WebApi::Start(const WebApiConfig& config)
             }
         };
 
-        // Run the agent invoke in a background thread
         std::thread([sseCtx, sessionId, message, streamCallback]() {
             try {
                 sseCtx->result = GetSessionManager().Invoke(
@@ -620,7 +320,7 @@ void WebApi::Start(const WebApiConfig& config)
                     streamCallback
                 );
             } catch (...) {
-                LOG(ERR) << "[WebApi] [" << sessionId << "] Agent invoke failed";
+                LOG(ERR) << "[HttpServer] [" << sessionId << "] Agent invoke failed";
             }
 
             {
@@ -630,7 +330,6 @@ void WebApi::Start(const WebApiConfig& config)
             sseCtx->cv.notify_one();
         }).detach();
 
-        // Set up chunked response using SSE
         res.set_chunked_content_provider(
             "text/event-stream",
             [sseCtx](size_t /* offset */, httplib::DataSink& sink) -> bool {
@@ -671,10 +370,6 @@ void WebApi::Start(const WebApiConfig& config)
         );
     });
 
-    // ============================================================
-    // Channel Management APIs
-    // ============================================================
-
     // GET /api/channels
     impl_->server->Get("/api/channels", [](const httplib::Request&, httplib::Response& res) {
         auto channels = ChannelManager::GetInstance().GetAllChannels();
@@ -692,7 +387,7 @@ void WebApi::Start(const WebApiConfig& config)
     });
 
     // POST /api/channels - create channel
-    impl_->server->Post("/api/channels", [this](const httplib::Request& req, httplib::Response& res) {
+    impl_->server->Post("/api/channels", [](const httplib::Request& req, httplib::Response& res) {
         try {
             auto j = nlohmann::json::parse(req.body);
             ChannelConfig ch;
@@ -708,11 +403,7 @@ void WebApi::Start(const WebApiConfig& config)
             }
 
             ChannelManager::GetInstance().AddChannel(ch);
-            LOG(INFO) << "[WebApi] Channel created: " << ch.id << " (" << ch.type << ")";
-
-            if (ch.type == "feishu" && ch.enabled) {
-                impl_->StartFeishu(ch);
-            }
+            LOG(INFO) << "[HttpServer] Channel created: " << ch.id << " (" << ch.type << ")";
 
             nlohmann::json result;
             result["id"] = ch.id;
@@ -732,7 +423,7 @@ void WebApi::Start(const WebApiConfig& config)
     impl_->server->Delete(R"(/api/channels/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
         std::string channelId = req.matches[1];
         ChannelManager::GetInstance().RemoveChannel(channelId);
-        LOG(INFO) << "[WebApi] Channel deleted: " << channelId;
+        LOG(INFO) << "[HttpServer] Channel deleted: " << channelId;
 
         nlohmann::json result;
         result["id"] = channelId;
@@ -741,7 +432,7 @@ void WebApi::Start(const WebApiConfig& config)
     });
 
     // PUT /api/channels/{id}
-    impl_->server->Put(R"(/api/channels/([^/]+))", [this](const httplib::Request& req, httplib::Response& res) {
+    impl_->server->Put(R"(/api/channels/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
         std::string channelId = req.matches[1];
         try {
             auto j = nlohmann::json::parse(req.body);
@@ -758,11 +449,7 @@ void WebApi::Start(const WebApiConfig& config)
             }
 
             ChannelManager::GetInstance().UpdateChannel(channelId, ch);
-            LOG(INFO) << "[WebApi] Channel updated: " << channelId;
-
-            if (ch.type == "feishu" && ch.enabled) {
-                impl_->StartFeishu(ch);
-            }
+            LOG(INFO) << "[HttpServer] Channel updated: " << channelId;
 
             nlohmann::json result;
             result["id"] = channelId;
@@ -780,34 +467,29 @@ void WebApi::Start(const WebApiConfig& config)
     // Serve static frontend files if configured
     if (!config.staticDir.empty()) {
         impl_->server->set_mount_point("/", config.staticDir);
-        LOG(INFO) << "[WebApi] Serving static files from " << config.staticDir;
+        LOG(INFO) << "[HttpServer] Serving static files from " << config.staticDir;
     }
 
     // Start server in background thread
     impl_->serverThread = std::thread([this, config]() {
-        LOG(INFO) << "[WebApi] Starting server at " << config.host << ":" << config.port;
+        LOG(INFO) << "[HttpServer] Starting server at " << config.host << ":" << config.port;
         if (!impl_->server->listen(config.host.c_str(), config.port)) {
-            LOG(ERR) << "[WebApi] Failed to start server";
+            LOG(ERR) << "[HttpServer] Failed to start server";
         }
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     running_ = true;
-    LOG(INFO) << "[WebApi] Server running at " << url_;
+    LOG(INFO) << "[HttpServer] Server running at " << url_;
 }
 
-void WebApi::Stop()
+void HttpServer::Stop()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!running_) return;
 
     running_ = false;
-
-    if (impl_ && impl_->feishuChannel) {
-        impl_->feishuChannel->Stop();
-        LOG(INFO) << "[WebApi] Feishu channel stopped";
-    }
 
     if (impl_ && impl_->server) {
         impl_->server->stop();
@@ -818,17 +500,17 @@ void WebApi::Stop()
     }
 
     impl_.reset();
-    LOG(INFO) << "[WebApi] Stopped";
+    LOG(INFO) << "[HttpServer] Stopped";
 }
 
-bool WebApi::IsRunning() const
+bool HttpServer::IsRunning() const
 {
     return running_;
 }
 
-std::string WebApi::GetUrl() const
+std::string HttpServer::GetUrl() const
 {
     return url_;
 }
 
-} // namespace jiuwen
+} // namespace jiuwenClaw

@@ -380,6 +380,16 @@ std::vector<std::string> SessionManager::GetSessionIds() const
     return ids;
 }
 
+std::vector<Message> SessionManager::GetSessionMessages(const std::string& sessionId) const
+{
+    std::lock_guard<std::mutex> lock(sessionMutex_);
+    auto it = sessions_.find(sessionId);
+    if (it == sessions_.end() || !it->second || !it->second->contextEngine) {
+        return {};
+    }
+    return it->second->contextEngine->GetAllMessages();
+}
+
 std::map<std::string, std::string> SessionManager::GetSessionMetadata(const std::string& sessionId) const
 {
     std::lock_guard<std::mutex> lock(sessionMutex_);

@@ -48,7 +48,6 @@ endif()
 set(SQLITE_LIB sqlite3)
 
 if(WIN32)
-    # Windows: look for sqlite3.dll
     if(EXISTS "${TRIRD_PARTY_LIBS_DIR}/sqlite3.dll")
         message(STATUS "Using pre-built sqlite3.dll from libs/")
         add_library(sqlite3 SHARED IMPORTED GLOBAL)
@@ -56,7 +55,6 @@ if(WIN32)
             IMPORTED_LOCATION "${TRIRD_PARTY_LIBS_DIR}/sqlite3.dll"
             INTERFACE_INCLUDE_DIRECTORIES "${TRIRD_PARTY_INCLUDE_DIR}"
         )
-        # Also import the .lib if it exists (for MSVC linking)
         if(EXISTS "${TRIRD_PARTY_LIBS_DIR}/sqlite3.lib")
             set_target_properties(sqlite3 PROPERTIES
                 IMPORTED_IMPLIB "${TRIRD_PARTY_LIBS_DIR}/sqlite3.lib"
@@ -75,7 +73,6 @@ if(WIN32)
         endif()
     endif()
 else()
-    # Linux: look for libsqlite3.so
     if(EXISTS "${TRIRD_PARTY_LIBS_DIR}/libsqlite3.so")
         message(STATUS "Using pre-built sqlite3 from libs/")
         add_library(sqlite3 SHARED IMPORTED GLOBAL)
@@ -115,7 +112,7 @@ if(EXISTS "${TRIRD_PARTY_INCLUDE_DIR}/httplib.h")
 endif()
 
 # ============================================================
-# Shared Library: agent_framework
+# Core Library: agent_framework (pure core, no transport-layer deps)
 # ============================================================
 add_library(agent_framework SHARED
     src/protocol/mcp_client.cpp
@@ -157,9 +154,6 @@ add_library(agent_framework SHARED
     src/utils/encoding.cpp
     src/utils/tool_parser.cpp
     src/session/session_manager.cpp
-    src/web/web_api.cpp
-    src/channels/feishu_channel.cpp
-    src/channels/channel_manager.cpp
 )
 
 target_include_directories(agent_framework PRIVATE 
@@ -172,13 +166,12 @@ target_include_directories(agent_framework PRIVATE
 
 target_compile_definitions(agent_framework PRIVATE BUILDING_AGENT_FRAMEWORK)
 
-# Platform-specific link libraries
+# Core library only needs CURL/SQLite/JSON. No httplib, no OpenSSL.
 if(WIN32)
     target_link_libraries(agent_framework PRIVATE 
         ${CURL_LIB}
         ${SQLITE_LIB}
         nlohmann_json::nlohmann_json
-        httplib
         ws2_32
         crypt32
     )
@@ -187,18 +180,72 @@ else()
         ${CURL_LIB}
         ${SQLITE_LIB}
         nlohmann_json::nlohmann_json
-        httplib
         pthread
     )
 endif()
-if(OpenSSL_FOUND)
-    target_link_libraries(agent_framework PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-endif()
 
 # ============================================================
-# Sample Application (demonstrates how to use the framework)
+# Example Application: jiuwenClaw
+# Demonstrates how to integrate agent_framework with multiple
+# access modes (CLI / HTTP / Feishu) from a single entry point.
+# Adapters here are example-specific; downstream users may write
+# their own adapters or use these as references.
 # ============================================================
-add_executable(jiuwenClaw 
+
+# --- Adapter: HTTP Server (REST API + SSE) ---
+add_library(jiuwenClaw_http_server_adapter STATIC
+    examples/jiuwenClaw/adapters/http_server/http_server.cpp
+    examples/jiuwenClaw/channels/channel_manager.cpp
+)
+target_include_directories(jiuwenClaw_http_server_adapter PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_include_directories(jiuwenClaw_http_server_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${TRIRD_PARTY_INCLUDE_DIR}
+)
+target_link_libraries(jiuwenClaw_http_server_adapter PUBLIC agent_framework)
+target_link_libraries(jiuwenClaw_http_server_adapter PRIVATE
+    httplib
+    nlohmann_json::nlohmann_json
+)
+if(WIN32)
+    target_link_libraries(jiuwenClaw_http_server_adapter PRIVATE ws2_32 crypt32)
+endif()
+if(OpenSSL_FOUND)
+    target_link_libraries(jiuwenClaw_http_server_adapter PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+endif()
+
+# --- Adapter: Feishu Bot (WebSocket long connection) ---
+add_library(jiuwenClaw_feishu_adapter STATIC
+    examples/jiuwenClaw/adapters/feishu/feishu_channel.cpp
+    examples/jiuwenClaw/adapters/feishu/feishu_bot.cpp
+)
+target_include_directories(jiuwenClaw_feishu_adapter PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_include_directories(jiuwenClaw_feishu_adapter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${TRIRD_PARTY_INCLUDE_DIR}
+    ${CURL_INCLUDE_DIRS}
+)
+target_link_libraries(jiuwenClaw_feishu_adapter PUBLIC agent_framework)
+target_link_libraries(jiuwenClaw_feishu_adapter PRIVATE
+    ${CURL_LIB}
+    httplib
+    nlohmann_json::nlohmann_json
+)
+if(WIN32)
+    target_link_libraries(jiuwenClaw_feishu_adapter PRIVATE ws2_32 crypt32)
+endif()
+if(OpenSSL_FOUND)
+    target_link_libraries(jiuwenClaw_feishu_adapter PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+endif()
+
+# --- Single-entry executable: jiuwenClaw (CLI + HTTP + Feishu) ---
+add_executable(jiuwenClaw
     examples/jiuwenClaw/main.cpp
     examples/jiuwenClaw/heartbeat_manager.cpp
     examples/jiuwenClaw/cron_watcher.cpp
@@ -207,19 +254,22 @@ add_executable(jiuwenClaw
     examples/jiuwenClaw/tools/cron_tool.cpp
     examples/jiuwenClaw/tools/notify_tool.cpp
     examples/jiuwenClaw/utils/agent_response_handler.cpp
+    examples/jiuwenClaw/utils/data_dir.cpp
     examples/jiuwenClaw/utils/encoding.cpp
     examples/jiuwenClaw/utils/logger.cpp
     examples/jiuwenClaw/utils/string_utils.cpp
 )
-target_include_directories(jiuwenClaw PRIVATE 
-    ${CMAKE_CURRENT_SOURCE_DIR} 
+target_include_directories(jiuwenClaw PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${TRIRD_PARTY_INCLUDE_DIR}
 )
-target_link_libraries(jiuwenClaw PRIVATE 
+target_link_libraries(jiuwenClaw PRIVATE
     agent_framework
+    jiuwenClaw_http_server_adapter
+    jiuwenClaw_feishu_adapter
     nlohmann_json::nlohmann_json
-    httplib
 )
 
 # ============================================================
@@ -246,12 +296,11 @@ install(TARGETS agent_framework jiuwenClaw
     ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY examples/jiuwenClaw/ DESTINATION share/jiuwen-lite/examples)
-install(DIRECTORY web/ DESTINATION share/jiuwen-lite/web)
 
 # Copy web frontend to build directory for development
 add_custom_command(TARGET jiuwenClaw POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/web
+        ${CMAKE_CURRENT_SOURCE_DIR}/examples/jiuwenClaw/web
         $<TARGET_FILE_DIR:jiuwenClaw>/web
     COMMENT "Copying web frontend to build directory"
 )

@@ -1,128 +1,171 @@
-# Jiuwen Claw
+# jiuwenClaw
 
-Jiuwen Claw 是一个基于 **jiuwen-lite** 框架构建的 AI 智能体应用。它演示了如何利用框架的核心能力（上下文管理、记忆整理、工具调用、技能系统）构建一个功能完整的 AI 助手。
+`jiuwenClaw` 是基于 **jiuwen-lite** 框架构建的参考演示应用。它展示了如何将核心库
+（`SessionManager`、`Agent`、`ResourceManager`）与具体的传输适配器（HTTP REST + SSE + Web UI、
+飞书 WebSocket 机器人）、应用层能力（心跳、定时任务）、提示词模板和自定义模型 provider 串联起来。
+
+> 关于核心库的整体介绍，请参阅[顶层 README](../../../README.md)。
 
 ## 特性
 
-- **多会话管理** — 独立的会话上下文，支持 CLI 会话切换 (`/session`, `/sessions`)
-- **ReAct 推理** — 通过思维链进行工具调用和问题解决
-- **Dream 记忆整合** — 空闲时自动分析对话历史，提取关键事实更新长期记忆
-- **心跳任务 (Heartbeat)** — 定期检查并执行周期性任务（使用独立会话 `__HEARTBEAT__`）
-- **定时任务 (CronWatcher)** — 独立运行的定时任务模块，支持多种触发方式（使用独立会话 `__CRON__`）
-- **技能系统** — 搜索和加载专业技能指导 (SKILL.md)
-- **自定义模型提供者** — 演示基于 Provider 的自定义模型扩展 (ArkCode model)
-- **工具集成**：
-  - 文件管理（读写、编辑、搜索）
-  - Web 搜索和抓取
-  - 高德地图 MCP 服务
-  - 定时提醒 (cron)
-  - 桌面通知 (notify)
-  - 笔记管理
-- **双运行模式**：
-  - **CLI 模式** — 交互式命令行界面
-  - **服务器模式** — 带 SSE 流式输出的 Web UI (`--server`)
+- **多会话 CLI** —— 通过 `/session <id>` / `/sessions` 随时切换上下文
+- **ReAct 推理** —— 工具增强的思维链
+- **Dream 记忆整合** —— 空闲会话自动将历史提炼为长期记忆
+- **心跳任务** —— 使用保留会话 `__HEARTBEAT__` 执行的周期任务
+- **定时任务 (`CronWatcher`)** —— 使用保留会话 `__CRON__` 的独立调度器
+- **技能系统** —— 按需发现并加载 `SKILL.md`
+- **自定义模型 provider** —— 内置 `ArkCodeModel` 作为厂商定制（OpenAI 兼容）扩展示例
+- **双运行模式** —— 交互式 CLI 和/或服务器模式（`--server`，自带 Web UI）
+- **通道持久化** —— 通道定义保存在 `./data/channels.json`，可通过 Web UI 编辑
+
+### 演示专属工具
+
+除核心库提供的 12 个内置工具外，`jiuwenClaw` 额外注册了 3 个应用层工具：
+
+| 工具 | 用途 |
+|------|------|
+| `cron` | 添加、列出和移除定时提醒 |
+| `notify` | 跨平台桌面通知 |
+| `notebook_edit` | 编辑 Jupyter 笔记本 |
+
+### 传输适配器
+
+`jiuwenClaw` 以独立静态库形式提供两个参考适配器：
+
+| 适配器 | CMake target | 作用 |
+|--------|--------------|------|
+| HTTP 服务器 | `jiuwenClaw_http_server_adapter` | HTTP REST API + SSE 流式 + 内置 Web UI |
+| 飞书机器人 | `jiuwenClaw_feishu_adapter` | 通过 WebSocket 接入飞书（Lark）机器人 |
+
+核心库不依赖任何适配器 —— 你可以直接复用、替换它们，或基于 `SessionManager` 编写自己的适配器。
 
 ## 目录结构
 
 ```
-jiuwenClaw/
-├── main.cpp                    # 应用入口（SessionManager 驱动）
-├── heartbeat_manager.h/cpp     # 心跳管理模块（使用 __HEARTBEAT__ 会话）
-├── cron_watcher.h/cpp          # 定时任务模块（使用 __CRON__ 会话）
-├── models/                     # 自定义模型提供者
-│   └── ark_code_model.h/cpp    # ArkCode 模型提供者示例
-├── utils/                      # 工具函数
-│   ├── encoding.h/cpp          # UTF-8/GBK 编码转换
-│   ├── logger.h/cpp            # 日志工具
-│   └── string_utils.h/cpp      # 字符串处理工具
-├── templates/                  # 提示词模板
-│   ├── AGENTS.md               # Agent 行为指令
-│   ├── SOUL.md                 # Agent 个性与价值观
-│   ├── USER.md                 # 用户画像与偏好
-│   ├── TOOLS.md                # 工具使用策略
-│   ├── REACT_SYSTEM.md         # 系统提示词组装模板
-│   └── MEMORY.md               # Dream 记忆整合模板
-├── tools/                      # 定制化工具
-│   ├── cron_tool.h/.cpp        # 定时任务管理工具
-│   ├── notify_tool.h/.cpp      # 桌面通知工具
-│   └── notebook_edit_tool.h/.cpp
-└── skills/                     # (用户自定义) 技能文件
+examples/jiuwenClaw/
+├── main.cpp                          # 应用入口（SessionManager 驱动）
+├── heartbeat_manager.{h,cpp}         # 心跳模块（使用 __HEARTBEAT__ 会话）
+├── cron_watcher.{h,cpp}              # 定时任务调度（使用 __CRON__ 会话）
+├── adapters/
+│   ├── http_server/                  # HTTP REST + SSE 适配器
+│   │   ├── http_server.{h,cpp}
+│   └── feishu/                       # 飞书 WebSocket 机器人适配器
+│       ├── feishu_bot.{h,cpp}
+│       └── feishu_channel.{h,cpp}
+├── channels/
+│   └── channel_manager.{h,cpp}       # 通道定义持久化到 channels.json
+├── models/
+│   └── ark_code_model.{h,cpp}        # 自定义 OpenAI 兼容 provider 示例
+├── tools/
+│   ├── cron_tool.{h,cpp}             # 定时任务管理工具
+│   ├── notify_tool.{h,cpp}           # 桌面通知工具
+│   └── notebook_edit_tool.{h,cpp}    # Jupyter notebook 编辑工具
+├── utils/                            # 本地辅助函数（编码、日志、字符串等）
+├── templates/                        # 提示词模板（见下文）
+├── web/
+│   └── index.html                    # 内置 Web UI（--server 启用时提供）
+└── doc/
+    ├── en/                           # 英文文档
+    └── cn/                           # 中文文档
 ```
 
-## 提示词模板
+## 构建与运行
 
-Jiuwen Claw 使用模块化的提示词模板系统，每个文件职责明确：
-
-| 文件 | 职责 | 占位符 |
-|------|------|--------|
-| `AGENTS.md` | Agent 能力清单、行为准则 | `{$agents}` |
-| `SOUL.md` | Agent 个性、沟通风格 | `{$soul}` |
-| `USER.md` | 用户画像、技术背景 | `{$user}` |
-| `TOOLS.md` | 工具使用策略（安全规则、搜索策略） | `{$tools_md}` |
-| `REACT_SYSTEM.md` | 主模板，组装所有组件 + 运行时上下文 | (主入口) |
-
-## 快速开始
-
-### 前置要求
-
-- C++17 编译器
-- CMake 3.15+
-- Linux (WSL) 或 Windows
-
-### 编译
+### 构建
 
 ```bash
 # Linux
 ./build_linux.sh
 
-# Windows (VS 开发人员命令提示)
+# Windows（在 "x64 Native Tools 命令提示" 中运行）
 build_windows.bat
 ```
+
+构建产物输出到 `dist/<platform>/`。环境依赖与 vcpkg 说明请参阅[顶层 README](../../../README.md)。
 
 ### 运行
 
 ```bash
-# Linux（默认 CLI 模式）
+# Linux（默认：交互式 CLI）
 LD_LIBRARY_PATH=./libs:./dist/linux ./dist/linux/jiuwenClaw
 
-# Linux（服务器模式，带 Web UI）
-LD_LIBRARY_PATH=./libs:./dist/linux ./dist/linux/jiuwenClaw --server
+# Windows
+$env:PATH = "$PWD\dist\windows;$env:PATH"
+.\dist\windows\jiuwenClaw.exe
+```
+
+### 服务器模式（HTTP API + Web UI + 已配置的通道）
+
+```bash
+# Linux
+./dist/linux/jiuwenClaw --server
+
+# 自定义主机与端口
+./dist/linux/jiuwenClaw --server --host 0.0.0.0 --port 9000
+
+# 守护进程模式（关闭 CLI，仅 HTTP + 通道）
+./dist/linux/jiuwenClaw --server --no-cli
+```
+
+Web UI 访问地址：
+```
+http://localhost:8080
 ```
 
 ### 命令行选项
 
 ```
 jiuwenClaw [OPTIONS]
-  --server     启动带 Web UI 的 Agent 服务器 (默认: 127.0.0.1:8080)
-  --port <N>   设置服务器端口 (默认: 8080)
-  --host <IP>  设置服务器主机地址 (默认: 127.0.0.1)
-  --cli        启动 CLI 模式 (默认)
-  --help       显示帮助信息
+  --server       启用 HTTP REST API + Web UI + 所有已配置的通道
+  --port <N>     设置服务器端口（默认: 8080）
+  --host <IP>    设置服务器主机地址（默认: 127.0.0.1）
+  --no-cli       关闭交互式 CLI（仅以守护进程运行，需配合 --server）
+  --help         显示本帮助信息
 ```
 
-### 配置
+启用 `--server` 时，`./data/channels.json` 中所有 `enabled=true` 的通道会被加载并启动。
 
-在 `main.cpp` 中修改以下配置：
+## CLI 命令
 
-1. **LLM 端点**：
-   ```cpp
-   config.modelConfig.baseUrl = "your-endpoint/v1";
-   config.modelConfig.apiKey = "your-api-key";
-   ```
+CLI 启动后可使用以下斜杠命令：
 
-2. **高德地图 MCP Key**：
-   ```cpp
-   "endpoint": "/mcp?key=your-amap-key"
-   ```
+| 命令 | 说明 |
+|------|------|
+| `/exit` | 退出程序 |
+| `/session <id>` | 切换到指定会话（不存在则自动创建） |
+| `/sessions` | 列出活跃会话并标记当前会话 |
 
-3. **技能目录**：
-   ```cpp
-   config.skillDirectory = "./my_skills";
-   ```
+## 通道配置
 
-## 心跳任务 (Heartbeat)
+通道定义保存在 `./data/channels.json`，有两种修改方式：
 
-心跳机制定期检查 `data/HEARTBEAT.md`。在 "Active Tasks" 部分添加任务后，Agent 会自动判断并执行（通过 `__HEARTBEAT__` 会话调用 SessionManager）：
+- **通过 Web UI**：访问 `/api/channels`（需 `--server` 模式）
+- **手动编辑** JSON 文件
+
+每条配置包含 `type`（当前支持 `feishu`）、`id`、人类可读的 `name`、`enabled` 开关以及
+`params` 字典。飞书机器人示例：
+
+```json
+[
+  {
+    "id": "my-feishu-bot",
+    "name": "My Feishu Bot",
+    "type": "feishu",
+    "enabled": true,
+    "params": {
+      "appId": "<your-feishu-app-id>",
+      "appSecret": "<your-feishu-app-secret>"
+    }
+  }
+]
+```
+
+CLI 与 HTTP 传输**不**出现在此文件中 —— 它们由上方的命令行参数控制。
+
+## 心跳任务
+
+心跳管理器周期性检查 `./data/HEARTBEAT.md`。声明在 `## Active Tasks` 小节下的任务会被评估，
+并在到达触发条件时通过 `__HEARTBEAT__` 保留会话分发到 Agent：
 
 ```markdown
 ## Active Tasks
@@ -131,55 +174,105 @@ jiuwenClaw [OPTIONS]
 - 每小时监控磁盘使用情况
 ```
 
-如果该部分为空或仅包含注释，Agent 将跳过心跳检查。
+如果该小节为空或仅包含注释，本次心跳周期将被跳过。
 
-## 定时任务 (CronWatcher)
+## 定时任务
 
-CronWatcher 是一个独立运行的模块，使用 `__CRON__` 会话通过 SessionManager 调用，检查到触发事件后会调用大模型处理，**不依赖心跳模块**。
-
-### 定时任务类型
+`CronWatcher` 是一个独立调度器，通过 `__CRON__` 保留会话在触发时调用大模型，**不依赖**心跳模块。
 
 | 类型 | 说明 | 参数 |
 |------|------|------|
-| `one-time` | 单次执行，触发后自动从列表中移除 | `at`（ISO 时间） |
-| `recurring` | 按固定间隔循环执行 | `every_seconds` |
-| `cron` | 按 cron 表达式在特定时刻触发 | `cron_expr`（如 `"0 9 * * 1-5"`） |
+| `one-time` | 单次执行后自动移除 | `at`（ISO 时间戳） |
+| `recurring` | 按固定时间间隔循环触发 | `every_seconds` |
+| `cron` | 按 cron 表达式触发 | `cron_expr`（例如 `"0 9 * * 1-5"`） |
 
-### 示例
+大多数定时任务可通过与 Agent 的自然语言交互创建：
 
-```bash
-# 通过 Agent 的自然语言指令创建定时提醒
-# "10分钟后提醒我喝水"
-# "每周一到周五早上9点提醒晨会"
+```
+"10 分钟后提醒我喝水"
+"每周一到周五早上 9 点提醒晨会"
 ```
 
-## CLI 命令
+## 配置（位于 `main.cpp`）
 
-启动后可使用以下命令：
+按需修改 `examples/jiuwenClaw/main.cpp` 中的以下片段：
 
-| 命令 | 说明 |
-|------|------|
-| `/exit` | 退出程序 |
-| `/session <id>` | 切换到指定会话（不存在则自动创建） |
-| `/sessions` | 列出所有活跃会话及当前会话 |
+1. **LLM 接入**
+   ```cpp
+   config.modelConfig.baseUrl = "<your-llm-endpoint>/v1";
+   config.modelConfig.apiKey = "<your-api-key>";
+   config.modelConfig.modelName = "<your-model-name>";
+   config.modelConfig.formatType = ModelFormatType::OPENAI;
+   // config.modelConfig.provider = "ark_code"; // 使用自定义 provider 时
+   ```
 
-## 记忆管理
+2. **高德 MCP key**（Streamable HTTP MCP 示例）
+   ```cpp
+   "endpoint": "/mcp?key=<your-amap-key>"
+   ```
 
-- **Dream 自动整合**：对话空闲 60 秒后，DreamProcessor 自动分析历史并更新 `MEMORY.md`
-- **History Store**：记录每次交互（角色、内容、工具调用数），支持游标追踪
+3. **技能目录**
+   ```cpp
+   config.skillDirectory = "./my_skills";
+   ```
 
-## 自定义新智能体
+## 提示词模板
 
-要基于 jiuwen-lite 创建你自己的智能体：
+`jiuwenClaw` 采用模块化提示词模板系统，每个文件职责清晰，由 `REACT_SYSTEM.md` 通过占位符引用：
 
-1. 在 `examples/` 下创建新目录
+| 文件 | 职责 | 占位符 |
+|------|------|--------|
+| `AGENTS.md` | Agent 能力清单与行为准则 | `{$agents}` |
+| `SOUL.md` | Agent 人格与沟通风格 | `{$soul}` |
+| `USER.md` | 用户画像与偏好 | `{$user}` |
+| `TOOLS.md` | 工具使用策略（安全规则、搜索策略） | `{$tools_md}` |
+| `REACT_SYSTEM.md` | 主模板 —— 组装所有组件 + 运行时上下文 | (入口) |
+| `MEMORY.md` | Dream 记忆整合所用模板 | — |
+
+## 自定义模型 Provider
+
+`jiuwenClaw` 通过 `ArkCodeModel` 演示 provider 机制 —— 它是一个 OpenAI 兼容后端，但需要对
+`role=tool` 消息做特殊处理：
+
+```cpp
+// 1. 用唯一名称注册 provider
+auto& rm = ResourceManager::GetInstance();
+rm.RegisterModel("ark_code", [](const ModelConfig& cfg) {
+    return std::make_unique<ArkCodeModel>(cfg);
+});
+
+// 2. 通过 ModelConfig::provider 选用
+config.modelConfig.provider = "ark_code";
+config.modelConfig.baseUrl = "<your-endpoint>/v3";
+config.modelConfig.apiKey = "<your-api-key>";
+config.modelConfig.modelName = "<your-model-name>";
+```
+
+当 `provider` 非空时，`ResourceManager::CreateModel` 会派发到已注册的工厂；否则回退到由
+`ModelConfig::formatType` 选择的内置 OpenAI/Anthropic 实现。
+
+## 基于 jiuwen-lite 构建你自己的 Agent
+
+要创建基于 jiuwen-lite 的新 Agent 应用：
+
+1. 在 `examples/` 下创建新目录（或在你自己的仓库中）
 2. 配置 `promptTemplates` 指向你的模板文件
-3. 注册你需要的工具 (MCP 或自定义)
-4. 调用 `InitSessionManager(config)` 初始化会话管理器
-5. 通过 `GetSessionManager().Invoke(sessionId, query, callback)` 发起对话
-6. 运行构建脚本即可
+3. 注册需要的工具（内置、MCP 或自定义）
+4. （可选）通过 `ResourceManager::RegisterModel` 注册自定义模型 provider
+5. 调用 `InitSessionManager(config)` 初始化运行时
+6. 通过 `GetSessionManager().Invoke(sessionId, query, callback)` 驱动交互
 
-jiuwen-lite 框架本身不包含业务逻辑，所有定制内容（提示词、工具、技能）都在各自的智能体目录下管理。
+jiuwen-lite 核心库不包含任何业务逻辑 —— 所有定制（提示词、工具、技能、传输、通道）都属于你的应用。
+
+## 文档
+
+- **English**: [README.md](../../README.md)
+- **中文**: 本文件
+
+## 快速链接
+
+- [框架主页](../../../../README.md)
+- [发布说明](../../../../release_notes/)
 
 ## 许可证
 

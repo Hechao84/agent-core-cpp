@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 #include "include/agent_export.h"
+#include "include/model.h"
 #include "include/types.h"
 
 namespace jiuwen {
@@ -20,7 +21,6 @@ class ContextEngine;
 inline constexpr char kDefaultSessionId[] = "__DEFAULT__";
 inline constexpr char kHeartbeatSessionId[] = "__HEARTBEAT__";
 inline constexpr char kCronSessionId[] = "__CRON__";
-inline constexpr char kUnifiedSessionId[] = "__UNIFIED__";
 
 struct SessionEntry
 {
@@ -69,6 +69,9 @@ public:
         const std::string& sessionId,
         const SessionConfig& sessionConfig = {}
     );
+
+    // Get all messages of a session. Returns empty vector if session does not exist.
+    std::vector<Message> GetSessionMessages(const std::string& sessionId) const;
 
     // Get all active session IDs
     std::vector<std::string> GetSessionIds() const;
