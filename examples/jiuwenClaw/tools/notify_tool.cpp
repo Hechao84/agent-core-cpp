@@ -13,9 +13,9 @@
 #include "third_party/include/nlohmann/json.hpp"
 
 #ifdef _WIN32
+#include <windows.h>
 #include <shellapi.h>
 #include <wincrypt.h>
-#include <windows.h>
 #pragma comment(lib, "Crypt32.lib")
 #endif
 
