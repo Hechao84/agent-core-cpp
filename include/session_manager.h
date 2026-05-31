@@ -85,6 +85,24 @@ public:
     // Get the global AgentConfig
     const AgentConfig& GetConfig() const { return config_; }
 
+    // Access the live Agent (e.g. to enumerate its skills via
+    // Agent::ListSkills()). Returns an empty shared_ptr before Initialize.
+    //
+    // The returned shared_ptr keeps the underlying Agent alive for the
+    // caller's full use, even if ReloadAgent runs concurrently and swaps
+    // in a new Agent. In that case the old Agent is Cancel()ed during the
+    // swap and is destroyed only after the last external shared_ptr to it
+    // is released. Callers should therefore hold the shared_ptr only for
+    // the duration of a single request/command.
+    std::shared_ptr<Agent> GetAgent() const { return agent_; }
+
+    // Atomically rebuild the underlying Agent with a new config.
+    // Existing sessions (history/context) are preserved; in-flight calls are
+    // drained via the concurrency gate before the swap. Returns false if the
+    // new Agent could not be constructed - the old Agent stays in place in
+    // that case. On false, 'errorOut' (when non-null) receives a diagnostic.
+    bool ReloadAgent(const AgentConfig& newConfig, std::string* errorOut = nullptr);
+
     // Generate a session key from channel + chatId
     static std::string MakeSessionKey(const std::string& channel, const std::string& chatId);
 
@@ -96,8 +114,10 @@ private:
     AgentConfig config_;
     bool initialized_{false};
 
-    // Single shared Agent instance
-    std::unique_ptr<Agent> agent_;
+    // Single shared Agent instance. shared_ptr (not unique_ptr) so that
+    // GetAgent() can hand a strong reference to callers without risk of
+    // dangling across a ReloadAgent swap.
+    std::shared_ptr<Agent> agent_;
 
     // Per-session ContextEngine instances
     mutable std::mutex sessionMutex_;
@@ -111,6 +131,10 @@ private:
 
     void AcquireConcurrency();
     void ReleaseConcurrency();
+
+    // Reload barrier: when set, new Invoke calls wait until clear.
+    bool reloading_{false};
+    std::condition_variable reloadCv_;
 };
 
 // Global singleton

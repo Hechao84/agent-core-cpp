@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 #include "include/agent_export.h"
+#include "include/skill.h"
 #include "include/types.h"
 
 namespace jiuwen {
@@ -39,6 +40,13 @@ public:
     
     void AddTools(const std::vector<std::string>& toolNames);
     std::vector<std::string> GetRegisteredTools() const;
+
+    // Skill introspection (forwards to internal SkillEngine).
+    // Returns an empty list / empty Skill / empty string when no skill engine
+    // is configured (i.e. skillDirectory was empty at construction time).
+    std::vector<Skill> ListSkills() const;
+    Skill GetSkill(const std::string& id) const;
+    std::string GetSkillRootDir() const;
 
     // Notify session state changes (used by SessionManager)
     void NotifySessionIdle(const std::string& sessionId);

@@ -11,9 +11,13 @@
 #include "include/agent.h"
 #include "include/resource_manager.h"
 #include "include/session_manager.h"
+#include "include/config/agent_config_json.h"
+#include "include/config/agent_config_store.h"
+#include "include/config/config_watcher.h"
 #include "examples/jiuwenClaw/adapters/http_server/http_server.h"
 #include "examples/jiuwenClaw/adapters/feishu/feishu_bot.h"
 #include "examples/jiuwenClaw/channels/channel_manager.h"
+#include "examples/jiuwenClaw/channels/channel_service.h"
 // Heartbeat management & Cron watcher module
 #include "examples/jiuwenClaw/cron_watcher.h"
 #include "examples/jiuwenClaw/heartbeat_manager.h"
@@ -26,6 +30,7 @@
 #include "examples/jiuwenClaw/utils/encoding.h"
 #include "examples/jiuwenClaw/utils/logger.h"
 #include "examples/jiuwenClaw/utils/string_utils.h"
+
 #include "third_party/include/nlohmann/json.hpp"
 
 using namespace jiuwen;
@@ -33,7 +38,12 @@ using namespace jiuwenClaw;
 
 std::atomic<bool> g_Running{true};
 std::unique_ptr<HttpServer> g_HttpServer;
-std::vector<std::unique_ptr<FeishuBot>> g_FeishuBots;
+std::unique_ptr<ConfigWatcher> g_ConfigWatcher;
+
+// Forward declarations for hot-reload helpers (defined below).
+bool ReloadAgent(const std::string& agentId);
+void ReloadChannels();
+void ReloadAll();
 
 void SignalHandler(int signum)
 {
@@ -48,7 +58,7 @@ AgentConfig BuildAgentConfig()
     config.id = "demo-agent";
     config.name = "Demo Agent";
     config.mode = AgentWorkMode::REACT;
-    config.maxIterations = 50;
+    config.maxIterations = 100;
 
     // Data directory layout
     config.dataBasePath = "./data";
@@ -61,13 +71,9 @@ AgentConfig BuildAgentConfig()
 
     config.skillDirectory = "./my_skills";
 
-    // config.modelConfig.baseUrl = "<your-llm-endpoint>/v3";
-    // config.modelConfig.apiKey = "<your-api-key>";
-    // config.modelConfig.modelName = "ark-code-latest";
-    // config.modelConfig.provider = "ark_code";
-    config.modelConfig.baseUrl = "<your-llm-endpoint>/v1";
-    config.modelConfig.apiKey = "<your-api-key>";
-    config.modelConfig.modelName = "Qwen3.6-Plus";
+    config.modelConfig.baseUrl = "<YOUR_MODEL_BASE_URL>";
+    config.modelConfig.apiKey = "<YOUR_MODEL_API_KEY>";
+    config.modelConfig.modelName = "<YOUR_MODEL_NAME>";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
 
     config.modelConfig.extraParams.Set("max_tokens", 4096);
@@ -128,7 +134,7 @@ void InitMcpServer()
     try {
         std::string amapJson = R"({
             "url": "https://mcp.amap.com",
-            "endpoint": "/mcp?key=<your-amap-key>",
+            "endpoint": "/mcp?key=<YOUR_AMAP_KEY>",
             "isActive": "true",
             "description": "this is a mcp map server",
             "type": "streamable-http-client"
@@ -193,6 +199,41 @@ void RunCliMode()
                 std::cout << ids[i] << (ids[i] == currentSession ? " (current)" : "");
             }
             std::cout << "\n";
+            continue;
+        }
+
+        // Handle /reload [agent [<id>] | channels]
+        if (query == "/reload" || query.substr(0, 8) == "/reload ") {
+            std::string rest = query.length() > 8 ? TrimStr(query.substr(8)) : "";
+            if (rest.empty()) {
+                std::cout << "[Reload] Reloading agents.json and channels.json...\n";
+                ReloadAll();
+                std::cout << "[Reload] Done.\n";
+            } else if (rest == "channels") {
+                std::cout << "[Reload] Reconciling channels...\n";
+                ReloadChannels();
+                std::cout << "[Reload] Done.\n";
+            } else if (rest.substr(0, 5) == "agent") {
+                std::string id = rest.length() > 6 ? TrimStr(rest.substr(6)) : "";
+                std::cout << "[Reload] Reloading agent '" << (id.empty() ? "<default>" : id) << "'...\n";
+                bool ok = ReloadAgent(id);
+                std::cout << (ok ? "[Reload] Done.\n" : "[Reload] Failed (see logs).\n");
+            } else {
+                std::cout << "Usage: /reload | /reload agent [<id>] | /reload channels\n";
+            }
+            continue;
+        }
+
+        // Handle /config show [<id>]
+        if (query == "/config show" || query.substr(0, 13) == "/config show ") {
+            std::string id = query.length() > 13 ? TrimStr(query.substr(13)) : "";
+            if (id.empty()) id = GetSessionManager().GetConfig().id;
+            auto cfgOpt = AgentConfigStore::Instance().Get(id);
+            if (!cfgOpt) {
+                std::cout << "[Config] No agent with id=" << id << "\n";
+            } else {
+                std::cout << AgentConfigToJson(*cfgOpt).dump(2) << "\n";
+            }
             continue;
         }
 
@@ -286,6 +327,50 @@ void RunCliMode()
     }
 }
 
+// === Hot-reload helpers ===
+
+// Reload one agent by id (default = current SessionManager config id).
+// Returns true on success, false on error (e.g. id not found).
+bool ReloadAgent(const std::string& agentId)
+{
+    auto& store = AgentConfigStore::Instance();
+    store.Load(); // Re-read agents.json (merged with defaults)
+
+    std::string id = agentId;
+    if (id.empty()) {
+        id = GetSessionManager().GetConfig().id;
+        if (id.empty()) id = "demo-agent";
+    }
+
+    auto cfgOpt = store.Get(id);
+    if (!cfgOpt) {
+        LOG(ERR) << "[Reload] No agent found with id=" << id;
+        return false;
+    }
+
+    std::string err;
+    if (GetSessionManager().ReloadAgent(*cfgOpt, &err)) {
+        LOG(INFO) << "[Reload] Agent '" << id << "' hot-reloaded successfully";
+        return true;
+    }
+    LOG(ERR) << "[Reload] Hot-reload failed for '" << id << "': " << err;
+    return false;
+}
+
+void ReloadChannels()
+{
+    auto& mgr = ChannelManager::GetInstance();
+    mgr.Load(); // re-read channels.json
+    ChannelService::Instance().ReconcileAll();
+    LOG(INFO) << "[Reload] Channels reconciled";
+}
+
+void ReloadAll()
+{
+    ReloadAgent("");
+    ReloadChannels();
+}
+
 void PrintUsage()
 {
     std::cout << "Usage: jiuwenClaw [OPTIONS]\n"
@@ -295,16 +380,29 @@ void PrintUsage()
               << "  --port <N>     Set server port (default: 8080)\n"
               << "  --host <IP>    Set server host (default: 127.0.0.1)\n"
               << "  --no-cli       Disable CLI mode (run only as daemon)\n"
+              << "  --watch-config Auto-reload agent/channels when files change (polled)\n"
               << "  --help         Show this help message\n"
               << "\n"
               << "Notes:\n"
+              << "  Agent overrides are loaded from ./data/agents.json (multi-agent ready);\n"
+              << "  if absent, the in-code BuildAgentConfig() default is used.\n"
               << "  Channels (e.g. Feishu) are loaded from ./data/channels.json.\n"
-              << "  Use the web UI (/api/channels) or edit the file directly to configure them.\n"
+              << "  Use the web UI, the REST API, or edit the files directly.\n"
+              << "\n"
+              << "Interactive CLI commands (in default mode):\n"
+              << "  /exit                  Quit\n"
+              << "  /session <id>          Switch to a different session\n"
+              << "  /sessions              List active sessions\n"
+              << "  /reload                Reload agents.json + channels.json\n"
+              << "  /reload agent [<id>]   Reload one agent (default: demo-agent)\n"
+              << "  /reload channels       Reconcile channels with channels.json\n"
+              << "  /config show [<id>]    Print the effective agent config\n"
               << "\n"
               << "Examples:\n"
               << "  jiuwenClaw                          # CLI only (default)\n"
               << "  jiuwenClaw --server                 # CLI + HTTP server + all configured channels\n"
               << "  jiuwenClaw --server --no-cli        # Daemon mode (HTTP + channels)\n"
+              << "  jiuwenClaw --server --watch-config  # Server with auto-reload on file change\n"
               << std::endl;
 }
 
@@ -314,6 +412,7 @@ int main(int argc, char* argv[])
 
     bool enableServer = false;
     bool enableCli = true;
+    bool enableWatch = false;
     std::string serverHost = "127.0.0.1";
     int serverPort = 8080;
 
@@ -324,6 +423,8 @@ int main(int argc, char* argv[])
             enableServer = true;
         } else if (arg == "--no-cli") {
             enableCli = false;
+        } else if (arg == "--watch-config") {
+            enableWatch = true;
         } else if (arg == "--port" && i + 1 < argc) {
             serverPort = std::stoi(argv[++i]);
         } else if (arg == "--host" && i + 1 < argc) {
@@ -346,9 +447,27 @@ int main(int argc, char* argv[])
     InitMcpServer();
     std::cout << "[Boot] MCP server initialized\n" << std::flush;
 
-    // Build and initialize SessionManager
-    AgentConfig config = BuildAgentConfig();
-    std::cout << "[Boot] AgentConfig built\n" << std::flush;
+    // Build the hard-coded default (kept for backward compatibility)
+    AgentConfig defaultConfig = BuildAgentConfig();
+    std::cout << "[Boot] Default AgentConfig built (id=" << defaultConfig.id << ")\n" << std::flush;
+
+    // Register the default in the config store, then load + merge agents.json.
+    auto& cfgStore = AgentConfigStore::Instance();
+    cfgStore.SetPersistPath("./data/agents.json");
+    cfgStore.RegisterDefault(defaultConfig);
+    auto effective = cfgStore.Load();
+
+    // Use the merged config for the primary agent id.
+    AgentConfig config = defaultConfig;
+    auto it = effective.find(defaultConfig.id);
+    if (it != effective.end()) {
+        config = it->second;
+        std::cout << "[Boot] Effective AgentConfig (default + agents.json overrides) ready\n"
+                  << std::flush;
+    } else {
+        std::cout << "[Boot] No override in agents.json; using code default\n" << std::flush;
+    }
+
     InitSessionManager(config);
     std::cout << "[Boot] SessionManager initialized\n" << std::flush;
 
@@ -373,40 +492,34 @@ int main(int argc, char* argv[])
         g_HttpServer->Start(httpConfig);
         std::cout << "[Boot] HTTP server started at " << serverHost << ":" << serverPort << "\n" << std::flush;
 
-        // Load channels from disk and start each enabled channel
+        // Load channels from disk and start each enabled channel via ChannelService
         auto& channelMgr = ChannelManager::GetInstance();
         channelMgr.SetPersistPath("./data/channels.json");
         channelMgr.Load();
-        for (const auto& ch : channelMgr.GetAllChannels()) {
-            if (!ch.enabled) {
-                continue;
-            }
-            if (ch.type == "feishu") {
-                auto bot = std::make_unique<FeishuBot>();
-                FeishuBotConfig cfg;
-                auto itId = ch.params.find("appId");
-                auto itSec = ch.params.find("appSecret");
-                cfg.appId = itId != ch.params.end() ? itId->second : "";
-                cfg.appSecret = itSec != ch.params.end() ? itSec->second : "";
-                if (cfg.appId.empty() || cfg.appSecret.empty()) {
-                    std::cout << "[Boot] Skip Feishu channel '" << ch.id
-                              << "': appId/appSecret missing\n" << std::flush;
-                    continue;
-                }
-                bot->Start(cfg);
-                if (bot->IsRunning()) {
-                    std::cout << "[Boot] Feishu channel '" << ch.id
-                              << "' (" << ch.name << ") connected\n" << std::flush;
-                    g_FeishuBots.push_back(std::move(bot));
-                } else {
-                    std::cout << "[Boot] Feishu channel '" << ch.id
-                              << "' failed to connect\n" << std::flush;
-                }
-            }
-        }
-        if (g_FeishuBots.empty()) {
+        ChannelService::Instance().StartAll();
+        auto active = ChannelService::Instance().ActiveIds();
+        if (active.empty()) {
             std::cout << "[Boot] No channels active (edit ./data/channels.json or use the web UI to add)\n" << std::flush;
+        } else {
+            std::cout << "[Boot] Active channels: " << active.size() << "\n" << std::flush;
         }
+    }
+
+    // Optional config-file watcher: auto-reload on disk change
+    if (enableWatch) {
+        g_ConfigWatcher = std::make_unique<ConfigWatcher>();
+        g_ConfigWatcher->Watch("./data/agents.json", [](const std::string& p) {
+            (void)p;
+            LOG(INFO) << "[Watch] agents.json changed -> hot-reload";
+            ReloadAgent("");
+        });
+        g_ConfigWatcher->Watch("./data/channels.json", [](const std::string& p) {
+            (void)p;
+            LOG(INFO) << "[Watch] channels.json changed -> reconcile";
+            ReloadChannels();
+        });
+        g_ConfigWatcher->Start(3);
+        std::cout << "[Boot] Config watcher enabled (poll every 3s)\n" << std::flush;
     }
 
     std::signal(SIGINT, SignalHandler);
@@ -425,12 +538,12 @@ int main(int argc, char* argv[])
     // Cleanup
     std::cout << "\n[Shutdown] Stopping services...\n" << std::flush;
 
-    if (!g_FeishuBots.empty()) {
-        for (auto& bot : g_FeishuBots) {
-            bot->Stop();
-        }
-        g_FeishuBots.clear();
+    if (g_ConfigWatcher) {
+        g_ConfigWatcher->Stop();
+        g_ConfigWatcher.reset();
     }
+
+    ChannelService::Instance().StopAll();
 
     if (g_HttpServer) {
         g_HttpServer->Stop();

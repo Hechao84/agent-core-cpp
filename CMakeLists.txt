@@ -154,6 +154,9 @@ add_library(agent_framework SHARED
     src/utils/encoding.cpp
     src/utils/tool_parser.cpp
     src/session/session_manager.cpp
+    src/config/agent_config_json.cpp
+    src/config/agent_config_store.cpp
+    src/config/config_watcher.cpp
 )
 
 target_include_directories(agent_framework PRIVATE 
@@ -196,6 +199,7 @@ endif()
 add_library(jiuwenClaw_http_server_adapter STATIC
     examples/jiuwenClaw/adapters/http_server/http_server.cpp
     examples/jiuwenClaw/channels/channel_manager.cpp
+    examples/jiuwenClaw/channels/channel_service.cpp
 )
 target_include_directories(jiuwenClaw_http_server_adapter PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -209,6 +213,7 @@ target_link_libraries(jiuwenClaw_http_server_adapter PUBLIC agent_framework)
 target_link_libraries(jiuwenClaw_http_server_adapter PRIVATE
     httplib
     nlohmann_json::nlohmann_json
+    jiuwenClaw_feishu_adapter
 )
 if(WIN32)
     target_link_libraries(jiuwenClaw_http_server_adapter PRIVATE ws2_32 crypt32)
@@ -280,6 +285,7 @@ add_executable(unittest
     unittest/test_types.cpp
     unittest/test_tool.cpp
     unittest/test_context_engine.cpp
+    unittest/test_agent_config.cpp
 )
 target_include_directories(unittest PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 

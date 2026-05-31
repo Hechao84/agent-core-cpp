@@ -1,9 +1,12 @@
 #include "examples/jiuwenClaw/models/ark_code_model.h"
+
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+
 #include "examples/jiuwenClaw/utils/encoding.h"
+
 #include "third_party/include/curl/curl.h"
 #include "third_party/include/nlohmann/json.hpp"
 

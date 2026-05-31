@@ -231,4 +231,32 @@ std::vector<std::string> SkillEngine::GetSkillIds() const
     return ids;
 }
 
+std::vector<Skill> SkillEngine::GetAllSkills() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<Skill> out;
+    out.reserve(skills_.size());
+    for (const auto& kv : skills_) {
+        out.push_back(kv.second);
+    }
+    std::sort(out.begin(), out.end(), [](const Skill& a, const Skill& b) {
+        return a.id < b.id;
+    });
+    return out;
+}
+
+Skill SkillEngine::GetSkill(const std::string& id) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = skills_.find(id);
+    if (it == skills_.end()) return Skill{};
+    return it->second;
+}
+
+std::string SkillEngine::GetRootDir() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return rootDir_;
+}
+
 } // namespace jiuwen

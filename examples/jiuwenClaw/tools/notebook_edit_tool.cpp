@@ -1,4 +1,5 @@
 #include "notebook_edit_tool.h"
+
 #include <filesystem>
 #include <fstream>
 #include <sstream>

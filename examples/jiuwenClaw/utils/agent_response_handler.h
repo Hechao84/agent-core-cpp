@@ -3,6 +3,7 @@
 #include <functional>
 #include <iostream>
 #include <string>
+
 #include "examples/jiuwenClaw/utils/encoding.h"
 
 namespace jiuwenClaw {

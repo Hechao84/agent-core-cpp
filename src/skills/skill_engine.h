@@ -5,15 +5,9 @@
 #include <unordered_map>
 #include <vector>
 
-namespace jiuwen {
+#include "include/skill.h"
 
-struct Skill {
-    std::string id;          // Directory name
-    std::string name;        // Extracted from YAML frontmatter
-    std::string description; // Extracted from YAML frontmatter
-    std::string body;        // Full SKILL.md body (after frontmatter)
-    std::string directory;   // Full path to skill directory
-};
+namespace jiuwen {
 
 // SkillLevel controls progressive disclosure depth
 enum class SkillLevel {
@@ -48,6 +42,15 @@ public:
 
     // Get list of all skill IDs
     std::vector<std::string> GetSkillIds() const;
+
+    // Get all loaded skills (metadata + body); ordered by id.
+    std::vector<Skill> GetAllSkills() const;
+
+    // Get one skill by id; returns empty Skill if not found.
+    Skill GetSkill(const std::string& id) const;
+
+    // Configured root directory (for diagnostics).
+    std::string GetRootDir() const;
 
 private:
     std::string rootDir_;

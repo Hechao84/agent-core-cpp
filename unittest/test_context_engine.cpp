@@ -182,14 +182,15 @@ TEST(context_engine, MaxMessagesLimit)
     ContextEngine engine(config);
     engine.Initialize();
     
-    // Add 10 messages
+    // Add 10 messages with alternating roles to prevent sanitization merge
     for (int i = 0; i < 10; ++i) {
-        engine.AddMessage({"user", "Message " + std::to_string(i)});
+        std::string role = (i % 2 == 0) ? "user" : "assistant";
+        engine.AddMessage({role, "Message " + std::to_string(i)});
     }
     
     auto window = engine.GetContextWindow();
     // Should keep first message + 4 recent messages = 5 total
-    TestRunner::AssertTrue(window.size() <= 5);
+    TestRunner::AssertTrue(window.size() <= static_cast<size_t>(5));
     TestRunner::AssertEq(window[0].content, std::string("Message 0")); // First message preserved
 }
 

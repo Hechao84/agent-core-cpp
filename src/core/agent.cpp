@@ -255,4 +255,28 @@ void Agent::ConsolidationLoop()
     }
 }
 
+std::vector<Skill> Agent::ListSkills() const
+{
+    if (!skillEngine_) {
+        return {};
+    }
+    return skillEngine_->GetAllSkills();
+}
+
+Skill Agent::GetSkill(const std::string& id) const
+{
+    if (!skillEngine_) {
+        return Skill{};
+    }
+    return skillEngine_->GetSkill(id);
+}
+
+std::string Agent::GetSkillRootDir() const
+{
+    if (!skillEngine_) {
+        return {};
+    }
+    return skillEngine_->GetRootDir();
+}
+
 } // namespace jiuwen

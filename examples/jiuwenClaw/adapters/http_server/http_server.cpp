@@ -14,9 +14,14 @@
 #include <thread>
 #include <utility>
 
-#include "include/session_manager.h"
 #include "examples/jiuwenClaw/channels/channel_manager.h"
+#include "examples/jiuwenClaw/channels/channel_service.h"
 #include "examples/jiuwenClaw/utils/logger.h"
+#include "include/agent.h"
+#include "include/config/agent_config_json.h"
+#include "include/config/agent_config_store.h"
+#include "include/resource_manager.h"
+#include "include/session_manager.h"
 
 #include "third_party/include/nlohmann/json.hpp"
 
@@ -403,6 +408,15 @@ void HttpServer::Start(const HttpServerConfig& config)
             }
 
             ChannelManager::GetInstance().AddChannel(ch);
+            // Resolve auto-generated id (if any) and apply.
+            auto created = ChannelManager::GetInstance().GetAllChannels();
+            for (const auto& c : created) {
+                if (c.type == ch.type && c.name == ch.name) {
+                    ChannelService::Instance().Apply(c);
+                    ch.id = c.id;
+                    break;
+                }
+            }
             LOG(INFO) << "[HttpServer] Channel created: " << ch.id << " (" << ch.type << ")";
 
             nlohmann::json result;
@@ -423,6 +437,7 @@ void HttpServer::Start(const HttpServerConfig& config)
     impl_->server->Delete(R"(/api/channels/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
         std::string channelId = req.matches[1];
         ChannelManager::GetInstance().RemoveChannel(channelId);
+        ChannelService::Instance().Remove(channelId);
         LOG(INFO) << "[HttpServer] Channel deleted: " << channelId;
 
         nlohmann::json result;
@@ -449,6 +464,7 @@ void HttpServer::Start(const HttpServerConfig& config)
             }
 
             ChannelManager::GetInstance().UpdateChannel(channelId, ch);
+            ChannelService::Instance().Apply(ch);
             LOG(INFO) << "[HttpServer] Channel updated: " << channelId;
 
             nlohmann::json result;
@@ -462,6 +478,194 @@ void HttpServer::Start(const HttpServerConfig& config)
             res.status = 400;
             res.set_content(err.dump(2), "application/json");
         }
+    });
+
+    // POST /api/channels/reload
+    impl_->server->Post("/api/channels/reload", [](const httplib::Request&, httplib::Response& res) {
+        ChannelManager::GetInstance().Load();
+        ChannelService::Instance().ReconcileAll();
+        nlohmann::json result;
+        result["reloaded"] = true;
+        result["active"] = ChannelService::Instance().ActiveIds();
+        res.set_content(result.dump(2), "application/json");
+    });
+
+    // GET /api/tools - list available tools (for the agent form dropdown).
+    impl_->server->Get("/api/tools", [](const httplib::Request&, httplib::Response& res) {
+        auto tools = ResourceManager::GetInstance().GetAvailableTools();
+        nlohmann::json result;
+        result["tools"] = tools;
+        result["count"] = tools.size();
+        res.set_content(result.dump(2), "application/json");
+    });
+
+    // GET /api/skills - list installed skills (metadata only, no body)
+    impl_->server->Get("/api/skills", [](const httplib::Request&, httplib::Response& res) {
+        nlohmann::json result;
+        nlohmann::json arr = nlohmann::json::array();
+        std::string rootDir;
+        auto agent = GetSessionManager().GetAgent();
+        if (agent) {
+            rootDir = agent->GetSkillRootDir();
+            for (const auto& s : agent->ListSkills()) {
+                nlohmann::json e;
+                e["id"]          = s.id;
+                e["name"]        = s.name.empty() ? s.id : s.name;
+                e["description"] = s.description;
+                e["directory"]   = s.directory;
+                arr.push_back(e);
+            }
+        }
+        result["skills"]   = arr;
+        result["count"]    = arr.size();
+        result["root_dir"] = rootDir;
+        res.set_content(result.dump(2), "application/json");
+    });
+
+    // GET /api/skills/{id} - skill detail incl. body
+    impl_->server->Get(R"(/api/skills/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        std::string id = req.matches[1];
+        auto agent = GetSessionManager().GetAgent();
+        if (!agent) {
+            nlohmann::json err;
+            err["error"] = "agent unavailable";
+            res.status = 404;
+            res.set_content(err.dump(2), "application/json");
+            return;
+        }
+        auto skill = agent->GetSkill(id);
+        if (skill.id.empty()) {
+            nlohmann::json err;
+            err["error"] = "skill not found";
+            err["id"]    = id;
+            res.status = 404;
+            res.set_content(err.dump(2), "application/json");
+            return;
+        }
+        nlohmann::json e;
+        e["id"]          = skill.id;
+        e["name"]        = skill.name.empty() ? skill.id : skill.name;
+        e["description"] = skill.description;
+        e["directory"]   = skill.directory;
+        e["body"]        = skill.body;
+        res.set_content(e.dump(2), "application/json");
+    });
+
+    // GET /api/agents - list all agents (merged: default + override)
+    impl_->server->Get("/api/agents", [](const httplib::Request&, httplib::Response& res) {
+        auto list = AgentConfigStore::Instance().List();
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& cfg : list) {
+            arr.push_back(AgentConfigToJson(cfg));
+        }
+        nlohmann::json result;
+        result["agents"] = arr;
+        result["count"] = arr.size();
+        res.set_content(result.dump(2), "application/json");
+    });
+
+    // GET /api/agents/{id}
+    impl_->server->Get(R"(/api/agents/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        std::string id = req.matches[1];
+        auto cfgOpt = AgentConfigStore::Instance().Get(id);
+        if (!cfgOpt) {
+            nlohmann::json err;
+            err["error"] = "agent not found";
+            err["id"] = id;
+            res.status = 404;
+            res.set_content(err.dump(2), "application/json");
+            return;
+        }
+        res.set_content(AgentConfigToJson(*cfgOpt).dump(2), "application/json");
+    });
+
+    // PUT /api/agents/{id} - update + hot-reload
+    impl_->server->Put(R"(/api/agents/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        std::string id = req.matches[1];
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            // Build the effective config: start from current effective then merge.
+            AgentConfig base;
+            base.id = id;
+            auto cur = AgentConfigStore::Instance().Get(id);
+            if (cur) base = *cur;
+            MergeAgentConfigFromJson(j, base);
+            base.id = id;
+
+            AgentConfigStore::Instance().Upsert(base);
+
+            // Hot-reload only if this id matches the live agent.
+            std::string liveId = GetSessionManager().GetConfig().id;
+            if (liveId == id || liveId.empty()) {
+                std::string reloadErr;
+                if (!GetSessionManager().ReloadAgent(base, &reloadErr)) {
+                    nlohmann::json err;
+                    err["error"] = "agent rebuild failed";
+                    err["detail"] = reloadErr;
+                    res.status = 500;
+                    res.set_content(err.dump(2), "application/json");
+                    return;
+                }
+            }
+
+            nlohmann::json result;
+            result["id"] = id;
+            result["updated"] = true;
+            result["reloaded"] = (liveId == id || liveId.empty());
+            res.set_content(result.dump(2), "application/json");
+        } catch (const std::exception& e) {
+            nlohmann::json err;
+            err["error"] = "Invalid JSON";
+            err["detail"] = e.what();
+            res.status = 400;
+            res.set_content(err.dump(2), "application/json");
+        }
+    });
+
+    // DELETE /api/agents/{id} - drop override (revert to code default)
+    impl_->server->Delete(R"(/api/agents/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        std::string id = req.matches[1];
+        AgentConfigStore::Instance().Remove(id);
+        // If this is the live agent, reload to fall back on the default.
+        std::string liveId = GetSessionManager().GetConfig().id;
+        if (liveId == id) {
+            auto cfgOpt = AgentConfigStore::Instance().Get(id);
+            if (cfgOpt) {
+                std::string reloadErr;
+                if (!GetSessionManager().ReloadAgent(*cfgOpt, &reloadErr)) {
+                    LOG(WARN) << "[HttpServer] Reload after delete failed: " << reloadErr;
+                }
+            }
+        }
+        nlohmann::json result;
+        result["id"] = id;
+        result["override_removed"] = true;
+        res.set_content(result.dump(2), "application/json");
+    });
+
+    // POST /api/agents/reload - re-read agents.json and hot-reload the live agent
+    impl_->server->Post("/api/agents/reload", [](const httplib::Request&, httplib::Response& res) {
+        auto eff = AgentConfigStore::Instance().Load();
+        std::string liveId = GetSessionManager().GetConfig().id;
+        nlohmann::json result;
+        result["count"] = eff.size();
+        auto it = eff.find(liveId);
+        if (it != eff.end()) {
+            std::string reloadErr;
+            if (GetSessionManager().ReloadAgent(it->second, &reloadErr)) {
+                result["reloaded_id"] = liveId;
+                result["success"] = true;
+            } else {
+                result["success"] = false;
+                result["error"] = reloadErr;
+                res.status = 500;
+            }
+        } else {
+            result["success"] = true;
+            result["reloaded_id"] = nullptr;
+            result["note"] = "no entry for live agent in agents.json; left untouched";
+        }
+        res.set_content(result.dump(2), "application/json");
     });
 
     // Serve static frontend files if configured

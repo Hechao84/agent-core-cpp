@@ -1,4 +1,5 @@
 #include "cron_watcher.h"
+
 #include <chrono>
 #include <ctime>
 #include <filesystem>
@@ -6,10 +7,11 @@
 #include <iostream>
 #include <sstream>
 
-#include "include/resource_manager.h"
 #include "examples/jiuwenClaw/utils/agent_response_handler.h"
 #include "examples/jiuwenClaw/utils/encoding.h"
 #include "examples/jiuwenClaw/utils/logger.h"
+#include "include/resource_manager.h"
+
 #include "third_party/include/nlohmann/json.hpp"
 
 using namespace jiuwen;

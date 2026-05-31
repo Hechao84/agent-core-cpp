@@ -1,2357 +1,1951 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="data:,">
-    <title>jiuwenClaw Agent Server</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        :root {
-            --bg-primary: #1e1e2e;
-            --bg-secondary: #181825;
-            --bg-tertiary: #313244;
-            --text-primary: #cdd6f4;
-            --text-secondary: #a6adc8;
-            --accent: #89b4fa;
-            --accent-hover: #74c7ec;
-            --success: #a6e3a1;
-            --warning: #f9e2af;
-            --error: #f38ba8;
-            --border: #45475a;
-            --user-msg: #313244;
-            --assistant-msg: #1e1e2e;
-        }
-
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        .container {
-            display: flex;
-            height: 100vh;
-        }
-
-        /* Sidebar */
-        .sidebar {
-            width: 280px;
-            background: var(--bg-secondary);
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-        }
-
-        .sidebar-header {
-            padding: 16px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .sidebar-header h1 {
-            font-size: 18px;
-            font-weight: 600;
-            color: var(--accent);
-        }
-
-        .btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-
-        .btn-primary {
-            background: var(--accent);
-            color: var(--bg-primary);
-        }
-
-        .btn-primary:hover {
-            background: var(--accent-hover);
-        }
-
-        .btn-small {
-            padding: 4px 8px;
-            font-size: 12px;
-        }
-
-        .btn-ghost {
-            background: transparent;
-            color: var(--text-secondary);
-        }
-
-        .btn-ghost:hover {
-            background: var(--bg-tertiary);
-        }
-
-        .btn-danger {
-            background: var(--error);
-            color: var(--bg-primary);
-        }
-
-        .session-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 8px;
-        }
-
-        .session-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: background 0.2s;
-            margin-bottom: 4px;
-        }
-
-        .session-item:hover {
-            background: var(--bg-tertiary);
-        }
-
-        .session-item.active {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--accent);
-        }
-
-        .session-item .name {
-            flex: 1;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            font-size: 14px;
-        }
-
-        .session-item .status {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--success);
-            margin-right: 8px;
-        }
-
-        .session-item .status.busy {
-            background: var(--warning);
-            animation: pulse 1s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        .session-item .delete-btn {
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-
-        .session-item:hover .delete-btn {
-            opacity: 1;
-        }
-
-        /* Main content */
-        .main {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-width: 0;
-        }
-
-        .chat-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: var(--bg-secondary);
-        }
-
-        .chat-header h2 {
-            font-size: 16px;
-            font-weight: 500;
-        }
-
-        .header-actions {
-            display: flex;
-            gap: 8px;
-        }
-
-        .messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .message {
-            max-width: 80%;
-            padding: 12px 16px;
-            border-radius: 12px;
-            line-height: 1.5;
-        }
-
-        .message.user {
-            align-self: flex-end;
-            background: var(--user-msg);
-            border-bottom-right-radius: 4px;
-        }
-
-        .message.assistant {
-            align-self: flex-start;
-            background: var(--bg-tertiary);
-            border-bottom-left-radius: 4px;
-        }
-
-        .message .role {
-            font-size: 12px;
-            font-weight: 600;
-            margin-bottom: 4px;
-            color: var(--text-secondary);
-        }
-
-        .message .content {
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        .message .content p {
-            margin-bottom: 8px;
-        }
-
-        .message .content p:last-child {
-            margin-bottom: 0;
-        }
-
-        .message .content code {
-            background: var(--bg-primary);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'Fira Code', 'Consolas', monospace;
-            font-size: 13px;
-        }
-
-        .message .content table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 10px 0;
-            background: var(--bg-secondary);
-            font-size: 13px;
-        }
-
-        .message .content th, .message .content td {
-            border: 1px solid var(--border);
-            padding: 6px 10px;
-            text-align: left;
-        }
-
-        .message .content th {
-            background: var(--bg-tertiary);
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .message .content td {
-            color: var(--text-secondary);
-        }
-
-        /* Smart Link Box */
-        .smart-box {
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-left: 3px solid var(--accent);
-            border-radius: 6px;
-            padding: 10px;
-            margin: 8px 0;
-            max-width: 100%;
-            transition: transform 0.1s;
-            text-decoration: none;
-            color: var(--text-primary);
-        }
-
-        .smart-box:hover {
-            transform: scale(1.01);
-            background: var(--bg-tertiary);
-        }
-
-        .smart-icon {
-            width: 40px;
-            height: 40px;
-            background: var(--bg-tertiary);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-
-        .smart-icon svg {
-            width: 24px;
-            height: 24px;
-            fill: var(--accent);
-        }
-
-        .smart-info {
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .smart-title {
-            font-weight: 600;
-            font-size: 14px;
-            color: var(--accent);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .smart-url {
-            font-size: 11px;
-            color: var(--text-secondary);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .message.tool-card {
-            align-self: flex-start;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 8px;
-            width: 90%;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .message.tool-card.collapsed {
-            padding: 6px 10px;
-        }
-
-        .tool-summary {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-
-        .tool-summary .tool-icon {
-            width: 18px;
-            height: 18px;
-            fill: var(--accent);
-        }
-
-        .message.tool-card:hover {
-            background: rgba(255,255,255,0.02);
-        }
-
-        .tool-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-weight: 600;
-            color: var(--accent);
-            font-size: 14px;
-        }
-
-        .tool-arrow {
-            transition: transform 0.2s;
-            font-size: 10px;
-        }
-        
-        .tool-arrow.expanded {
-            transform: rotate(90deg);
-        }
-
-        .tool-content {
-            margin-top: 8px;
-            background: var(--bg-primary);
-            border-radius: 6px;
-            padding: 10px;
-            font-family: 'Fira Code', monospace;
-            font-size: 13px;
-            max-height: 400px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-        }
-
-        .tool-section-label {
-            font-weight: bold;
-            color: var(--text-secondary);
-            margin: 8px 0 4px 0;
-            font-size: 12px;
-            display: block;
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 2px;
-        }
-        
-        .tool-section-label:first-child {
-            margin-top: 0;
-        }
-
-        .message.status-msg {
-            align-self: center;
-            background: transparent;
-            color: var(--text-secondary);
-            font-size: 13px;
-            font-style: italic;
-        }
-
-        /* Input area */
-        .input-area {
-            padding: 16px 20px;
-            border-top: 1px solid var(--border);
-            background: var(--bg-secondary);
-        }
-
-        .input-wrapper {
-            display: flex;
-            gap: 12px;
-            align-items: flex-end;
-        }
-
-        .input-wrapper textarea {
-            flex: 1;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 12px 16px;
-            color: var(--text-primary);
-            font-size: 14px;
-            font-family: inherit;
-            resize: none;
-            outline: none;
-            min-height: 44px;
-            max-height: 120px;
-            line-height: 1.5;
-        }
-
-        .input-wrapper textarea:focus {
-            border-color: var(--accent);
-        }
-
-        .input-wrapper textarea::placeholder {
-            color: var(--text-secondary);
-        }
-
-        .send-btn {
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            background: var(--accent);
-            border: none;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s;
-        }
-
-        .send-btn:hover {
-            background: var(--accent-hover);
-        }
-
-        .send-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .send-btn svg {
-            width: 20px;
-            height: 20px;
-            fill: var(--bg-primary);
-        }
-
-        /* Cursor animation */
-        .cursor {
-            display: inline-block;
-            width: 2px;
-            height: 1em;
-            background: var(--accent);
-            animation: blink 0.8s infinite;
-            vertical-align: text-bottom;
-            margin-left: 2px;
-        }
-
-        @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0; }
-        }
-
-        /* Empty state */
-        .empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            color: var(--text-secondary);
-            text-align: center;
-        }
-
-        .empty-state h3 {
-            font-size: 24px;
-            margin-bottom: 8px;
-            color: var(--text-primary);
-        }
-
-        .empty-state p {
-            font-size: 14px;
-        }
-
-        /* Welcome screen */
-        .welcome {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            padding: 40px;
-            text-align: center;
-        }
-
-        .welcome h2 {
-            font-size: 32px;
-            margin-bottom: 16px;
-            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .welcome p {
-            color: var(--text-secondary);
-            max-width: 500px;
-            line-height: 1.6;
-        }
-
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 3px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--text-secondary);
-        }
-
-        /* Cancel button */
-        .cancel-btn {
-            position: absolute;
-            bottom: 100px;
-            right: 30px;
-            background: var(--error);
-            color: var(--bg-primary);
-            border: none;
-            border-radius: 20px;
-            padding: 8px 16px;
-            cursor: pointer;
-            font-weight: 500;
-            display: none;
-            z-index: 10;
-        }
-
-        .cancel-btn.visible {
-            display: block;
-        }
-
-        .input-area {
-            position: relative;
-        }
-
-        /* History modal */
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-        }
-
-        .modal-overlay.visible {
-            display: flex;
-        }
-
-        .modal {
-            background: var(--bg-secondary);
-            border-radius: 12px;
-            width: 80%;
-            max-width: 800px;
-            max-height: 80vh;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .modal-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .modal-content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-        }
-
-        .history-entry {
-            padding: 12px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .history-entry:last-child {
-            border-bottom: none;
-        }
-
-        .history-entry .role {
-            font-weight: 600;
-            color: var(--accent);
-            margin-bottom: 4px;
-        }
-
-        .history-entry .content {
-            white-space: pre-wrap;
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
-
-        /* ===== Sidebar nav tabs + two-level lists ===== */
-        .nav-tabs {
-            display: flex;
-            border-bottom: 1px solid var(--border);
-            background: var(--bg-secondary);
-        }
-
-        .nav-tab {
-            flex: 1;
-            padding: 12px 8px;
-            text-align: center;
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--text-secondary);
-            cursor: pointer;
-            background: transparent;
-            border: none;
-            border-bottom: 2px solid transparent;
-            transition: color 0.15s, border-color 0.15s, background 0.15s;
-        }
-
-        .nav-tab:hover {
-            color: var(--text-primary);
-            background: var(--bg-tertiary);
-        }
-
-        .nav-tab.active {
-            color: var(--accent);
-            border-bottom-color: var(--accent);
-        }
-
-        .nav-view {
-            flex: 1;
-            overflow-y: auto;
-            display: none;
-        }
-
-        .nav-view.active {
-            display: block;
-        }
-
-        /* Section header (shown inside each view, e.g. "Sessions", "Feishu") */
-        .nav-section-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 12px 6px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-secondary);
-        }
-
-        .nav-group {
-            margin-bottom: 4px;
-        }
-
-        .nav-group-header {
-            display: flex;
-            align-items: center;
-            padding: 8px 12px;
-            font-size: 13px;
-            color: var(--text-primary);
-            cursor: pointer;
-            user-select: none;
-            border-radius: 6px;
-            margin: 0 4px;
-        }
-
-        .nav-group-header:hover {
-            background: var(--bg-tertiary);
-        }
-
-        .nav-group-arrow {
-            display: inline-block;
-            width: 14px;
-            transition: transform 0.15s;
-            color: var(--text-secondary);
-            font-size: 10px;
-        }
-
-        .nav-group.expanded .nav-group-arrow {
-            transform: rotate(90deg);
-        }
-
-        .nav-group-title {
-            flex: 1;
-            font-weight: 600;
-        }
-
-        .nav-group-add {
-            opacity: 0;
-            background: transparent;
-            border: none;
-            color: var(--accent);
-            font-size: 16px;
-            cursor: pointer;
-            padding: 0 4px;
-        }
-
-        .nav-group-header:hover .nav-group-add {
-            opacity: 1;
-        }
-
-        .nav-children {
-            display: none;
-            padding: 2px 0 4px 0;
-        }
-
-        .nav-group.expanded .nav-children {
-            display: block;
-        }
-
-        .nav-child {
-            display: flex;
-            align-items: center;
-            padding: 8px 12px 8px 32px;
-            margin: 0 4px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            color: var(--text-secondary);
-            transition: background 0.15s, color 0.15s;
-        }
-
-        .nav-child:hover {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-        }
-
-        .nav-child.active {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            border-left: 2px solid var(--accent);
-            padding-left: 30px;
-        }
-
-        .nav-child .label {
-            flex: 1;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .nav-child .meta {
-            font-size: 11px;
-            color: var(--text-secondary);
-            margin-left: 6px;
-        }
-
-        .nav-empty {
-            padding: 10px 12px 10px 32px;
-            font-size: 12px;
-            color: var(--text-secondary);
-            font-style: italic;
-        }
-
-        /* ===== Channel detail panel (right side) ===== */
-        .channel-detail {
-            flex: 1;
-            display: none;
-            flex-direction: column;
-            overflow-y: auto;
-        }
-
-        .channel-detail.active {
-            display: flex;
-        }
-
-        .channel-detail-header {
-            padding: 16px 24px;
-            border-bottom: 1px solid var(--border);
-            background: var(--bg-secondary);
-        }
-
-        .channel-detail-header h2 {
-            font-size: 18px;
-            margin-bottom: 4px;
-        }
-
-        .channel-detail-header .sub {
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .channel-detail-body {
-            padding: 24px;
-            max-width: 640px;
-        }
-
-        .channel-detail-body .field {
-            margin-bottom: 16px;
-        }
-
-        .channel-detail-body .field label {
-            display: block;
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-bottom: 6px;
-            font-weight: 500;
-        }
-
-        .channel-detail-body .field input,
-        .channel-detail-body .field textarea {
-            width: 100%;
-            padding: 10px 12px;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text-primary);
-            font-size: 14px;
-            font-family: inherit;
-            outline: none;
-            transition: border-color 0.15s;
-        }
-
-        .channel-detail-body .field input:focus,
-        .channel-detail-body .field textarea:focus {
-            border-color: var(--accent);
-        }
-
-        .channel-detail-body .field .hint {
-            margin-top: 4px;
-            font-size: 11px;
-            color: var(--text-secondary);
-        }
-
-        .channel-detail-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 24px;
-            padding-top: 16px;
-            border-top: 1px solid var(--border);
-        }
-
-        .btn-danger-solid {
-            background: var(--error);
-            color: #1e1e2e;
-            font-weight: 600;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: filter 0.15s;
-        }
-
-        .btn-danger-solid:hover {
-            filter: brightness(1.1);
-        }
-
-        .channel-detail-empty {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
-
-        .channel-status-pill {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 11px;
-            font-weight: 500;
-            background: var(--bg-tertiary);
-            color: var(--text-secondary);
-            margin-left: 8px;
-        }
-
-        .channel-status-pill.enabled {
-            background: rgba(166, 227, 161, 0.15);
-            color: var(--success);
-        }
-
-        .channel-status-pill.disabled {
-            background: rgba(243, 139, 168, 0.15);
-            color: var(--error);
-        }
-
-        /* Input with a trailing toggle button (e.g. show/hide secret) */
-        .input-with-toggle {
-            position: relative;
-        }
-
-        .input-with-toggle input {
-            padding-right: 56px;
-        }
-
-        .input-toggle-btn {
-            position: absolute;
-            top: 50%;
-            right: 6px;
-            transform: translateY(-50%);
-            background: transparent;
-            border: 1px solid var(--border);
-            color: var(--text-secondary);
-            padding: 4px 8px;
-            font-size: 11px;
-            font-weight: 500;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: color 0.15s, border-color 0.15s, background 0.15s;
-        }
-
-        .input-toggle-btn:hover {
-            color: var(--text-primary);
-            border-color: var(--accent);
-            background: var(--bg-tertiary);
-        }
-    </style>
-
-    <div class="container">
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <h1>jiuwenClaw</h1>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>jiuwenClaw</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+
+:root{
+  /* Light theme — mirrors jiuwenswarm */
+  --bg:#f5f7f9; --card:#ffffff; --panel:#ffffff;
+  --bg-elevated:#ffffff; --bg-hover:#f0f0f0; --bg-muted:#f0f0f0;
+  --secondary:#f4f4f5;
+  --text:#3f3f46; --text-strong:#18181b; --muted:#71717a;
+  --border:#e4e4e7; --border-strong:#d4d4d8; --border-hover:#a1a1aa;
+  --input:#e4e4e7;
+  --accent:#2563eb; --accent-hover:#3b82f6;
+  --accent-subtle:rgba(37,99,235,.12);
+  --accent-foreground:#ffffff;
+  --accent-2:#0d9488;
+  --ok:#16a34a; --warn:#d97706; --danger:#dc2626; --info:#2563eb;
+  --ok-subtle:rgba(22,163,74,.1); --warn-subtle:rgba(217,119,6,.1); --danger-subtle:rgba(220,38,38,.1);
+  --border-accent:rgba(37,99,235,.4);
+  --border-ok:rgba(22,163,74,.35); --border-danger:rgba(220,38,38,.35);
+  --ring:#2563eb;
+
+  --radius-sm:6px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.06);
+  --shadow-md:0 4px 12px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04);
+  --shadow-lg:0 12px 28px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.04);
+
+  --font-body:"HarmonyOS Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  --font-size-base:14px; --font-size-sm:13px; --font-size-xs:12px; --font-size-2xs:11px;
+  --shell-pad:16px; --shell-gap:16px; --shell-nav-width:240px;
+}
+
+html, body { height:100%; }
+body{
+  font-family:var(--font-body); font-size:var(--font-size-base); font-weight:400;
+  line-height:1.55; letter-spacing:-0.02em;
+  color:var(--text); background:var(--bg);
+  -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+  height:100vh; overflow:hidden;
+}
+.mono{ font-family:var(--mono); font-feature-settings:"liga" 0; }
+
+/* ---------- App shell ---------- */
+.shell{
+  display:grid;
+  grid-template-columns: var(--shell-nav-width) 1fr;
+  grid-template-areas:"nav content";
+  height:100vh; gap:var(--shell-gap); padding:var(--shell-pad);
+}
+.nav  { grid-area:nav;     min-width:0; }
+.content { grid-area:content; min-width:0; min-height:0; display:flex; flex-direction:column; }
+
+/* ---------- Sidebar (Pixso spec) ---------- */
+.sidebar{
+  height:100%;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  display:flex; flex-direction:column;
+  overflow:hidden;
+}
+.sidebar-header{
+  display:flex; align-items:center; gap:10px;
+  padding:14px 16px 12px;
+}
+.brand{
+  width:28px; height:28px; border-radius:8px;
+  background:linear-gradient(135deg,#449AFF 0%,#1478FF 50.15%,#3589FF 100%);
+  color:#fff; display:inline-flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:14px; flex-shrink:0;
+  box-shadow:0 2px 6px rgba(20,120,255,.25);
+}
+.brand-text{ font-weight:600; color:var(--text-strong); font-size:14px; }
+
+.nav-section-label{
+  padding:14px 16px 6px;
+  font-size:12px; color:#777; font-weight:500;
+}
+.nav-section-label:first-of-type{ padding-top:4px; }
+
+.nav-list{
+  display:flex; flex-direction:column;
+}
+.nav-item{
+  height:32px; margin:0 8px; padding:0 8px;
+  display:flex; align-items:center; gap:10px;
+  border-radius:8px;
+  font-size:14px; font-weight:400; color:#191919;
+  background:transparent; border:none; cursor:pointer;
+  transition:background .15s ease, color .15s ease;
+  text-align:left; user-select:none;
+}
+.nav-item:hover{ background:#F5F5F5; }
+.nav-item.active{ background:#EAEAEB; font-weight:600; color:#000; }
+.nav-item .ico{
+  width:16px; height:16px; flex-shrink:0; color:#5b5b62;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.nav-item .ico svg{ width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.nav-item.active .ico{ color:#000; }
+.nav-item .label{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nav-item .meta{ font-size:11px; color:#9a9aa3; font-family:var(--mono); }
+
+.sidebar-spacer{ flex:1; }
+.sidebar-bottom{
+  border-top:1px solid var(--border);
+  padding:12px 16px;
+  font-size:12px; color:var(--muted);
+  display:flex; align-items:center; justify-content:space-between;
+}
+
+/* ---------- Main content card ---------- */
+.card{
+  background:var(--card);
+  border-radius:var(--radius-lg);
+  border:1px solid var(--border);
+  padding:20px;
+  height:100%;
+  display:flex; flex-direction:column;
+  min-height:0;
+  box-shadow:var(--shadow-sm);
+}
+.card-header{
+  display:flex; align-items:flex-start; justify-content:space-between;
+  gap:16px; margin-bottom:16px; flex-shrink:0;
+}
+.card-header h2{
+  font-size:18px; font-weight:600; color:var(--text-strong);
+}
+.card-header .sub{
+  font-size:13px; color:var(--muted); margin-top:4px;
+}
+.card-header-actions{ display:flex; align-items:center; gap:8px; }
+.card-body{
+  flex:1; min-height:0; overflow:auto;
+}
+
+/* ---------- Buttons ---------- */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  border:1px solid var(--border);
+  background:var(--bg-elevated);
+  color:var(--text);
+  padding:9px 16px;
+  border-radius:8px;
+  font-size:13px; font-weight:500;
+  letter-spacing:-0.01em;
+  cursor:pointer;
+  transition:transform .12s cubic-bezier(.16,1,.3,1), background .12s, border-color .12s, box-shadow .12s;
+  font-family:inherit; user-select:none;
+}
+.btn:hover{
+  background:var(--bg-hover);
+  border-color:var(--border-strong);
+  transform:translateY(-1px);
+  box-shadow:var(--shadow-sm);
+}
+.btn:active{ transform:translateY(0); box-shadow:none; background:var(--secondary); }
+.btn:disabled{ opacity:.5; pointer-events:none; transform:none; box-shadow:none; }
+.btn.primary{
+  background:var(--accent); color:var(--accent-foreground);
+  border-color:var(--accent);
+  box-shadow:0 1px 2px rgba(0,0,0,.1);
+}
+.btn.primary:hover{ background:var(--accent-hover); border-color:var(--accent-hover); }
+.btn.danger{
+  background:var(--danger); color:#fff; border-color:var(--danger);
+}
+.btn.danger:hover{ background:#b91c1c; border-color:#b91c1c; }
+.btn.ghost{
+  background:transparent; border-color:transparent; color:var(--muted);
+}
+.btn.ghost:hover{ background:var(--secondary); color:var(--text); border-color:transparent; }
+.btn.sm{ padding:6px 12px; font-size:12px; }
+.btn.xs{ padding:3px 8px; font-size:11px; border-radius:6px; }
+
+.icon-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:28px; height:28px; padding:0;
+  background:transparent; border:1px solid var(--border);
+  border-radius:6px; color:var(--muted); cursor:pointer;
+  transition:all .15s;
+}
+.icon-btn:hover{ color:var(--danger); border-color:var(--danger); background:var(--danger-subtle); }
+.icon-btn svg{ width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.7; }
+
+/* ---------- Sub-tabs (underline style) ---------- */
+.subtabs{ display:flex; border-bottom:1px solid var(--border); margin-bottom:16px; flex-shrink:0; }
+.subtabs .tab{
+  padding:10px 16px; font-size:13px; font-weight:500;
+  color:var(--muted); background:transparent; border:none;
+  border-bottom:2px solid transparent; cursor:pointer;
+  transition:color .15s, border-color .15s;
+  font-family:inherit;
+}
+.subtabs .tab:hover{ color:var(--text); }
+.subtabs .tab.active{ color:var(--accent); border-bottom-color:var(--accent); }
+
+/* ---------- Group-card (collapsible section with colored icon) ---------- */
+.group-card{
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.7);
+  border-radius:var(--radius-xl);
+  overflow:hidden;
+  box-shadow:var(--shadow-sm);
+  margin-bottom:12px;
+}
+.group-card-header{
+  width:100%; display:flex; align-items:center; justify-content:space-between;
+  padding:14px 16px;
+  background:rgba(244,244,245,.5);
+  border:none; cursor:pointer;
+  font-family:inherit; color:var(--text);
+  transition:background .15s;
+}
+.group-card-header:hover{ background:rgba(244,244,245,.8); }
+.group-card-header .left{ display:flex; align-items:center; gap:12px; min-width:0; }
+.group-card-header .tile{
+  width:28px; height:28px; flex-shrink:0;
+  border-radius:7px;
+  display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid;
+}
+.group-card-header .tile.t-blue   { color:#2563eb; background:rgba(37,99,235,.1); border-color:rgba(37,99,235,.2); }
+.group-card-header .tile.t-purple { color:#7c3aed; background:rgba(124,58,237,.1); border-color:rgba(124,58,237,.2); }
+.group-card-header .tile.t-pink   { color:#ec4899; background:rgba(236,72,153,.1); border-color:rgba(236,72,153,.2); }
+.group-card-header .tile.t-amber  { color:#d97706; background:rgba(217,119,6,.1); border-color:rgba(217,119,6,.2); }
+.group-card-header .tile.t-green  { color:#16a34a; background:rgba(22,163,74,.1); border-color:rgba(22,163,74,.2); }
+.group-card-header .tile svg{ width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.group-card-header .titles{ min-width:0; text-align:left; }
+.group-card-header .title{ font-size:14px; font-weight:500; color:var(--text-strong); display:block; }
+.group-card-header .hint{ font-size:12px; color:var(--muted); display:block; }
+.group-card-header .right{ display:flex; align-items:center; gap:10px; color:var(--muted); flex-shrink:0; }
+.group-card-header .chip{
+  font-size:11px; padding:2px 8px; border-radius:9999px;
+  border:1px solid var(--border); background:var(--secondary);
+}
+.group-card-header .chev{
+  width:14px; height:14px; transition:transform .2s;
+  stroke:currentColor; fill:none; stroke-width:2;
+}
+.group-card.open .chev{ transform:rotate(180deg); }
+.group-card-body{
+  border-top:1px solid var(--border);
+  padding:14px 16px;
+  display:none;
+}
+.group-card.open .group-card-body{ display:block; }
+
+/* ---------- Form fields ---------- */
+.field{ margin-bottom:12px; }
+.field-row{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.field label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:500; }
+.field input[type=text], .field input[type=number], .field input[type=password],
+.field textarea, .field select{
+  width:100%; padding:8px 12px;
+  background:var(--bg-elevated);
+  border:1px solid var(--border);
+  border-radius:6px; font-size:13px;
+  color:var(--text); font-family:inherit;
+  outline:none; transition:border-color .15s, box-shadow .15s;
+}
+.field input:focus, .field textarea:focus, .field select:focus{
+  border-color:var(--ring);
+  box-shadow:0 0 0 3px var(--accent-subtle);
+}
+.field .hint{ margin-top:4px; font-size:11px; color:var(--muted); }
+.field input:disabled{ background:var(--secondary); color:var(--muted); cursor:not-allowed; }
+
+.checkbox-field{ display:flex; align-items:center; gap:8px; }
+.checkbox-field input[type=checkbox]{ width:auto; cursor:pointer; }
+.checkbox-field label{ margin:0; cursor:pointer; }
+
+.input-with-toggle{ display:flex; gap:6px; align-items:stretch; }
+.input-with-toggle input{ flex:1; }
+.input-with-toggle .toggle{
+  padding:0 12px; font-size:12px; border:1px solid var(--border);
+  background:var(--bg-elevated); border-radius:6px; cursor:pointer;
+  color:var(--muted); font-family:inherit;
+}
+.input-with-toggle .toggle:hover{ color:var(--accent); border-color:var(--accent); }
+
+/* Key-value table */
+.kv-table{ width:100%; border-collapse:collapse; font-size:13px; }
+.kv-table th{
+  text-align:left; padding:6px 8px;
+  font-size:11px; font-weight:600; color:var(--muted);
+  text-transform:uppercase; letter-spacing:0.5px;
+}
+.kv-table td{ padding:6px 4px; vertical-align:middle; }
+.kv-table input, .kv-table select{
+  width:100%; padding:6px 10px;
+  background:var(--bg-elevated); border:1px solid var(--border);
+  border-radius:6px; font-size:13px; color:var(--text); font-family:inherit; outline:none;
+}
+.kv-table input:focus, .kv-table select:focus{ border-color:var(--accent); }
+.kv-table .col-action{ width:36px; text-align:right; }
+.kv-table .empty-row td{ color:var(--muted); padding:10px 4px; font-style:italic; font-size:12px; }
+
+/* Add-row dashed button */
+.add-row{
+  width:100%; padding:8px;
+  border:1px dashed var(--border); border-radius:8px;
+  background:transparent; color:var(--muted); font-size:12px;
+  cursor:pointer; transition:all .15s; font-family:inherit;
+  margin-top:8px;
+}
+.add-row:hover{ color:var(--accent); border-color:var(--accent); background:rgba(37,99,235,.04); }
+
+/* ---------- Status pills / chips ---------- */
+.pill{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:2px 8px; border-radius:9999px;
+  font-size:11px; font-weight:500;
+  border:1px solid var(--border); background:var(--secondary); color:var(--muted);
+}
+.pill.ok{ color:var(--ok); background:var(--ok-subtle); border-color:var(--border-ok); }
+.pill.warn{ color:var(--warn); background:var(--warn-subtle); border-color:rgba(217,119,6,.35); }
+.pill.danger{ color:var(--danger); background:var(--danger-subtle); border-color:var(--border-danger); }
+.pill.accent{ color:var(--accent); background:var(--accent-subtle); border-color:var(--border-accent); }
+
+/* Tool pill list */
+.tools-pills{ display:flex; flex-wrap:wrap; gap:6px; }
+.tools-pills .tool-pill{
+  padding:4px 10px; border-radius:9999px;
+  border:1px solid var(--border); background:var(--bg-elevated);
+  font-size:12px; color:var(--text); cursor:pointer;
+  transition:all .15s; user-select:none;
+}
+.tools-pills .tool-pill:hover{ border-color:var(--accent); color:var(--accent); }
+.tools-pills .tool-pill.selected{
+  background:var(--accent); color:var(--accent-foreground); border-color:var(--accent);
+}
+
+/* Status banner */
+.status-banner{
+  padding:10px 14px; border-radius:8px; font-size:13px;
+  border:1px solid; margin-bottom:14px;
+}
+.status-banner.ok{ background:var(--ok-subtle); border-color:var(--border-ok); color:var(--ok); }
+.status-banner.err{ background:var(--danger-subtle); border-color:var(--border-danger); color:var(--danger); }
+.status-banner.info{ background:var(--accent-subtle); border-color:var(--border-accent); color:var(--accent); }
+
+/* Empty state */
+.empty-state{
+  height:100%; display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  color:var(--muted); font-size:13px; padding:40px 20px; text-align:center;
+}
+.empty-state svg{ width:48px; height:48px; opacity:.4; margin-bottom:12px; stroke:currentColor; fill:none; stroke-width:1.5; }
+.empty-state .title{ font-size:14px; color:var(--text); margin-bottom:6px; }
+
+/* Form actions row */
+.form-actions{
+  display:flex; align-items:center; gap:8px;
+  margin-top:20px; padding-top:16px;
+  border-top:1px solid var(--border);
+}
+.form-status{ font-size:12px; color:var(--muted); margin-left:auto; }
+.form-status.ok{ color:var(--ok); }
+.form-status.err{ color:var(--danger); }
+
+/* ---------- List items (used in Channels/Agents sub-list) ---------- */
+.list-row{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  width:100%; padding:10px 12px;
+  border:1px solid var(--border); border-radius:10px;
+  background:var(--bg-elevated); text-align:left; cursor:pointer;
+  margin-bottom:8px; transition:all .15s;
+  font-family:inherit;
+}
+.list-row:hover{ background:var(--secondary); border-color:var(--border-strong); }
+.list-row.active{ background:var(--accent-subtle); border-color:var(--border-accent); }
+.list-row .lr-main{ display:flex; align-items:center; gap:10px; min-width:0; flex:1; }
+.list-row .lr-id{ font-family:var(--mono); font-size:11px; color:var(--muted); padding:1px 6px; border:1px solid var(--border); border-radius:4px; background:var(--secondary); flex-shrink:0; }
+.list-row .lr-title{ font-size:13px; font-weight:500; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.list-row .lr-sub{ font-size:11px; color:var(--muted); }
+
+/* Two-pane layout for editors */
+.two-pane{
+  flex:1; min-height:0;
+  display:grid; grid-template-columns:minmax(0,3fr) minmax(0,7fr);
+  gap:14px;
+}
+.pane{
+  border:1px solid var(--border); border-radius:var(--radius-lg);
+  background:rgba(255,255,255,.7); overflow:hidden;
+  display:flex; flex-direction:column; min-height:0;
+}
+.pane-header{
+  padding:12px 14px;
+  background:rgba(244,244,245,.5);
+  border-bottom:1px solid var(--border);
+  display:flex; align-items:flex-start; justify-content:space-between;
+  gap:8px; flex-shrink:0;
+}
+.pane-header h3{ font-size:13px; font-weight:500; color:var(--text); }
+.pane-header .sub{ font-size:11px; color:var(--muted); margin-top:2px; font-family:var(--mono); }
+.pane-body{ padding:14px; flex:1; min-height:0; overflow:auto; }
+
+/* ---------- Chat ---------- */
+.chat-wrap{ flex:1; display:flex; flex-direction:column; min-height:0; gap:0; }
+.chat-messages{
+  flex:1; min-height:0; overflow:auto;
+  padding:16px 24px; display:flex; flex-direction:column; gap:14px;
+}
+.chat-bubble{
+  max-width:78%; padding:10px 14px; border-radius:var(--radius-lg);
+  font-size:14px; line-height:1.55; word-break:break-word;
+  border:1px solid transparent;
+}
+.chat-bubble.user{ align-self:flex-end; background:var(--accent-subtle); border-color:var(--border-accent); color:var(--text-strong); }
+.chat-bubble.assistant{ align-self:flex-start; background:var(--bg-muted); border-color:var(--border); }
+.chat-bubble .role{ font-size:11px; font-weight:600; color:var(--muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:.5px; }
+.chat-bubble pre{
+  margin:6px 0; padding:10px 12px;
+  background:var(--bg); border:1px solid var(--border); border-radius:6px;
+  font-family:var(--mono); font-size:12px; overflow:auto;
+}
+.chat-bubble code{ font-family:var(--mono); font-size:12px; background:var(--bg); padding:1px 4px; border-radius:3px; }
+.chat-bubble.tool{
+  background:rgba(244,244,245,.6); border:1px solid var(--border); align-self:flex-start;
+  max-width:78%; padding:0;
+}
+.chat-bubble.tool .tool-head{
+  display:flex; align-items:center; gap:8px;
+  padding:8px 12px;
+  font-size:12px; color:var(--text); cursor:pointer;
+  user-select:none;
+}
+.chat-bubble.tool .tool-name{ font-weight:600; color:var(--text-strong); }
+.chat-bubble.tool .tool-args{
+  flex:1; min-width:0;
+  color:var(--muted); font-size:11px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.chat-bubble.tool .tool-status{
+  font-size:11px; padding:1px 7px; border-radius:9999px;
+  border:1px solid var(--border); background:var(--bg-elevated);
+}
+.chat-bubble.tool .tool-status.running{
+  color:var(--warn); background:var(--warn-subtle); border-color:rgba(217,119,6,.35);
+}
+.chat-bubble.tool .tool-status.done{
+  color:var(--ok); background:var(--ok-subtle); border-color:var(--border-ok);
+}
+.chat-bubble.tool .tool-body{
+  display:none;
+  border-top:1px solid var(--border);
+  padding:10px 12px;
+}
+.chat-bubble.tool.open .tool-body{ display:block; }
+.chat-bubble.tool.open .arrow{ transform:rotate(90deg); }
+.chat-bubble.tool .arrow{ transition:transform .2s; display:inline-block; color:var(--muted); }
+.chat-bubble.tool .tool-sub-label{
+  font-size:10px; font-weight:600; color:var(--muted);
+  text-transform:uppercase; letter-spacing:.5px;
+  margin:8px 0 4px;
+}
+.chat-bubble.tool .tool-sub-label:first-child{ margin-top:0; }
+.chat-bubble.tool pre{
+  margin:0;
+  background:var(--bg); border:1px solid var(--border); border-radius:6px;
+  padding:8px 10px;
+  font-family:var(--mono); font-size:12px;
+  max-height:260px; overflow:auto;
+  white-space:pre-wrap; word-break:break-word;
+}
+.chat-bubble.status{
+  background:transparent; border:none; align-self:center;
+  color:var(--muted); font-size:11px; padding:2px 10px;
+  max-width:100%;
+}
+.chat-bubble.status.k-iter{
+  background:var(--accent-subtle); color:var(--accent); border:1px solid var(--border-accent);
+  border-radius:9999px; font-weight:500; padding:3px 10px;
+}
+.chat-bubble.status.warn{
+  color:var(--warn); background:var(--warn-subtle); border:1px solid rgba(217,119,6,.28);
+  border-radius:9999px; padding:3px 10px;
+}
+.chat-bubble.status.err{
+  color:var(--danger); background:var(--danger-subtle); border:1px solid var(--border-danger);
+  border-radius:9999px; padding:3px 10px;
+}
+
+.chat-input-area{
+  padding:14px 24px 18px; border-top:1px solid var(--border);
+  background:var(--card); flex-shrink:0;
+}
+.chat-input-row{
+  display:flex; align-items:flex-end; gap:8px;
+  border:1px solid var(--border); border-radius:12px;
+  padding:8px 8px 8px 14px;
+  background:var(--bg-elevated);
+  transition:border-color .15s, box-shadow .15s;
+}
+.chat-input-row:focus-within{ border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-subtle); }
+.chat-input-row textarea{
+  flex:1; resize:none; border:none; outline:none;
+  background:transparent; font-family:inherit; font-size:14px;
+  color:var(--text); line-height:1.5;
+  max-height:200px; min-height:24px;
+  padding:6px 0;
+}
+.chat-input-row .send-btn{
+  width:36px; height:36px; border-radius:10px;
+  background:var(--accent); color:#fff; border:none; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  transition:background .15s, transform .12s;
+}
+.chat-input-row .send-btn:hover{ background:var(--accent-hover); }
+.chat-input-row .send-btn:disabled{ background:var(--muted); cursor:not-allowed; }
+.chat-input-row .send-btn svg{ width:16px; height:16px; fill:#fff; }
+
+/* Status bar (chat) */
+.statusbar{
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  padding:10px 16px; border-top:1px solid var(--border);
+  background:var(--card); font-size:12px; color:var(--muted);
+}
+.statusbar .processing{
+  display:inline-flex; align-items:center; gap:6px;
+  color:var(--warn); padding:4px 10px; border-radius:9999px;
+  background:var(--warn-subtle); border:1px solid rgba(217,119,6,.28);
+  font-weight:600;
+}
+.statusbar .processing .dot{
+  width:6px; height:6px; border-radius:50%; background:var(--warn);
+  box-shadow:0 0 8px var(--warn);
+  animation:pulse 1s infinite;
+}
+@keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* Sessions list specific */
+.session-row{
+  display:grid; grid-template-columns:1fr auto; gap:6px; align-items:center;
+  margin-bottom:4px;
+}
+.session-row .main{
+  text-align:left; padding:8px 12px; border-radius:8px;
+  border:1px solid transparent; background:transparent;
+  font-size:13px; color:var(--text); cursor:pointer; font-family:inherit;
+  display:flex; flex-direction:column; gap:2px; min-width:0;
+}
+.session-row .main:hover{ background:var(--secondary); }
+.session-row.active .main{ background:var(--accent-subtle); border-color:var(--border-accent); color:var(--text-strong); }
+.session-row .main .name{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.session-row .main .sub{ font-size:11px; color:var(--muted); }
+.session-row .del{
+  opacity:0; width:26px; height:26px; padding:0;
+  background:transparent; border:none; cursor:pointer;
+  border-radius:6px; color:var(--muted); display:flex; align-items:center; justify-content:center;
+}
+.session-row .del:hover{ color:var(--danger); background:var(--danger-subtle); }
+.session-row:hover .del{ opacity:1; }
+.session-row .del svg{ width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.7; }
+
+/* Misc */
+.spacer{ flex:1; }
+.hidden{ display:none !important; }
+.scroll-y{ overflow-y:auto; }
+
+/* ---------- Skill list ---------- */
+.skill-card{
+  display:flex; gap:12px; align-items:flex-start;
+  padding:12px;
+  border:1px solid var(--border); border-radius:10px;
+  background:var(--bg-elevated); cursor:pointer;
+  margin-bottom:8px; transition:all .15s;
+}
+.skill-card:hover{ background:var(--secondary); border-color:var(--border-strong); }
+.skill-card.active{ background:var(--accent-subtle); border-color:var(--border-accent); }
+.skill-avatar{
+  width:40px; height:40px; flex-shrink:0;
+  border-radius:8px;
+  display:inline-flex; align-items:center; justify-content:center;
+  color:#fff; font-weight:600; font-size:18px;
+  text-transform:uppercase;
+}
+.skill-meta{ flex:1; min-width:0; }
+.skill-name{ font-size:14px; font-weight:600; color:var(--text-strong); margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.skill-desc{
+  font-size:12px; color:var(--muted); line-height:1.5;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.skill-detail-body pre{
+  margin-top:8px;
+  background:var(--bg); padding:12px; border-radius:6px;
+  font-family:var(--mono); font-size:12px;
+  line-height:1.55;
+  white-space:pre-wrap; word-break:break-word;
+  max-height:60vh; overflow:auto;
+  border:1px solid var(--border);
+}
+.skill-tags{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="nav">
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">J</div>
+        <div class="brand-text">jiuwenClaw</div>
+      </div>
+
+      <button class="new-item-btn" id="newSessionBtn" onclick="createSession()">
+        <span>新建会话</span>
+        <span class="plus">+</span>
+      </button>
+
+      <div class="nav-section-label">智能体</div>
+      <div class="nav-list">
+        <button class="nav-item active" data-view="sessions" onclick="switchView('sessions')">
+          <span class="ico"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+          <span class="label">对话</span>
+          <span class="meta" id="navSessionsCount"></span>
+        </button>
+        <button class="nav-item" data-view="agents" onclick="switchView('agents')">
+          <span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/></svg></span>
+          <span class="label">智能体</span>
+          <span class="meta" id="navAgentsCount"></span>
+        </button>
+        <button class="nav-item" data-view="skills" onclick="switchView('skills')">
+          <span class="ico"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+          <span class="label">技能</span>
+          <span class="meta" id="navSkillsCount"></span>
+        </button>
+        <button class="nav-item" data-view="channels" onclick="switchView('channels')">
+          <span class="ico"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>
+          <span class="label">频道</span>
+          <span class="meta" id="navChannelsCount"></span>
+        </button>
+      </div>
+
+      <div class="nav-section-label">设置</div>
+      <div class="nav-list">
+        <button class="nav-item" onclick="reloadAllFromFile()">
+          <span class="ico"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span>
+          <span class="label">重载配置</span>
+        </button>
+      </div>
+
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-bottom">
+        <span id="bottomStatus">connecting…</span>
+        <span class="pill" id="bottomVersion">v0.1</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="card view" id="viewSessions">
+      <div class="card-header">
+        <div>
+          <h2 id="chatTitle">会话</h2>
+          <div class="sub" id="chatSubtitle">选择左侧会话或开始新会话</div>
+        </div>
+        <div class="card-header-actions">
+          <button class="btn sm" onclick="clearChat()">清空</button>
+        </div>
+      </div>
+      <div class="two-pane" style="grid-template-columns:minmax(0,260px) minmax(0,1fr);">
+        <section class="pane">
+          <div class="pane-header">
+            <div>
+              <h3>会话列表</h3>
+              <div class="sub mono" id="sessionsCount"></div>
             </div>
-
-            <div class="nav-tabs">
-                <button class="nav-tab active" data-view="sessions" onclick="switchNavView('sessions')">Sessions</button>
-                <button class="nav-tab" data-view="channels" onclick="switchNavView('channels')">Channels</button>
+            <button class="btn xs" onclick="fetchSessions()">刷新</button>
+          </div>
+          <div class="pane-body" id="sessionList"></div>
+        </section>
+        <section class="pane" style="background:var(--card);">
+          <div class="chat-wrap">
+            <div class="chat-messages" id="messages"></div>
+            <div class="chat-input-area">
+              <div class="chat-input-row">
+                <textarea id="messageInput" placeholder="输入消息…(Enter 发送 / Shift+Enter 换行)" rows="1" onkeydown="handleKeyDown(event)" oninput="autoResize(this)"></textarea>
+                <button class="send-btn" id="sendBtn" onclick="sendMessage()"><svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
+              </div>
             </div>
-
-            <!-- Sessions view -->
-            <div class="nav-view active" id="navViewSessions">
-                <div class="nav-section-header">
-                    <span>Sessions</span>
-                    <button class="btn btn-primary btn-small" onclick="createSession()">+ New</button>
-                </div>
-                <div class="session-list" id="sessionList"></div>
+            <div class="statusbar">
+              <span id="statusbarText">就绪</span>
+              <button class="btn xs danger hidden" id="cancelBtn" onclick="cancelRequest()">取消</button>
             </div>
-
-            <!-- Channels view -->
-            <div class="nav-view" id="navViewChannels">
-                <div class="nav-section-header">
-                    <span>Channels</span>
-                </div>
-                <div id="channelTree"></div>
-            </div>
-        </aside>
-
-        <main class="main" id="mainArea">
-            <div class="welcome" id="welcomeScreen">
-                <h2>Welcome to jiuwenClaw</h2>
-                <p>Select a session from the sidebar or create a new one to start chatting with the AI agent.</p>
-            </div>
-
-            <div class="chat-header" id="chatHeader" style="display: none;">
-                <h2 id="currentSessionName"></h2>
-                <div class="header-actions">
-                    <button class="btn btn-ghost btn-small" onclick="clearChat()">Clear</button>
-                </div>
-            </div>
-
-            <div class="messages" id="messages" style="display: none;"></div>
-
-            <div class="input-area" id="inputArea" style="display: none;">
-                <button class="cancel-btn" id="cancelBtn" onclick="cancelRequest()">Cancel</button>
-                <div class="input-wrapper">
-                    <textarea
-                        id="messageInput"
-                        placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
-                        rows="1"
-                        onkeydown="handleKeyDown(event)"
-                        oninput="autoResize(this)"
-                    ></textarea>
-                    <button class="send-btn" id="sendBtn" onclick="sendMessage()">
-                        <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Channel detail / editor panel -->
-            <div class="channel-detail" id="channelDetail">
-                <div class="channel-detail-header">
-                    <h2 id="channelDetailTitle">Channel</h2>
-                    <div class="sub" id="channelDetailSub"></div>
-                </div>
-                <div class="channel-detail-body" id="channelDetailBody"></div>
-            </div>
-        </main>
+          </div>
+        </section>
+      </div>
     </div>
 
-    <script>
-        const API_BASE = '';
-        let sessions = [];
-        let currentSessionId = null;
-        const streamingSessions = new Set();
-        let currentEventSource = null;
-        let messages = {};
+    <div class="card view hidden" id="viewAgents">
+      <div class="card-header">
+        <div>
+          <h2>智能体配置</h2>
+          <div class="sub">编辑后点击「保存并热重载」立即生效，会话历史保留。</div>
+        </div>
+        <div class="card-header-actions">
+          <button class="btn sm" onclick="reloadAgentsFromFile()">从文件重载</button>
+        </div>
+      </div>
+      <div class="two-pane">
+        <section class="pane">
+          <div class="pane-header">
+            <div>
+              <h3>已注册智能体</h3>
+              <div class="sub mono" id="agentsCount"></div>
+            </div>
+            <button class="btn xs" onclick="refreshAgentList()">刷新</button>
+          </div>
+          <div class="pane-body" id="agentList"></div>
+        </section>
+        <section class="pane">
+          <div class="pane-header">
+            <div>
+              <h3 id="agentDetailTitle">智能体</h3>
+              <div class="sub" id="agentDetailSub"></div>
+            </div>
+            <div class="card-header-actions" id="agentDetailActions" style="display:none;">
+              <button class="btn xs" onclick="revertAgentForm()">还原</button>
+              <button class="btn xs primary" onclick="saveAgentForm()">保存并热重载</button>
+            </div>
+          </div>
+          <div class="pane-body" id="agentDetailBody"></div>
+        </section>
+      </div>
+    </div>
 
-        async function fetchSessions() {
-            try {
-                const resp = await fetch(`${API_BASE}/api/sessions`);
-                const data = await resp.json();
-                sessions = data.sessions || [];
-                console.log('[Debug] Fetched sessions from server:', sessions.length);
-                renderSessions();
-                return true;
-            } catch (e) {
-                console.error('[Error] Failed to fetch sessions:', e);
-                return false;
+    <div class="card view hidden" id="viewSkills">
+      <div class="card-header">
+        <div>
+          <h2>技能</h2>
+          <div class="sub" id="skillsSubtitle">已安装的技能（从 <span class="mono" id="skillsRoot">./my_skills</span> 加载）</div>
+        </div>
+        <div class="card-header-actions">
+          <button class="btn sm" onclick="refreshSkillList()">刷新</button>
+        </div>
+      </div>
+      <div class="two-pane">
+        <section class="pane">
+          <div class="pane-header">
+            <div>
+              <h3>技能列表</h3>
+              <div class="sub mono" id="skillsCount"></div>
+            </div>
+          </div>
+          <div class="pane-body" id="skillList"></div>
+        </section>
+        <section class="pane">
+          <div class="pane-header" id="skillDetailHeader">
+            <div>
+              <h3 id="skillDetailTitle">技能</h3>
+              <div class="sub" id="skillDetailSub"></div>
+            </div>
+          </div>
+          <div class="pane-body" id="skillDetailBody"></div>
+        </section>
+      </div>
+    </div>
+
+    <div class="card view hidden" id="viewChannels">
+      <div class="card-header">
+        <div>
+          <h2>频道</h2>
+          <div class="sub">配置外部通信频道（如飞书）。增删改后立即热重启对应 bot。</div>
+        </div>
+      </div>
+      <div class="two-pane">
+        <section class="pane">
+          <div class="pane-header">
+            <div>
+              <h3>频道列表</h3>
+              <div class="sub mono" id="channelsCount"></div>
+            </div>
+            <div class="card-header-actions">
+              <button class="btn xs" onclick="startNewChannel('feishu')">+ 新增</button>
+              <button class="btn xs" onclick="refreshChannelTree()">刷新</button>
+            </div>
+          </div>
+          <div class="pane-body" id="channelTree"></div>
+        </section>
+        <section class="pane">
+          <div class="pane-header">
+            <div>
+              <h3 id="channelDetailTitle">频道</h3>
+              <div class="sub" id="channelDetailSub"></div>
+            </div>
+            <div class="card-header-actions" id="channelDetailActions" style="display:none;">
+              <button class="btn xs danger" id="channelDeleteBtn" onclick="deleteCurrentChannel()">删除</button>
+              <button class="btn xs primary" id="channelSaveBtn" onclick="saveCurrentChannel()">保存</button>
+            </div>
+          </div>
+          <div class="pane-body" id="channelDetailBody"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+"use strict";
+
+// ============================================================
+//  State
+// ============================================================
+const API_BASE = '';
+let sessions = [];
+let currentSessionId = null;
+let messages = {};
+const streamingSessions = new Set();
+let currentEventSource = null;
+let lastStreamCancel = null;
+
+let agentsCache = [];
+let availableToolsCache = [];
+let selectedAgentId = null;
+let currentAgentDraft = null;
+
+let channelsCache = [];
+let selectedChannelId = null;
+
+let skillsCache = [];
+let skillsRootDir = '';
+let selectedSkillId = null;
+
+const RESERVED_SESSION_IDS = new Set(['__heartbeat__', '__cron__']);
+
+// ============================================================
+//  Utils
+// ============================================================
+function $(id){ return document.getElementById(id); }
+function escapeHtml(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function setStatus(text){
+  const el = $('bottomStatus'); if (el) el.textContent = text;
+}
+
+// ============================================================
+//  Navigation between views
+// ============================================================
+function switchView(view){
+  document.querySelectorAll('.nav-item').forEach(b => {
+    if (b.dataset && b.dataset.view) b.classList.toggle('active', b.dataset.view === view);
+  });
+  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+  $('view' + view.charAt(0).toUpperCase() + view.slice(1)).classList.remove('hidden');
+  if (view === 'agents'){ refreshAgentList(); if (!selectedAgentId) showAgentEmpty(); }
+  if (view === 'skills'){ refreshSkillList(); if (!selectedSkillId) showSkillEmpty(); }
+  if (view === 'channels'){ refreshChannelTree(); if (!selectedChannelId) showChannelEmpty(); }
+}
+
+// ============================================================
+//  Sessions
+// ============================================================
+async function fetchSessions(){
+  try{
+    const r = await fetch(`${API_BASE}/api/sessions`);
+    const j = await r.json();
+    sessions = (j.sessions || []).filter(s => !RESERVED_SESSION_IDS.has(s.id));
+    renderSessions();
+    return true;
+  } catch(e){ console.error(e); return false; }
+}
+
+function renderSessions(){
+  const list = $('sessionList');
+  list.innerHTML = '';
+  $('sessionsCount').textContent = `${sessions.length} active`;
+  $('navSessionsCount').textContent = sessions.length ? sessions.length : '';
+  sessions.forEach(s => {
+    const row = document.createElement('div');
+    row.className = `session-row${s.id === currentSessionId ? ' active' : ''}`;
+    row.innerHTML = `
+      <button class="main" onclick="switchSession('${s.id.replace(/'/g,"\\'")}')">
+        <span class="name">${escapeHtml(s.id)}</span>
+        ${s.busy ? '<span class="sub">running…</span>' : ''}
+      </button>
+      <button class="del" title="删除会话" onclick="deleteSession('${s.id.replace(/'/g,"\\'")}')">
+        <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+      </button>
+    `;
+    list.appendChild(row);
+  });
+  if (!sessions.length){
+    list.innerHTML = `<div class="empty-state"><div class="title">暂无会话</div><div>点击侧边栏「新建会话」开始</div></div>`;
+  }
+}
+
+async function createSession(){
+  switchView('sessions');
+  const id = 'session_' + Date.now().toString(36);
+  try{
+    const r = await fetch(`${API_BASE}/api/sessions`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id })
+    });
+    if (r.ok){ await fetchSessions(); switchSession(id); }
+  } catch(e){ console.error(e); }
+}
+
+async function deleteSession(id){
+  if (!confirm(`删除会话 ${id}?`)) return;
+  try{
+    await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(id)}`, { method:'DELETE' });
+    if (currentSessionId === id) currentSessionId = null;
+    delete messages[id];
+    await fetchSessions();
+    renderMessages();
+    updateChatHeader();
+  } catch(e){ console.error(e); }
+}
+
+function switchSession(id){
+  currentSessionId = id;
+  renderSessions();
+  updateChatHeader();
+  if (!messages[id]) messages[id] = [];
+  renderMessages(true);
+  loadSessionHistory(id);
+}
+
+function updateChatHeader(){
+  $('chatTitle').textContent = currentSessionId || '会话';
+  $('chatSubtitle').textContent = currentSessionId ? `会话 ID: ${currentSessionId}` : '选择左侧会话或开始新会话';
+}
+
+async function loadSessionHistory(id){
+  try{
+    const r = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(id)}/history`);
+    if (!r.ok) return;
+    const j = await r.json();
+    const raw = j.messages || [];
+    // Rebuild the timeline so that tool-call assistant rows (whose content
+    // is JSON `{"name":..., "arguments":...}`) and tool/tool_response rows
+    // become collapsible tool bubbles with name + args + result — matching
+    // the live streaming UI.
+    const out = [];
+    for (const msg of raw){
+      const role = msg.role || '';
+      const content = msg.content || '';
+
+      if (role === 'system') continue;
+
+      if (role === 'user'){
+        out.push({ type:'user', content });
+        continue;
+      }
+
+      if (role === 'tool' || role === 'tool_response'){
+        // Strip a leading [TOOL_RESPONSE] marker if present (legacy data).
+        let result = content;
+        if (result.startsWith('[TOOL_RESPONSE]')){
+          result = result.slice('[TOOL_RESPONSE]'.length).trimStart();
+        }
+        // The history occasionally serialises tool results as
+        // "<result>\nInput was: {...}" — fold "Input was" back into args
+        // if the matching tool bubble has none.
+        let inputHint = null;
+        const inputIdx = result.lastIndexOf('\nInput was: ');
+        if (inputIdx >= 0){
+          inputHint = result.slice(inputIdx + '\nInput was: '.length).trim();
+          result = result.slice(0, inputIdx);
+        }
+        // Find the most recent unresolved tool bubble.
+        let matched = false;
+        for (let i = out.length - 1; i >= 0; i--){
+          if (out[i].type === 'tool' && out[i].result == null){
+            out[i].result = result;
+            if (inputHint && !out[i].args) out[i].args = inputHint;
+            matched = true;
+            break;
+          }
+        }
+        if (!matched){
+          // Inherit the last tool name we saw so the bubble isn't anonymous.
+          let fallbackName = 'tool';
+          for (let i = out.length - 1; i >= 0; i--){
+            if (out[i].type === 'tool' && out[i].name && out[i].name !== 'tool'){
+              fallbackName = out[i].name;
+              break;
             }
+          }
+          out.push({
+            type:'tool',
+            name: fallbackName,
+            args: inputHint || '',
+            result,
+            expanded:false,
+          });
         }
+        continue;
+      }
 
-        function renderSessions() {
-            const list = document.getElementById('sessionList');
-            list.innerHTML = '';
+      // role === 'assistant' (or unknown -> treat as assistant)
+      const trimmed = content.trim();
+      let asTool = null;
+      if (trimmed.startsWith('{')){
+        try{
+          const parsed = JSON.parse(trimmed);
+          if (parsed && typeof parsed === 'object' && parsed.name
+              && (parsed.arguments !== undefined || parsed.input !== undefined)){
+            const a = parsed.arguments !== undefined ? parsed.arguments : parsed.input;
+            asTool = {
+              type:'tool',
+              name: parsed.name,
+              args: typeof a === 'string' ? a : JSON.stringify(a),
+              result: null,
+              expanded:false,
+            };
+          }
+        } catch(e){ /* not a tool-call JSON */ }
+      }
+      if (asTool){
+        out.push(asTool);
+      } else if (content){
+        out.push({ type:'assistant', content });
+      }
+    }
+    messages[id] = out;
+    renderMessages(true);
+  } catch(e){ console.error('loadSessionHistory failed', e); }
+}
 
-            sessions.forEach(session => {
-                const item = document.createElement('div');
-                item.className = `session-item${session.id === currentSessionId ? ' active' : ''}`;
-                item.onclick = (e) => {
-                    if (!e.target.classList.contains('delete-btn')) {
-                        switchSession(session.id);
-                    }
-                };
+// ============================================================
+//  Agents — form-based config editor
+// ============================================================
+const WORK_MODES = ['react', 'plan_and_execute', 'workflow'];
+const FORMAT_TYPES = ['openai', 'anthropic'];
+const STORAGE_TYPES = ['MEMORY_ONLY', 'JSON_FILE', 'DATABASE'];
+const PROMPT_TYPES = ['TEXT', 'FILE_PATH'];
+const PARAM_TYPES = ['int', 'float', 'bool', 'string'];
 
-                const statusClass = session.busy ? 'status busy' : 'status';
-                const deleteBtn = session.id === '__DEFAULT__' ? '' :
-                    `<button class="btn btn-ghost btn-small delete-btn" onclick="deleteSession('${session.id}')">x</button>`;
+async function fetchAgents(){
+  try{ const r = await fetch(`${API_BASE}/api/agents`); return (await r.json()).agents || []; }
+  catch(e){ return []; }
+}
+async function fetchTools(){
+  try{ const r = await fetch(`${API_BASE}/api/tools`); return (await r.json()).tools || []; }
+  catch(e){ return []; }
+}
 
-                item.innerHTML = `
-                    <div class="${statusClass}"></div>
-                    <span class="name">${escapeHtml(session.id)}</span>
-                    ${deleteBtn}
-                `;
+async function refreshAgentList(){
+  agentsCache = await fetchAgents();
+  if (!availableToolsCache.length) availableToolsCache = await fetchTools();
+  $('agentsCount').textContent = agentsCache.length + ' agents';
+  $('navAgentsCount').textContent = agentsCache.length || '';
+  const root = $('agentList'); root.innerHTML = '';
+  if (!agentsCache.length){
+    root.innerHTML = `<div class="empty-state"><div class="title">暂无智能体</div><div>请启动服务(--server)</div></div>`;
+    return;
+  }
+  agentsCache.forEach(cfg => {
+    const row = document.createElement('button');
+    row.className = `list-row${selectedAgentId === cfg.id ? ' active' : ''}`;
+    row.innerHTML = `
+      <div class="lr-main">
+        <span class="pill accent">${escapeHtml(cfg.mode || '')}</span>
+        <span class="lr-title">${escapeHtml(cfg.name || cfg.id)}</span>
+        <span class="lr-id">${escapeHtml(cfg.id)}</span>
+      </div>`;
+    row.onclick = () => selectAgent(cfg.id);
+    root.appendChild(row);
+  });
+}
 
-                list.appendChild(item);
-            });
+function selectAgent(id){
+  selectedAgentId = id;
+  refreshAgentList();
+  const cfg = agentsCache.find(c => c.id === id);
+  if (!cfg){ showAgentEmpty(); return; }
+  currentAgentDraft = JSON.parse(JSON.stringify(cfg));
+  currentAgentDraft.__epRows = null;
+  currentAgentDraft.__promptRows = null;
+  currentAgentDraft.__toolsSet = null;
+  renderAgentForm(currentAgentDraft);
+}
+
+function showAgentEmpty(msg){
+  $('agentDetailTitle').textContent = '智能体';
+  $('agentDetailSub').textContent = '';
+  $('agentDetailActions').style.display = 'none';
+  $('agentDetailBody').innerHTML = `<div class="empty-state"><div class="title">${escapeHtml(msg || '在左侧选择一个智能体')}</div><div>选择后将展示可编辑的配置表单</div></div>`;
+}
+
+function revertAgentForm(){ if (selectedAgentId) selectAgent(selectedAgentId); }
+
+function renderAgentForm(cfg){
+  $('agentDetailTitle').textContent = cfg.name || cfg.id || '智能体';
+  $('agentDetailSub').innerHTML = `ID: <span class="mono">${escapeHtml(cfg.id)}</span> · ${escapeHtml(cfg.mode||'')}`;
+  $('agentDetailActions').style.display = 'flex';
+  const body = $('agentDetailBody');
+  const opt = (arr, sel) => arr.map(m => `<option value="${m}" ${sel===m?'selected':''}>${m}</option>`).join('');
+  body.innerHTML = `
+    <div id="agSections">
+      ${groupCard('Model', 'purple', '模型连接与参数', `
+        <div class="field"><label>Base URL</label><input type="text" id="ag_m_baseUrl" value="${escapeHtml(cfg.modelConfig?.baseUrl||'')}" placeholder="https://api.openai.com/v1"></div>
+        <div class="field-row">
+          <div class="field"><label>模型名称</label><input type="text" id="ag_m_modelName" value="${escapeHtml(cfg.modelConfig?.modelName||'')}" placeholder="gpt-4o"></div>
+          <div class="field"><label>格式</label><select id="ag_m_formatType">${opt(FORMAT_TYPES, cfg.modelConfig?.formatType)}</select></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>API Key</label><div class="input-with-toggle"><input type="password" id="ag_m_apiKey" value="${escapeHtml(cfg.modelConfig?.apiKey||'')}"><button type="button" class="toggle" onclick="togglePw('ag_m_apiKey',this)">显示</button></div></div>
+          <div class="field"><label>Provider</label><input type="text" id="ag_m_provider" value="${escapeHtml(cfg.modelConfig?.provider||'')}" placeholder="ark_code"><div class="hint">空=使用格式默认</div></div>
+        </div>
+        <div class="field"><label>额外参数</label><div id="ag_ep_table"></div><button type="button" class="add-row" onclick="addEpRow()">+ 新增参数</button></div>
+      `)}
+    </div>
+    <div class="form-actions">
+      <button class="btn primary sm" onclick="saveAgentForm()">保存并热重载</button>
+      <button class="btn sm" onclick="revertAgentForm()">还原</button>
+      <span class="form-status" id="ag_status"></span>
+    </div>`;
+  renderEpTable();
+}
+
+// --- Group-card helper ---
+function groupCard(title, tone, hint, bodyHtml){
+  const icons = {
+    blue: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/></svg>',
+    purple: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>',
+    pink: '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    amber: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>',
+    green: '<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>'
+  };
+  return `
+    <div class="group-card open">
+      <button class="group-card-header" onclick="this.parentElement.classList.toggle('open')">
+        <span class="left"><span class="tile t-${tone}">${icons[tone]||''}</span><span class="titles"><span class="title">${title}</span><span class="hint">${hint}</span></span></span>
+        <span class="right"><svg class="chev" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
+      </button>
+      <div class="group-card-body">${bodyHtml}</div>
+    </div>`;
+}
+
+function togglePw(id, btn){ const e=$(id); if(e.type==='password'){e.type='text';btn.textContent='隐藏';}else{e.type='password';btn.textContent='显示';} }
+
+// ============================================================
+//  Chat rendering
+// ============================================================
+function renderMessages(scrollBottom){
+  const c = $('messages'); c.innerHTML = '';
+  if (!currentSessionId){
+    c.innerHTML = `<div class="empty-state">
+      <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      <div class="title">尚未选择会话</div>
+      <div>点击侧边栏「新建会话」或在左侧列表中选一个</div>
+    </div>`;
+    return;
+  }
+  const list = messages[currentSessionId] || [];
+  if (!list.length){
+    c.innerHTML = `<div class="empty-state"><div class="title">开始对话</div><div>在下方输入消息发送给智能体</div></div>`;
+    return;
+  }
+  list.forEach((m, i) => {
+    const el = document.createElement('div');
+    if (m.type === 'user'){
+      el.className = 'chat-bubble user';
+      el.innerHTML = `<div class="role">You</div><div class="content">${escapeHtml(m.content)}</div>`;
+    } else if (m.type === 'assistant'){
+      el.className = 'chat-bubble assistant';
+      el.innerHTML = `<div class="role">Assistant</div><div class="content">${formatContent(m.content)}</div>`;
+    } else if (m.type === 'tool'){
+      el.className = 'chat-bubble tool' + (m.expanded ? ' open' : '');
+      const argStr = m.args == null
+        ? ''
+        : (typeof m.args === 'string' ? m.args : JSON.stringify(m.args, null, 2));
+      const argPreview = (typeof m.args === 'string' ? m.args : JSON.stringify(m.args || {})).slice(0, 120);
+      const result = m.result;
+      const resultStr = result == null
+        ? '(waiting for response…)'
+        : (typeof result === 'string' ? result : JSON.stringify(result, null, 2));
+      const status = result == null ? 'running' : 'done';
+      el.innerHTML = `
+        <div class="tool-head" onclick="toggleTool(${i})">
+          <span class="arrow">▶</span>
+          <span class="tool-name">🛠 ${escapeHtml(m.name || 'tool')}</span>
+          <span class="tool-args mono">${escapeHtml(argPreview)}</span>
+          <span class="tool-status ${status}">${status === 'running' ? '…' : '✓'}</span>
+        </div>
+        <div class="tool-body">
+          <div class="tool-sub-label">Input</div>
+          <pre>${escapeHtml(argStr || '(none)')}</pre>
+          <div class="tool-sub-label">Output</div>
+          <pre>${escapeHtml(resultStr)}</pre>
+        </div>`;
+    } else if (m.type === 'status'){
+      el.className = 'chat-bubble status' + (m.severity ? ' ' + m.severity : '') + (m.kind ? ' k-' + m.kind : '');
+      el.textContent = m.content;
+    }
+    c.appendChild(el);
+  });
+  if (scrollBottom) c.scrollTop = c.scrollHeight;
+}
+
+function toggleTool(idx){
+  if (!currentSessionId) return;
+  const list = messages[currentSessionId] || [];
+  if (list[idx]) list[idx].expanded = !list[idx].expanded;
+  renderMessages();
+}
+
+function formatContent(text){
+  if (text == null) return '';
+  let s = escapeHtml(text);
+  // Fenced code blocks ``` ... ```
+  s = s.replace(/```([\s\S]*?)```/g, (_, code) => `<pre>${code}</pre>`);
+  // Inline code `...`
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Newlines -> <br>
+  s = s.replace(/\n/g, '<br>');
+  return s;
+}
+
+function clearChat(){
+  if (!currentSessionId) return;
+  messages[currentSessionId] = [];
+  renderMessages(true);
+}
+
+function setStreaming(sessionId, streaming){
+  if (streaming) streamingSessions.add(sessionId);
+  else streamingSessions.delete(sessionId);
+  if (currentSessionId === sessionId){
+    $('cancelBtn').classList.toggle('hidden', !streaming);
+    $('sendBtn').disabled = streaming;
+    $('statusbarText').innerHTML = streaming
+      ? '<span class="processing"><span class="dot"></span>智能体处理中…</span>'
+      : '就绪';
+  }
+}
+
+function handleKeyDown(e){
+  if (e.key === 'Enter' && !e.shiftKey){
+    e.preventDefault(); sendMessage();
+  }
+}
+function autoResize(t){
+  t.style.height = 'auto';
+  t.style.height = Math.min(t.scrollHeight, 200) + 'px';
+}
+
+async function sendMessage(){
+  const input = $('messageInput');
+  const text = input.value.trim();
+  if (!text) return;
+  if (!currentSessionId){ await createSession(); }
+  const sid = currentSessionId;
+  if (!sid) return;
+  if (!messages[sid]) messages[sid] = [];
+  messages[sid].push({ type:'user', content: text });
+  renderMessages(true);
+  input.value = ''; autoResize(input);
+  setStreaming(sid, true);
+  await streamChat(text, sid);
+  setStreaming(sid, false);
+}
+
+async function streamChat(message, sessionId){
+  // Old behaviour, restored: render structured events incrementally.
+  //  * Natural-language stream chunks merge into the *last* assistant bubble
+  //    (or push a new one if the previous bubble isn't an assistant). This
+  //    yields the order: user → assistant-partial → tool → tool_response →
+  //    assistant-partial → tool → ... → final-assistant.
+  //  * If a `stream` chunk parses as a tool-call JSON (`{name, arguments}`)
+  //    we treat it as a tool_call event for back-compat with older backends
+  //    that only emit the tool call via `stream`.
+  //  * `done` carries the authoritative final SessionInvokeResult. We don't
+  //    push a separate bubble from it: the previously streamed assistant
+  //    bubbles already contain the answer. We just surface errors.
+  let receivedDone = false;
+  try{
+    const ctrl = new AbortController();
+    lastStreamCancel = () => ctrl.abort();
+    const r = await fetch(`${API_BASE}/api/chat/stream`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ session_id: sessionId, message }),
+      signal: ctrl.signal
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    try {
+      while (true){
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream:true });
+        let dn;
+        while ((dn = buf.indexOf('\n\n')) >= 0){
+          const ev = buf.slice(0, dn); buf = buf.slice(dn + 2);
+          const lines = ev.split('\n');
+          let evt = 'message', data = '';
+          for (const l of lines){
+            if (l.startsWith('event:')) evt = l.slice(6).trim();
+            else if (l.startsWith('data:')) data += (data ? '\n' : '') + l.slice(5).replace(/^ /, '');
+          }
+          handleSseEvent(sessionId, evt, data);
+          if (evt === 'done') receivedDone = true;
         }
+      }
+    } catch (readErr) {
+      // The server closes the chunked connection right after the `done`
+      // event, which some browsers surface as "network error" on the next
+      // read. Treat that as a clean end-of-stream.
+      if (!receivedDone) throw readErr;
+    }
+  } catch(e){
+    if (e.name !== 'AbortError' && !receivedDone){
+      pushStatus(sessionId, '❌ ' + e.message, 'err');
+    }
+  } finally {
+    lastStreamCancel = null;
+  }
+}
 
-        async function createSession() {
-            console.log("[Action] Create button clicked");
-            try {
-                // 1. 发起创建请求
-                const resp = await fetch(`${API_BASE}/api/sessions`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                });
+// === Helpers that append to messages[sessionId] in the OLD way ===
 
-                if (!resp.ok) {
-                    const errText = await resp.text();
-                    throw new Error(`Server error ${resp.status}: ${errText}`);
-                }
+function appendAssistantChunk(sessionId, chunk){
+  const list = messages[sessionId] || (messages[sessionId] = []);
+  const last = list[list.length - 1];
+  // Merge into the previous assistant bubble if and only if it's still the
+  // most recent message. A tool or status bubble in between breaks the merge
+  // → next stream chunk starts a fresh assistant bubble.
+  if (last && last.type === 'assistant'){
+    last.content = (last.content || '') + chunk;
+  } else {
+    list.push({ type:'assistant', content: chunk });
+  }
+  if (currentSessionId === sessionId) renderMessages(true);
+}
 
-                const data = await resp.json();
-                if (!data.id) {
-                    throw new Error('Server did not return a Session ID');
-                }
+function appendToolCall(sessionId, name, args){
+  const list = messages[sessionId] || (messages[sessionId] = []);
 
-                console.log("[Success] Created session:", data.id);
+  // The backend emits the model's raw tokens via `stream` events AND a
+  // separate `tool_call` event for the same call. The raw tokens include
+  // the tool-call JSON (`{"name":"...","arguments":...}`), which would
+  // otherwise show up inside the previous assistant bubble. Strip the
+  // trailing JSON object (or the whole bubble if it was JSON-only) before
+  // pushing the tool card.
+  cleanTrailingToolJson(list, name);
 
-                // 2. 先刷新列表，确保新 Session 出现在侧边栏
-                await fetchSessions();
+  list.push({
+    type:'tool',
+    name: name || 'tool',
+    args: args,
+    result: null,
+    expanded: false,
+  });
+  if (currentSessionId === sessionId) renderMessages(true);
+}
 
-                // 3. 切换到新 Session
-                switchSession(data.id);
+// Strip a trailing JSON tool-call from the last assistant bubble. Looks for
+// the last balanced `{...}` whose first key is "name" — if it exists, cut
+// from there onwards. If the bubble becomes empty/whitespace, drop it.
+function cleanTrailingToolJson(list, expectedName){
+  for (let i = list.length - 1; i >= 0; i--){
+    const m = list[i];
+    if (m.type === 'tool' || m.type === 'status') return; // nothing to clean
+    if (m.type !== 'assistant') continue;
+    const cut = findToolJsonStart(m.content || '', expectedName);
+    if (cut >= 0){
+      m.content = (m.content || '').slice(0, cut).trim();
+      if (!m.content) list.splice(i, 1);
+    }
+    return;
+  }
+}
 
-            } catch (e) {
-                console.error('Failed to create session:', e);
-                alert('创建 Session 失败:\n' + e.message);
+// Returns the index in `text` of the '{' that opens a trailing JSON tool
+// call (`{"name": ..., "arguments": ...}`), or -1 if none. Scans from the
+// end looking for the last '{', then validates the surrounding shape.
+function findToolJsonStart(text, expectedName){
+  // Quick exit: must contain a brace
+  let lastBrace = text.lastIndexOf('{');
+  while (lastBrace !== -1){
+    const tail = text.slice(lastBrace).trim();
+    // Heuristic: trailing JSON should mention "name"
+    if (/"name"\s*:/.test(tail) && /"arguments"\s*:/.test(tail)){
+      // Try to parse the tail as JSON or as a sequence of concatenated JSONs.
+      try{
+        JSON.parse(tail);
+        return lastBrace;
+      } catch(e){
+        // Tail might be incomplete (mid-stream) or have multiple objects.
+        // Accept as a tool-call boundary if the first balanced object
+        // starting at lastBrace parses and mentions the expected name.
+        const balanced = takeBalancedJson(text, lastBrace);
+        if (balanced != null){
+          try{
+            const obj = JSON.parse(balanced);
+            if (obj && obj.name && (!expectedName || obj.name === expectedName)){
+              return lastBrace;
             }
+          } catch(e2) {}
         }
+      }
+      // Otherwise back off to an earlier '{' (handles concatenated tool calls)
+      lastBrace = text.lastIndexOf('{', lastBrace - 1);
+      continue;
+    }
+    lastBrace = text.lastIndexOf('{', lastBrace - 1);
+  }
+  return -1;
+}
 
-        async function deleteSession(sessionId) {
-            if (sessionId === '__DEFAULT__') return;
-            if (!confirm(`Delete session "${sessionId}"?`)) return;
+// Extract the first balanced {...} starting at `start`. Returns null if not balanced.
+function takeBalancedJson(s, start){
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < s.length; i++){
+    const ch = s[i];
+    if (inStr){
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}'){
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
+}
 
-            try {
-                await fetch(`${API_BASE}/api/sessions/${sessionId}`, { method: 'DELETE' });
-                if (currentSessionId === sessionId) {
-                    currentSessionId = null;
-                    localStorage.removeItem('jiuwen_session_id');
-                }
-                await fetchSessions();
-                if (!currentSessionId) {
-                    showWelcome();
-                }
-            } catch (e) {
-                console.error('Failed to delete session:', e);
-            }
+function setLastToolResult(sessionId, result){
+  const list = messages[sessionId] || [];
+  for (let i = list.length - 1; i >= 0; i--){
+    if (list[i].type === 'tool' && list[i].result == null){
+      list[i].result = result;
+      break;
+    }
+  }
+  if (currentSessionId === sessionId) renderMessages(true);
+}
+
+function pushStatus(sessionId, content, severity){
+  const list = messages[sessionId] || (messages[sessionId] = []);
+  const t = (content || '').trim();
+  if (!t) return;
+  // Recognise iteration headers as accent chips, errors/cancel as warn/err.
+  let kind = null, sev = severity || null;
+  if (/^Thinking\.\.\./i.test(t)) kind = 'iter';
+  else if (!sev && /Cancelled|Max iterations|empty response/i.test(t)) sev = 'warn';
+  list.push({ type:'status', content: t, kind, severity: sev });
+  if (currentSessionId === sessionId) renderMessages(true);
+}
+
+function handleSseEvent(sessionId, evt, data){
+  if (!messages[sessionId]) messages[sessionId] = [];
+
+  if (evt === 'stream'){
+    if (!data) return;
+    // Heuristic: if the chunk looks like a complete tool-call JSON object,
+    // promote it to a tool card so legacy backends still work. Modern
+    // backends will also emit a separate 'tool_call' event; our list_row
+    // logic harmlessly absorbs duplicates because the second will create a
+    // new (empty) tool card. To avoid that we ONLY auto-promote when no
+    // explicit tool_call event has fired for this exact payload — but since
+    // we can't know that here cheaply, we keep the old behaviour: only
+    // promote when the chunk *starts* with '{' and parses cleanly.
+    const trimmed = data.trim();
+    if (trimmed.startsWith('{')){
+      try{
+        const parsed = JSON.parse(trimmed);
+        if (parsed && parsed.name && parsed.arguments !== undefined){
+          const args = typeof parsed.arguments === 'string'
+            ? parsed.arguments
+            : JSON.stringify(parsed.arguments);
+          appendToolCall(sessionId, parsed.name, args);
+          return;
         }
-
-        function switchSession(sessionId) {
-            console.log(`[Action] Switching to session: ${sessionId}`);
-            currentSessionId = sessionId;
-            localStorage.setItem('jiuwen_session_id', sessionId);
-
-            // UI Reset: Ensure input state matches the new session's status
-            const isSessionStreaming = streamingSessions.has(sessionId);
-            const input = document.getElementById('messageInput');
-            const sendBtn = document.getElementById('sendBtn');
-            const cancelBtn = document.getElementById('cancelBtn');
-            if (input) input.disabled = isSessionStreaming;
-            if (sendBtn) sendBtn.disabled = isSessionStreaming;
-            if (cancelBtn) cancelBtn.classList.toggle('visible', isSessionStreaming);
-
-            // 1. Check local cache for seamless resume (if refreshing page)
-            const restored = restoreCachedStream(sessionId);
-            
-            // If restored, update messages array
-            if (restored && (!messages[sessionId] || messages[sessionId].length === 0)) {
-                messages[sessionId] = restored.messages;
-            }
-            
-            // 2. Ensure the chat interface is shown and UI is updated
-            showChat();
-            renderSessions();
-            
-            // ALWAYS render messages to clear any old content from previous session
-            // and show current session state (either restored cache or existing history)
-            renderMessages();
-
-            // 3. Load full history in background to refresh content if needed
-            loadSessionHistory(sessionId).then(() => {
-                checkSessionBusy(sessionId);
-            }).catch(e => {
-                console.warn("Failed to load history for session:", sessionId, e);
-            });
-        }
-
-        function restoreCachedStream(sessionId) {
-            const cached = sessionStorage.getItem(`jiuwen_stream_${sessionId}`);
-            if (!cached) return null;
-
-            try {
-                const data = JSON.parse(cached);
-                // Only restore if cache is relatively recent (last 5 mins)
-                if (Date.now() - data.timestamp < 5 * 60 * 1000) {
-                    return {
-                        messages: [
-                            { type: 'user', content: data.query, role: 'user' },
-                            { type: 'assistant', content: data.content, role: 'assistant', isRestored: true }
-                        ],
-                        query: data.query
-                    };
-                }
-            } catch (e) {}
-            return null;
-        }
-
-        async function checkSessionBusy(sessionId) {
-            try {
-                const resp = await fetch(`${API_BASE}/api/sessions`);
-                const data = await resp.json();
-                const session = data.sessions.find(s => s.id === sessionId);
-                
-                // If we have a restored stream and session is NOT busy, 
-                // it means the task finished while disconnected.
-                // Force a full history reload to show the final result.
-                if (session && !session.busy) {
-                    const cached = sessionStorage.getItem(`jiuwen_stream_${sessionId}`);
-                    if (cached) {
-                        // Task is done on backend, replace restored stream with actual history
-                        loadSessionHistory(sessionId);
-                        cleanupStreamingStorage(sessionId);
-                    }
-                    streamingSessions.delete(sessionId); // Ensure removed from Set
-                } 
-                // If session IS busy, we show the stream (restored or current) 
-                // and poll for completion.
-                else if (session && session.busy) {
-                    setStreaming(sessionId, true);
-                    const poll = async () => {
-                        try {
-                            const pollResp = await fetch(`${API_BASE}/api/sessions`);
-                            const pollData = await pollResp.json();
-                            const pollSession = pollData.sessions.find(s => s.id === sessionId);
-                            
-                            if (!pollSession || !pollSession.busy) {
-                                // Task finished, reload history to show the result
-                                loadSessionHistory(sessionId);
-                                cleanupStreamingStorage(sessionId);
-                            }
-                        } catch (e) {}
-                        
-                        // Always clear streaming state for this session after polling logic
-                        setStreaming(sessionId, false);
-                    };
-                    // Start polling loop
-                    const pollLoop = async () => {
-                        try {
-                            const pollResp = await fetch(`${API_BASE}/api/sessions`);
-                            const pollData = await pollResp.json();
-                            const pollSession = pollData.sessions.find(s => s.id === sessionId);
-                            
-                            if (!pollSession || !pollSession.busy) {
-                                loadSessionHistory(sessionId);
-                                cleanupStreamingStorage(sessionId);
-                                setStreaming(sessionId, false); // Stop streaming UI
-                            } else {
-                                setTimeout(pollLoop, 2000);
-                            }
-                        } catch (e) {
-                            setStreaming(sessionId, false);
-                        }
-                    };
-                    setTimeout(pollLoop, 2000);
-                } else {
-                    // Session not found, clean up
-                    cleanupStreamingStorage(sessionId);
-                }
-            } catch (e) {
-                console.warn("Failed to check session busy state", e);
-            }
-        }
-
-        function cleanupStreamingStorage(sessionId) {
-            sessionStorage.removeItem(`jiuwen_stream_${sessionId}`);
-            localStorage.removeItem(`jiuwen_streaming_query_${sessionId}`);
-        }
-
-        function showWelcome() {
-            document.getElementById('welcomeScreen').style.display = 'flex';
-            document.getElementById('chatHeader').style.display = 'none';
-            document.getElementById('messages').style.display = 'none';
-            document.getElementById('inputArea').style.display = 'none';
-            document.getElementById('channelDetail').classList.remove('active');
-        }
-
-        function showChat() {
-            document.getElementById('welcomeScreen').style.display = 'none';
-            document.getElementById('chatHeader').style.display = 'flex';
-            document.getElementById('messages').style.display = 'flex';
-            document.getElementById('inputArea').style.display = 'block';
-            document.getElementById('channelDetail').classList.remove('active');
-            document.getElementById('currentSessionName').textContent = currentSessionId;
-        }
-
-        function showChannelDetail() {
-            document.getElementById('welcomeScreen').style.display = 'none';
-            document.getElementById('chatHeader').style.display = 'none';
-            document.getElementById('messages').style.display = 'none';
-            document.getElementById('inputArea').style.display = 'none';
-            document.getElementById('channelDetail').classList.add('active');
-        }
-
-        function renderMessages(forceScrollToBottom = false) {
-            const container = document.getElementById('messages');
-            container.innerHTML = '';
-
-            const msgList = messages[currentSessionId] || [];
-            msgList.forEach((msg, idx) => {
-                const div = document.createElement('div');
-                let skip = false;
-                
-                if (msg.type === 'tool') {
-                    div.className = 'message tool-card';
-                    div.setAttribute('data-msg-index', idx);
-                    const isExpanded = msg.expanded || false;
-                    const arrowClass = isExpanded ? 'tool-arrow expanded' : 'tool-arrow';
-                    const collapsedClass = isExpanded ? '' : ' collapsed';
-                    div.className += collapsedClass;
-                    
-                    let html = `<div class="tool-header" onclick="toggleTool(${idx})">
-                                    <span class="${arrowClass}">▶</span>
-                                    <span>Tool: ${escapeHtml(msg.toolName)}</span>
-                                </div>`;
-                    
-                    if (!isExpanded) {
-                        const hasResult = msg.result && msg.result.length > 0;
-                        html += `<div class="tool-summary">
-                                    <svg class="tool-icon" viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
-                                    <span>${hasResult ? 'Completed - click to view details' : 'Executing...'}</span>
-                                 </div>`;
-                    } else {
-                        html += `<div class="tool-content">`;
-                        if (msg.args) html += `<span class="tool-section-label">Arguments:</span><pre style="margin:0">${escapeHtml(msg.args)}</pre>`;
-                        if (msg.result) html += `<span class="tool-section-label" style="margin-top:12px; color:var(--success)">Result:</span><div style="margin-top:4px">${escapeHtml(msg.result)}</div>`;
-                        html += `</div>`;
-                    }
-                    div.innerHTML = html;
-
-                } else if (msg.type === 'status') {
-                    div.className = 'message status-msg';
-                    div.setAttribute('data-msg-index', idx);
-                    div.textContent = msg.content;
-
-                } else {
-                    let shouldRender = true;
-                    if (msg.type === 'assistant' && msg.content) {
-                        const trimmed = msg.content.trim();
-                        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-                            try {
-                                const parsed = JSON.parse(trimmed);
-                                if (parsed.name && parsed.arguments !== undefined) {
-                                    shouldRender = false;
-                                }
-                            } catch (e) {}
-                        }
-                    }
-
-                    if (!shouldRender) {
-                        skip = true;
-                    } else {
-                        div.className = `message ${msg.type}`;
-                        div.setAttribute('data-msg-index', idx);
-                        const roleLabel = msg.role === 'user' ? 'You' : (msg.isRestored ? 'Assistant (Recovering...)' : 'Assistant');
-                        let contentHtml = formatContent(msg.content);
-                        if (msg.isRestored && streamingSessions.has(currentSessionId)) {
-                            contentHtml += '<span class="cursor"></span>';
-                        }
-                        div.innerHTML = `<div class="role">${roleLabel}</div><div class="content">${contentHtml}</div>`;
-                    }
-                }
-
-                if (!skip) {
-                    container.appendChild(div);
-                }
-            });
-
-            if (forceScrollToBottom) {
-                requestAnimationFrame(() => {
-                    container.scrollTop = container.scrollHeight;
-                });
-            } else {
-                smartScrollToBottom(container);
-            }
-        }
-
-        function smartScrollToBottom(container) {
-            requestAnimationFrame(() => {
-                const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
-                if (isAtBottom) {
-                    container.scrollTop = container.scrollHeight;
-                }
-            });
-        }
-
-        function appendAssistantMessage(sessionId, content, query) {
-            if (!messages[sessionId]) {
-                messages[sessionId] = [];
-            }
-            const list = messages[sessionId];
-            const lastMsg = list.length > 0 ? list[list.length - 1] : null;
-            
-            if (lastMsg && lastMsg.type === 'assistant') {
-                lastMsg.content += content;
-                if (sessionId === currentSessionId) {
-                    incrementalUpdateAssistant(sessionId);
-                }
-            } else {
-                list.push({
-                    type: 'assistant',
-                    content: content,
-                    role: 'assistant'
-                });
-                if (sessionId === currentSessionId) {
-                    incrementalAppendAssistant(sessionId);
-                }
-            }
-            
-            const assistantMsg = list[list.length - 1];
-            if (assistantMsg && assistantMsg.type === 'assistant') {
-                sessionStorage.setItem(
-                    `jiuwen_stream_${sessionId}`, 
-                    JSON.stringify({ content: assistantMsg.content, timestamp: Date.now(), query: query })
-                );
-            }
-        }
-
-        function incrementalAppendAssistant(sessionId) {
-            const container = document.getElementById('messages');
-            const msgList = messages[sessionId];
-            const lastMsg = msgList[msgList.length - 1];
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            div.setAttribute('data-msg-index', msgList.length - 1);
-            div.innerHTML = `<div class="role">Assistant</div><div class="content">${formatContent(lastMsg.content)}</div>`;
-            container.appendChild(div);
-            smartScrollToBottom(container);
-        }
-
-        function incrementalUpdateAssistant(sessionId) {
-            const container = document.getElementById('messages');
-            const msgList = messages[sessionId];
-            const lastAssistantIndex = findLastMessageIndex(sessionId, 'assistant');
-            if (lastAssistantIndex === -1) return;
-            
-            const contentDiv = container.querySelector(`.message.assistant[data-msg-index="${lastAssistantIndex}"] .content`);
-            if (contentDiv) {
-                contentDiv.innerHTML = formatContent(msgList[lastAssistantIndex].content);
-                smartScrollToBottom(container);
-            }
-        }
-
-        function findLastMessageIndex(sessionId, type) {
-            const list = messages[sessionId];
-            for (let i = list.length - 1; i >= 0; i--) {
-                if (list[i].type === type) {
-                    return i;
-                }
-            }
-            return -1;
-        }
-
-        function appendToolMessage(sessionId, toolName, args) {
-            if (!messages[sessionId]) {
-                messages[sessionId] = [];
-            }
-            const newIndex = messages[sessionId].length;
-            messages[sessionId].push({
-                type: 'tool',
-                content: '',
-                toolName: toolName,
-                args: args,
-                expanded: false
-            });
-            if (sessionId === currentSessionId) {
-                incrementalAppendTool(sessionId, newIndex);
-            }
-        }
-
-        function incrementalAppendTool(sessionId, index) {
-            const container = document.getElementById('messages');
-            const msg = messages[sessionId][index];
-            const div = document.createElement('div');
-            div.className = 'message tool-card';
-            div.setAttribute('data-msg-index', index);
-            div.innerHTML = `<div class="tool-header" onclick="toggleTool(${index})">
-                                <span class="tool-arrow">▶</span>
-                                <span>Tool: ${escapeHtml(msg.toolName)}</span>
-                             </div>
-                             <div class="tool-summary">
-                                <svg class="tool-icon" viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
-                                <span>Executing...</span>
-                             </div>`;
-            container.appendChild(div);
-            smartScrollToBottom(container);
-        }
-
-        function appendStatusMessage(sessionId, content) {
-            if (!messages[sessionId]) {
-                messages[sessionId] = [];
-            }
-            const list = messages[sessionId];
-            const lastMsg = list.length > 0 ? list[list.length - 1] : null;
-            
-            if (lastMsg && lastMsg.type === 'status') {
-                lastMsg.content += ' ' + content;
-                if (sessionId === currentSessionId) {
-                    incrementalUpdateStatus(sessionId);
-                }
-            } else {
-                list.push({
-                    type: 'status',
-                    content: content
-                });
-                if (sessionId === currentSessionId) {
-                    incrementalAppendStatus(sessionId);
-                }
-            }
-        }
-
-        function incrementalAppendStatus(sessionId) {
-            const container = document.getElementById('messages');
-            const msgList = messages[sessionId];
-            const lastMsg = msgList[msgList.length - 1];
-            const div = document.createElement('div');
-            div.className = 'message status-msg';
-            div.setAttribute('data-msg-index', msgList.length - 1);
-            div.textContent = lastMsg.content;
-            container.appendChild(div);
-            smartScrollToBottom(container);
-        }
-
-        function incrementalUpdateStatus(sessionId) {
-            const container = document.getElementById('messages');
-            const msgList = messages[sessionId];
-            const lastStatusIndex = findLastMessageIndex(sessionId, 'status');
-            if (lastStatusIndex === -1) return;
-            
-            const statusDiv = container.querySelector(`.message.status-msg[data-msg-index="${lastStatusIndex}"]`);
-            if (statusDiv) {
-                statusDiv.textContent = msgList[lastStatusIndex].content;
-                smartScrollToBottom(container);
-            }
-        }
-
-        function toggleTool(index) {
-            const list = messages[currentSessionId];
-            if (list && list[index]) {
-                list[index].expanded = !list[index].expanded;
-                renderMessages();
-            }
-        }
-
-        function setStreaming(sessionId, streaming) {
-            if (streaming) {
-                streamingSessions.add(sessionId);
-            } else {
-                streamingSessions.delete(sessionId);
-            }
-
-            // Update UI ONLY if the affected session is the one currently being viewed
-            if (sessionId === currentSessionId) {
-                document.getElementById('sendBtn').disabled = streaming;
-                document.getElementById('cancelBtn').classList.toggle('visible', streaming);
-                document.getElementById('messageInput').disabled = streaming;
-            }
-        }
-
-        function addMessage(type, content, options = {}) {
-            const targetSessionId = options.sessionId || currentSessionId;
-            if (!targetSessionId) return;
-            if (!messages[targetSessionId]) {
-                messages[targetSessionId] = [];
-            }
-
-            messages[targetSessionId].push({
-                type,
-                content,
-                role: options.role || 'assistant',
-                toolName: options.toolName || '',
-                args: options.args || '',
-                expanded: false
-            });
-
-            // Only render if the message belongs to the currently active session view
-            if (targetSessionId === currentSessionId) {
-                renderMessages();
-            }
-        }
-
-        async function sendMessage() {
-            const input = document.getElementById('messageInput');
-            const text = input.value.trim();
-            if (!text || !currentSessionId || streamingSessions.has(currentSessionId)) return;
-
-            const sessionId = currentSessionId;
-            input.value = '';
-            input.style.height = 'auto';
-
-            showChat();
-            addMessage('user', text, { role: 'user', sessionId: sessionId });
-            setStreaming(sessionId, true);
-            localStorage.setItem(`jiuwen_streaming_query_${sessionId}`, text);
-
-            try {
-                await streamChat(text, sessionId);
-            } catch (e) {
-                console.error('Chat error:', e);
-            } finally {
-                setStreaming(sessionId, false);
-                loadSessionHistory(sessionId);
-                cleanupStreamingStorage(sessionId);
-            }
-        }
-
-        async function streamChat(message, sessionId) {
-            return new Promise((resolve, reject) => {
-                fetch(`${API_BASE}/api/chat/stream`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: sessionId, message: message })
-                }).then(async response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-
-                    setStreaming(sessionId, true);
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder();
-                    let buffer = '';
-                    let receivedDone = false;
-
-                    while (true) {
-                        const { value, done } = await reader.read();
-                        if (done) {
-                            break;
-                        }
-
-                        buffer += decoder.decode(value, { stream: true });
-                        const events = buffer.split('\n\n');
-                        buffer = events.pop();
-
-                        for (const evt of events) {
-                            if (!evt.trim()) continue;
-
-                            let eventType = 'message';
-                            let eventData = '';
-                            const lines = evt.split('\n');
-                            let hasData = false;
-
-                            for (const line of lines) {
-                                if (line.startsWith('event: ')) {
-                                    eventType = line.slice(7);
-                                } else if (line.startsWith('data: ')) {
-                                    if (hasData) {
-                                        eventData += '\n';
-                                    }
-                                    eventData += line.slice(6);
-                                    hasData = true;
-                                }
-                            }
-
-                            const msgList = messages[sessionId];
-
-                            if (eventType === 'stream') {
-                                if (!eventData) continue;
-                                
-                                if (eventData.trim().startsWith('{')) {
-                                    try {
-                                        const parsed = JSON.parse(eventData);
-                                        if (parsed.name && (parsed.arguments !== undefined)) {
-                                            appendToolMessage(sessionId, parsed.name, typeof parsed.arguments === 'string' ? parsed.arguments : JSON.stringify(parsed.arguments));
-                                            continue;
-                                        }
-                                    } catch (e) {
-                                    }
-                                }
-
-                                appendAssistantMessage(sessionId, eventData, message);
-                            } else if (eventType === 'status') {
-                                appendStatusMessage(sessionId, eventData);
-                            } else if (eventType === 'tool_call') {
-                                try {
-                                    const data = JSON.parse(eventData);
-                                    const toolName = data.name || 'tool';
-                                    appendToolMessage(sessionId, toolName, typeof data.arguments === 'object' ? JSON.stringify(data.arguments) : (data.arguments || JSON.stringify(data)));
-                                } catch {
-                                    appendToolMessage(sessionId, 'Unknown Tool', eventData);
-                                }
-                            } else if (eventType === 'tool_response') {
-                                updateLastToolMsg(eventData, sessionId);
-                            } else if (eventType === 'done') {
-                                receivedDone = true;
-                                try {
-                                    const res = JSON.parse(eventData);
-                                    if (!res.success && res.error) {
-                                        appendStatusMessage(sessionId, `Error: ${res.error}`);
-                                    }
-                                } catch (e) {}
-                            }
-                        }
-                    }
-                    
-                    if (!receivedDone) {
-                         console.warn('Stream ended without a "done" event');
-                    }
-                    resolve();
-                }).catch(err => {
-                    if (err.name !== 'AbortError') {
-                        console.error('Stream catch:', err);
-                    }
-                    reject(err);
-                }).finally(() => {
-                    setStreaming(sessionId, false);
-                    if (reader) {
-                        reader.releaseLock();
-                    }
-                });
-            });
-        }
-
-        async function cancelRequest() {
-            if (currentSessionId && streamingSessions.has(currentSessionId)) {
-                try {
-                    await fetch(`${API_BASE}/api/sessions/${currentSessionId}/cancel`, {
-                        method: 'POST'
-                    });
-                } catch (e) {
-                    console.error('Cancel error:', e);
-                }
-            }
-        }
-
-        function handleKeyDown(event) {
-            if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                sendMessage();
-            }
-        }
-
-        function autoResize(textarea) {
-            textarea.style.height = 'auto';
-            textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
-        }
-
-        function clearChat() {
-            if (currentSessionId) {
-                // Only clear frontend view, history is persisted
-                messages[currentSessionId] = [];
-                renderMessages();
-            }
-        }
-
-        // Removed old modal functions
-
-        async function loadSessionHistory(sessionId) {
-            if (!sessionId) return;
-
-            try {
-                const resp = await fetch(`${API_BASE}/api/sessions/${sessionId}/history`);
-                const data = await resp.json();
-
-                if (!data.messages || data.messages.length === 0) {
-                    messages[sessionId] = [];
-                    renderMessages();
-                    return;
-                }
-
-                const tempMessages = [];
-
-                data.messages.forEach(msg => {
-                    const role = msg.role;
-                    const content = msg.content || '';
-
-                    if (role === 'user') {
-                        tempMessages.push({ type: 'user', content, role: 'user' });
-                    } else if (role === 'tool' || role === 'tool_response') {
-                        let resultContent = content;
-                        if (resultContent.startsWith('[TOOL_RESPONSE]')) {
-                            resultContent = resultContent.replace('[TOOL_RESPONSE]', '').trim();
-                        }
-
-                        let matched = false;
-                        for (let i = tempMessages.length - 1; i >= 0; i--) {
-                            if (tempMessages[i].type === 'tool' && !tempMessages[i].result) {
-                                tempMessages[i].result = resultContent;
-                                matched = true;
-                                break;
-                            }
-                        }
-                        // 如果匹配失败（例如 LLM 重复调用导致前端 UI 去重，但后端存了多条 response）
-                        // 尝试从历史记录中继承最近的 Tool Name，而不是显示 Unknown Tool
-                        if (!matched) {
-                            let fallbackName = 'Unknown Tool';
-                            for (let i = tempMessages.length - 1; i >= 0; i--) {
-                                if (tempMessages[i].type === 'tool' && tempMessages[i].toolName && tempMessages[i].toolName !== 'Unknown Tool') {
-                                    fallbackName = tempMessages[i].toolName;
-                                    break;
-                                }
-                            }
-                            tempMessages.push({
-                                type: 'tool',
-                                toolName: fallbackName,
-                                args: '',
-                                result: resultContent,
-                                expanded: false
-                            });
-                        }
-                    } else {
-                        let isToolCall = false;
-                        let parsedTool = null;
-                        if (content.trim().startsWith('{')) {
-                            try {
-                                const parsed = JSON.parse(content.trim());
-                                if (parsed.name && (parsed.arguments !== undefined || parsed.input !== undefined)) {
-                                    isToolCall = true;
-                                    parsedTool = {
-                                        type: 'tool',
-                                        toolName: parsed.name,
-                                        args: parsed.arguments !== undefined ? (typeof parsed.arguments === 'string' ? parsed.arguments : JSON.stringify(parsed.arguments)) : (typeof parsed.input === 'string' ? parsed.input : JSON.stringify(parsed.input)),
-                                        result: '',
-                                        expanded: false
-                                    };
-                                }
-                            } catch (e) {}
-                        }
-
-                        if (isToolCall && parsedTool) {
-                            tempMessages.push(parsedTool);
-                        } else if (!isToolCall) {
-                            tempMessages.push({ type: 'assistant', content, role: 'assistant' });
-                        }
-                    }
-                });
-
-                messages[sessionId] = tempMessages;
-                renderMessages(true);
-            } catch (e) {
-                console.error('Failed to load history:', e);
-            }
-        }
-
-        function updateLastToolMsg(resultContent, sessionId) {
-            const msgList = messages[sessionId];
-            if (!msgList) return;
-            for (let i = msgList.length - 1; i >= 0; i--) {
-                if (msgList[i].type === 'tool') {
-                    msgList[i].result = resultContent;
-                    if (sessionId === currentSessionId) {
-                        incrementalUpdateTool(sessionId, i);
-                    }
-                    break;
-                }
-            }
-        }
-
-        function incrementalUpdateTool(sessionId, index) {
-            const container = document.getElementById('messages');
-            const msg = messages[sessionId][index];
-            const toolDiv = container.querySelector(`.message.tool-card[data-msg-index="${index}"]`);
-            if (toolDiv) {
-                const summary = toolDiv.querySelector('.tool-summary');
-                if (summary) {
-                    summary.innerHTML = `<svg class="tool-icon" viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
-                                <span>Completed - click to view details</span>`;
-                }
-                smartScrollToBottom(container);
-            }
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        function formatContent(text) {
-            if (!text) return '';
-            
-            // 1. Normalize CRLF
-            text = text.replace(/\r\n/g, '\n');
-            
-            // 2. Extract Code Blocks to protect them
-            const codeBlocks = [];
-            text = text.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
-                const index = codeBlocks.length;
-                const escapedCode = escapeHtml(code).replace(/\n/g, '<br>');
-                codeBlocks.push(`<pre><code class="language-${lang || ''}">${escapedCode}</code></pre>`);
-                return `__JIUWEN_CODE_BLOCK_${index}__`;
-            });
-
-            // 3. Escape HTML for safety
-            text = escapeHtml(text);
-
-            // 4. Parse Tables and Line-by-Line formatting
-            const lines = text.split('\n');
-            let outputParts = [];
-            let i = 0;
-
-            while (i < lines.length) {
-                let line = lines[i];
-                let trimmed = line.trim();
-
-                // Placeholder check
-                if (trimmed.startsWith('__JIUWEN_CODE_BLOCK_') && trimmed.endsWith('__')) {
-                    outputParts.push(trimmed);
-                    i++;
-                    continue;
-                }
-
-                // Table Check
-                const isRowLike = /^\s*\|/.test(trimmed) && trimmed.includes('|');
-                let isTable = false;
-                if (isRowLike && i + 1 < lines.length) {
-                    const nextTrimmed = lines[i + 1].trim();
-                    // Separator line like |---|
-                    if (/^\s*\|[\s\-\|:]+\|\s*$/.test(nextTrimmed)) {
-                        isTable = true;
-                    }
-                }
-
-                if (isTable) {
-                    let tableHtml = '<table>';
-                    // Header
-                    tableHtml += '<thead><tr>' + parseMdRow(trimmed, 'th') + '</tr></thead>';
-                    tableHtml += '<tbody>';
-                    // Skip header and separator
-                    i += 2;
-                    
-                    // Body
-                    while (i < lines.length) {
-                        let bodyLine = lines[i];
-                        let bodyTrimmed = bodyLine.trim();
-                        if (/^\s*\|/.test(bodyTrimmed) && bodyTrimmed.includes('|')) {
-                            tableHtml += '<tr>' + parseMdRow(bodyTrimmed, 'td') + '</tr>';
-                            i++;
-                        } else {
-                            break;
-                        }
-                    }
-                    tableHtml += '</tbody></table>';
-                    outputParts.push(tableHtml);
-                } else {
-                    // Non-table line: process links and inline markdown
-                    let formattedLine = parseMarkdownLinks(trimmed);
-                    formattedLine = formattedLine.replace(/`([^`]+)`/g, '<code>$1</code>');
-                    formattedLine = formattedLine.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-                    formattedLine = formattedLine.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-                    outputParts.push(formattedLine);
-                    i++;
-                }
-            }
-
-            let finalHtml = outputParts.join('<br>');
-            // Restore Code Blocks
-            finalHtml = finalHtml.replace(/__JIUWEN_CODE_BLOCK_(\d+)__/g, function(m, idx) {
-                return codeBlocks[parseInt(idx)];
-            });
-
-            return finalHtml;
-        }
-
-        function parseMdRow(line, tag) {
-            if (line.startsWith('|')) line = line.substring(1);
-            if (line.endsWith('|')) line = line.substring(0, line.length - 1);
-            const cells = line.split('|');
-            return cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('');
-        }
-
-        function parseMarkdownLinks(text) {
-            // Smart Links (http)
-            text = text.replace(/(https?:\/\/[^\s<>\[\]{}]+)/g, function(url) {
-                try {
-                    if (url.includes('amap.com') || url.includes('gaode.com')) {
-                        const icon = `<svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`;
-                        return `<a href="${url}" target="_blank" class="smart-box"><div class="smart-icon">${icon}</div><div class="smart-info"><span class="smart-title">查看地图位置</span><span class="smart-url">amap map</span></div></a>`;
-                    } else {
-                        const icon = `<svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>`;
-                        let hostname = url;
-                        try { hostname = new URL(url).hostname; } catch(e){}
-                        return `<a href="${url}" target="_blank" class="smart-box"><div class="smart-icon">${icon}</div><div class="smart-info"><span class="smart-title">访问链接</span><span class="smart-url">${hostname}</span></div></a>`;
-                    }
-                } catch (e) { return url; }
-            });
-
-            // Markdown Links [text](url)
-            text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, linkText, url) {
-                try {
-                    if (url.includes('amap') || url.includes('gaode') || url.startsWith('amapuri://')) {
-                        const icon = `<svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`;
-                        return `<a href="${url}" target="_blank" class="smart-box"><div class="smart-icon">${icon}</div><div class="smart-info"><span class="smart-title">${linkText}</span><span class="smart-url">amap map</span></div></a>`;
-                    } else {
-                        let hostname = url;
-                        try { hostname = new URL(url).hostname; } catch(e){}
-                        return `<a href="${url}" target="_blank" class="smart-box"><div class="smart-icon">🔗</div><div class="smart-info"><span class="smart-title">${linkText}</span><span class="smart-url">${hostname}</span></div></a>`;
-                    }
-                } catch (e) { return match; }
-            });
-            return text;
-        }
-
-        function formatJsonSafe(str) {
-            try {
-                const obj = typeof str === 'string' ? JSON.parse(str) : str;
-                return escapeHtml(JSON.stringify(obj, null, 2));
-            } catch {
-                return escapeHtml(str);
-            }
-        }
-
-        // Health check
-        async function checkHealth() {
-            try {
-                const resp = await fetch(`${API_BASE}/api/health`);
-                if (resp.ok) {
-                    const data = await resp.json();
-                    console.log('Health check:', data);
-                }
-            } catch (e) {
-                console.warn('Health check failed:', e);
-            }
-        }
-
-        // Expose functions to window for onclick handlers
-        window.createSession = createSession;
-        window.deleteSession = deleteSession;
-        window.sendMessage = sendMessage;
-        window.cancelRequest = cancelRequest;
-        window.clearChat = clearChat;
-        window.switchSession = switchSession;
-        window.toggleTool = toggleTool;
-
-        // ==================== Channels ====================
-        // Channel types supported on the frontend. Backend currently only
-        // implements 'feishu'; others will be added later.
-        const CHANNEL_TYPES = [
-            { key: 'feishu', label: 'Feishu' },
-        ];
-
-        // type -> expanded(bool) for the sidebar tree groups.
-        const channelGroupState = { feishu: true };
-
-        // Currently selected channel id (string) or pseudo-id 'new:<type>' for
-        // an unsaved draft. null when nothing is shown in detail panel.
-        let selectedChannelId = null;
-
-        // In-memory cache of channels last fetched from the backend.
-        let channelsCache = [];
-
-        async function fetchChannels() {
-            try {
-                const resp = await fetch(`${API_BASE}/api/channels`);
-                if (!resp.ok) return [];
-                const data = await resp.json();
-                return Array.isArray(data) ? data : [];
-            } catch (e) {
-                console.error('Failed to fetch channels:', e);
-                return [];
-            }
-        }
-
-        async function createChannel(type, name, params) {
-            const resp = await fetch(`${API_BASE}/api/channels`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type, name, enabled: true, params })
-            });
-            if (!resp.ok) return null;
-            try {
-                return await resp.json();
-            } catch (e) {
-                return {};
-            }
-        }
-
-        async function updateChannel(id, payload) {
-            const resp = await fetch(`${API_BASE}/api/channels/${encodeURIComponent(id)}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            return resp.ok;
-        }
-
-        async function deleteChannel(id) {
-            const resp = await fetch(`${API_BASE}/api/channels/${encodeURIComponent(id)}`, {
-                method: 'DELETE'
-            });
-            return resp.ok;
-        }
-
-        function switchNavView(view) {
-            document.querySelectorAll('.nav-tab').forEach(t => {
-                t.classList.toggle('active', t.dataset.view === view);
-            });
-            document.querySelectorAll('.nav-view').forEach(v => {
-                v.classList.toggle('active', v.id === `navView${view.charAt(0).toUpperCase()}${view.slice(1)}`);
-            });
-            if (view === 'channels') {
-                refreshChannelTree();
-                if (!selectedChannelId) {
-                    showChannelEmpty();
-                }
-            } else {
-                // Switching back to sessions view restores chat or welcome.
-                if (currentSessionId) {
-                    showChat();
-                } else {
-                    showWelcome();
-                }
-            }
-        }
-
-        async function refreshChannelTree() {
-            channelsCache = await fetchChannels();
-            const tree = document.getElementById('channelTree');
-            tree.innerHTML = '';
-
-            for (const t of CHANNEL_TYPES) {
-                const instances = channelsCache.filter(c => c.type === t.key);
-                const expanded = !!channelGroupState[t.key];
-
-                const group = document.createElement('div');
-                group.className = `nav-group${expanded ? ' expanded' : ''}`;
-
-                const header = document.createElement('div');
-                header.className = 'nav-group-header';
-                header.innerHTML = `
-                    <span class="nav-group-arrow">▶</span>
-                    <span class="nav-group-title">${escapeHtml(t.label)}</span>
-                    <span class="meta" style="font-size:11px;color:var(--text-secondary);margin-right:4px">${instances.length}</span>
-                    <button class="nav-group-add" title="Add ${escapeHtml(t.label)} channel">+</button>
-                `;
-                header.querySelector('.nav-group-add').onclick = (e) => {
-                    e.stopPropagation();
-                    channelGroupState[t.key] = true;
-                    startNewChannel(t.key);
-                };
-                header.onclick = () => {
-                    channelGroupState[t.key] = !channelGroupState[t.key];
-                    refreshChannelTree();
-                };
-
-                const children = document.createElement('div');
-                children.className = 'nav-children';
-
-                if (!instances.length) {
-                    const empty = document.createElement('div');
-                    empty.className = 'nav-empty';
-                    empty.textContent = 'No channels yet';
-                    children.appendChild(empty);
-                } else {
-                    for (const ch of instances) {
-                        const item = document.createElement('div');
-                        item.className = `nav-child${selectedChannelId === ch.id ? ' active' : ''}`;
-                        item.innerHTML = `
-                            <span class="label">${escapeHtml(ch.name || ch.id)}</span>
-                            <span class="meta">${ch.enabled ? '' : 'off'}</span>
-                        `;
-                        item.onclick = () => selectChannel(ch.id);
-                        children.appendChild(item);
-                    }
-                }
-
-                group.appendChild(header);
-                group.appendChild(children);
-                tree.appendChild(group);
-            }
-        }
-
-        function selectChannel(id) {
-            selectedChannelId = id;
-            const ch = channelsCache.find(c => c.id === id);
-            refreshChannelTree();
-            showChannelDetail();
-            if (ch) {
-                renderChannelEditor(ch);
-            } else {
-                showChannelEmpty('Channel not found.');
-            }
-        }
-
-        function startNewChannel(type) {
-            selectedChannelId = `new:${type}`;
-            refreshChannelTree();
-            showChannelDetail();
-            renderChannelEditor({ type, _isNew: true });
-        }
-
-        function showChannelEmpty(message) {
-            document.getElementById('channelDetailTitle').textContent = 'Channels';
-            document.getElementById('channelDetailSub').textContent = '';
-            const body = document.getElementById('channelDetailBody');
-            body.innerHTML = `
-                <div class="channel-detail-empty">
-                    ${escapeHtml(message || 'Select a channel from the left, or click + to add a new one.')}
-                </div>
-            `;
-        }
-
-        function renderChannelEditor(ch) {
-            const isNew = !!ch._isNew;
-            const type = ch.type || 'feishu';
-            const params = ch.params || {};
-
-            document.getElementById('channelDetailTitle').textContent =
-                isNew ? `New ${capitalize(type)} Channel` : (ch.name || ch.id);
-            document.getElementById('channelDetailSub').innerHTML = isNew
-                ? `Type: <b>${escapeHtml(type)}</b>`
-                : `ID: <code>${escapeHtml(ch.id)}</code> · Type: <b>${escapeHtml(type)}</b>` +
-                  (ch.enabled
-                      ? '<span class="channel-status-pill enabled">enabled</span>'
-                      : '<span class="channel-status-pill disabled">disabled</span>');
-
-            const body = document.getElementById('channelDetailBody');
-
-            if (type === 'feishu') {
-                body.innerHTML = `
-                    <div class="field">
-                        <label>Name</label>
-                        <input id="chName" value="${escapeHtml(ch.name || '')}" placeholder="My Bot">
-                    </div>
-                    <div class="field">
-                        <label>App ID *</label>
-                        <input id="chAppId" value="${escapeHtml(params.appId || '')}" placeholder="cli_xxxxxxxxxx">
-                    </div>
-                    <div class="field">
-                        <label>App Secret *</label>
-                        <div class="input-with-toggle">
-                            <input id="chAppSecret" type="password" value="${escapeHtml(params.appSecret || '')}" placeholder="your secret">
-                            <button type="button" class="input-toggle-btn" id="chAppSecretToggle" onclick="toggleSecretVisibility('chAppSecret', 'chAppSecretToggle')">Show</button>
-                        </div>
-                        <div class="hint">Stored as-is on the server.</div>
-                    </div>
-                    <div class="field">
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-                            <input type="checkbox" id="chEnabled" ${ch.enabled !== false ? 'checked' : ''} style="width:auto">
-                            <span>Enabled (connects on save)</span>
-                        </label>
-                    </div>
-                    <div class="channel-detail-actions">
-                        <button class="btn btn-primary" id="chSaveBtn">${isNew ? 'Create' : 'Save'}</button>
-                        ${isNew ? '' : '<button class="btn-danger-solid" id="chDeleteBtn">Delete</button>'}
-                    </div>
-                `;
-                body.querySelector('#chSaveBtn').onclick = () => saveCurrentChannel();
-                if (!isNew) {
-                    body.querySelector('#chDeleteBtn').onclick = () => deleteCurrentChannel();
-                }
-            } else {
-                body.innerHTML = `
-                    <div class="channel-detail-empty">
-                        ${escapeHtml(capitalize(type))} channel editor is not implemented yet.
-                    </div>
-                `;
-            }
-        }
-
-        async function saveCurrentChannel() {
-            const isNew = selectedChannelId && selectedChannelId.startsWith('new:');
-            const type = isNew ? selectedChannelId.split(':')[1] : (channelsCache.find(c => c.id === selectedChannelId) || {}).type;
-            if (!type) {
-                alert('Cannot determine channel type.');
-                return;
-            }
-
-            if (type === 'feishu') {
-                const name = document.getElementById('chName').value.trim();
-                const appId = document.getElementById('chAppId').value.trim();
-                const appSecret = document.getElementById('chAppSecret').value.trim();
-                const enabled = document.getElementById('chEnabled').checked;
-
-                if (!appId || !appSecret) {
-                    alert('App ID and App Secret are required.');
-                    return;
-                }
-
-                const payload = {
-                    type: 'feishu',
-                    name: name || `Feishu ${appId.slice(-4)}`,
-                    enabled,
-                    params: { appId, appSecret }
-                };
-
-                if (isNew) {
-                    const result = await createChannel(payload.type, payload.name, payload.params);
-                    if (!result) {
-                        alert('Create failed.');
-                        return;
-                    }
-                    selectedChannelId = result.id || null;
-                    await refreshChannelTree();
-                    if (selectedChannelId) {
-                        selectChannel(selectedChannelId);
-                    }
-                } else {
-                    const ok = await updateChannel(selectedChannelId, payload);
-                    if (!ok) {
-                        alert('Save failed.');
-                        return;
-                    }
-                    await refreshChannelTree();
-                    selectChannel(selectedChannelId);
-                }
-            }
-        }
-
-        async function deleteCurrentChannel() {
-            if (!selectedChannelId || selectedChannelId.startsWith('new:')) return;
-            const ch = channelsCache.find(c => c.id === selectedChannelId);
-            const name = ch ? (ch.name || ch.id) : selectedChannelId;
-            if (!confirm(`Delete channel "${name}"? This cannot be undone.`)) return;
-
-            const ok = await deleteChannel(selectedChannelId);
-            if (!ok) {
-                alert('Delete failed.');
-                return;
-            }
-            selectedChannelId = null;
-            await refreshChannelTree();
-            showChannelEmpty('Channel deleted.');
-        }
-
-        function capitalize(s) {
-            if (!s) return '';
-            return s.charAt(0).toUpperCase() + s.slice(1);
-        }
-
-        function toggleSecretVisibility(inputId, btnId) {
-            const input = document.getElementById(inputId);
-            const btn = document.getElementById(btnId);
-            if (!input || !btn) return;
-            if (input.type === 'password') {
-                input.type = 'text';
-                btn.textContent = 'Hide';
-            } else {
-                input.type = 'password';
-                btn.textContent = 'Show';
-            }
-        }
-
-        // Expose
-        window.switchNavView = switchNavView;
-        window.toggleSecretVisibility = toggleSecretVisibility;
-
-        // ==================== End Channels ====================
-
-        // Initialize
-        async function init() {
-            await checkHealth();
-            await fetchSessions();
-            
-            // Restore last active session
-            const lastSession = localStorage.getItem('jiuwen_session_id');
-            if (lastSession && sessions.some(s => s.id === lastSession)) {
-                switchSession(lastSession);
-            } else if (sessions.length > 0) {
-                switchSession(sessions[0].id);
-            } else {
-                await createSession();
-            }
-        }
-
-        init();
-    </script>
+      } catch(e) { /* fall through – treat as plain text */ }
+    }
+    appendAssistantChunk(sessionId, data);
+    return;
+  }
+  if (evt === 'status'){
+    pushStatus(sessionId, data);
+    return;
+  }
+  if (evt === 'tool_call'){
+    let name = 'tool', args = data;
+    try{
+      const parsed = JSON.parse(data);
+      if (parsed){
+        name = parsed.name || name;
+        args = typeof parsed.arguments === 'string'
+          ? parsed.arguments
+          : (parsed.arguments !== undefined ? JSON.stringify(parsed.arguments) : data);
+      }
+    } catch(e) {}
+    appendToolCall(sessionId, name, args);
+    return;
+  }
+  if (evt === 'tool_response'){
+    setLastToolResult(sessionId, data);
+    return;
+  }
+  if (evt === 'done'){
+    try{
+      const res = JSON.parse(data);
+      if (res && res.success === false && res.error){
+        pushStatus(sessionId, 'Error: ' + res.error, 'err');
+      }
+    } catch(e) {}
+    return;
+  }
+}
+
+async function cancelRequest(){
+  try{
+    if (lastStreamCancel) lastStreamCancel();
+    if (currentSessionId){
+      await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(currentSessionId)}/cancel`, { method:'POST' });
+    }
+  } catch(e){ /* silent */ }
+}
+
+// ============================================================
+//  Agent form sub-editors
+// ============================================================
+function detectType(v){ if(typeof v==='boolean')return'bool'; if(typeof v==='number')return Number.isInteger(v)?'int':'float'; return'string'; }
+function epRows(){
+  if(!currentAgentDraft)return[];
+  if(!currentAgentDraft.__epRows){
+    const p=(currentAgentDraft.modelConfig&&currentAgentDraft.modelConfig.extraParams)||{};
+    currentAgentDraft.__epRows=Object.entries(p).map(([k,v])=>({key:k,value:v,type:detectType(v)}));
+  }
+  return currentAgentDraft.__epRows;
+}
+function renderEpTable(){
+  const rows=epRows(), root=$('ag_ep_table'); if(!root)return;
+  let h='<table class="kv-table"><thead><tr><th>键</th><th style="width:90px">类型</th><th>值</th><th class="col-action"></th></tr></thead><tbody>';
+  rows.forEach((r,i)=>{
+    const vt=r.type==='bool'?`<input data-ev="${i}" type="checkbox" ${r.value?'checked':''} style="width:auto">`
+      :`<input data-ev="${i}" type="${r.type==='int'||r.type==='float'?'number':'text'}" value="${escapeHtml(String(r.value==null?'':r.value))}" step="${r.type==='float'?'any':'1'}">`;
+    h+=`<tr><td><input data-ek="${i}" type="text" value="${escapeHtml(r.key||'')}"></td><td><select data-et="${i}">${PARAM_TYPES.map(t=>`<option value="${t}"${r.type===t?' selected':''}>${t}</option>`).join('')}</select></td><td>${vt}</td><td><button type="button" class="icon-btn" data-ed="${i}">&times;</button></td></tr>`;
+  });
+  if(!rows.length)h+='<tr class="empty-row"><td colspan="4">暂无额外参数</td></tr>';
+  h+='</tbody></table>'; root.innerHTML=h;
+  root.querySelectorAll('[data-ek]').forEach(el=>{el.oninput=()=>{rows[+el.dataset.ek].key=el.value;};});
+  root.querySelectorAll('[data-et]').forEach(el=>{el.onchange=()=>{const i=+el.dataset.et;rows[i].type=el.value;if(el.value==='bool')rows[i].value=!!rows[i].value;else if(el.value==='int')rows[i].value=parseInt(rows[i].value)||0;else if(el.value==='float')rows[i].value=Number(rows[i].value)||0;else rows[i].value=String(rows[i].value==null?'':rows[i].value);renderEpTable();};});
+  root.querySelectorAll('[data-ev]').forEach(el=>{el.oninput=el.onchange=()=>{const i=+el.dataset.ev,t=rows[i].type;if(t==='bool')rows[i].value=el.checked;else if(t==='int')rows[i].value=parseInt(el.value)||0;else if(t==='float')rows[i].value=Number(el.value)||0;else rows[i].value=el.value;};});
+  root.querySelectorAll('[data-ed]').forEach(el=>{el.onclick=()=>{rows.splice(+el.dataset.ed,1);renderEpTable();};});
+}
+function addEpRow(){epRows().push({key:'',value:'',type:'string'});renderEpTable();}
+
+function ppRows(){
+  if(!currentAgentDraft)return[];
+  if(!currentAgentDraft.__ppRows){
+    const t=currentAgentDraft.promptTemplates||{};
+    currentAgentDraft.__ppRows=Object.entries(t).map(([k,v])=>({key:k,type:v.type||'TEXT',value:v.value||''}));
+  }
+  return currentAgentDraft.__ppRows;
+}
+function renderPpTable(){
+  const rows=ppRows(),root=$('ag_pp_table');if(!root)return;
+  let h='<table class="kv-table"><thead><tr><th style="width:160px">名称</th><th style="width:110px">类型</th><th>值(文本/路径)</th><th class="col-action"></th></tr></thead><tbody>';
+  rows.forEach((r,i)=>{
+    h+=`<tr><td><input data-pk="${i}" type="text" value="${escapeHtml(r.key||'')}"></td><td><select data-pt="${i}">${PROMPT_TYPES.map(t=>`<option value="${t}"${r.type===t?' selected':''}>${t}</option>`).join('')}</select></td><td><input data-pv="${i}" type="text" value="${escapeHtml(r.value||'')}"></td><td><button type="button" class="icon-btn" data-pd="${i}">&times;</button></td></tr>`;
+  });
+  if(!rows.length)h+='<tr class="empty-row"><td colspan="4">暂无模板</td></tr>';
+  h+='</tbody></table>';root.innerHTML=h;
+  root.querySelectorAll('[data-pk]').forEach(el=>{el.oninput=()=>{rows[+el.dataset.pk].key=el.value;};});
+  root.querySelectorAll('[data-pt]').forEach(el=>{el.onchange=()=>{rows[+el.dataset.pt].type=el.value;};});
+  root.querySelectorAll('[data-pv]').forEach(el=>{el.oninput=()=>{rows[+el.dataset.pv].value=el.value;};});
+  root.querySelectorAll('[data-pd]').forEach(el=>{el.onclick=()=>{rows.splice(+el.dataset.pd,1);renderPpTable();};});
+}
+function addPpRow(){ppRows().push({key:'',type:'TEXT',value:''});renderPpTable();}
+
+function selTools(){
+  if(!currentAgentDraft)return new Set();
+  if(!currentAgentDraft.__toolsSet)currentAgentDraft.__toolsSet=new Set(currentAgentDraft.defaultTools||[]);
+  return currentAgentDraft.__toolsSet;
+}
+function renderToolsPills(){
+  const root=$('ag_tools');if(!root)return;
+  const sel=selTools();
+  const all=[...new Set([...availableToolsCache,...sel])].sort();
+  if(!all.length){root.innerHTML='<div class="hint">无可用工具</div>';return;}
+  root.innerHTML='';
+  all.forEach(t=>{
+    const p=document.createElement('span');
+    p.className='tool-pill'+(sel.has(t)?' selected':'');
+    p.textContent=t;
+    p.onclick=()=>{if(sel.has(t))sel.delete(t);else sel.add(t);renderToolsPills();};
+    root.appendChild(p);
+  });
+}
+
+// ============================================================
+//  Build & save agent config from form
+// ============================================================
+function vstr(id){const e=$(id);return e?e.value:'';}
+function vnum(id,def){const x=parseInt(vstr(id));return Number.isFinite(x)?x:(def||0);}
+function vbool(id){const e=$(id);return e?!!e.checked:false;}
+
+function buildAgentFromForm(){
+  const ep={};
+  epRows().forEach(r=>{if(!r.key)return;if(r.type==='bool')ep[r.key]=!!r.value;else if(r.type==='int')ep[r.key]=parseInt(r.value)||0;else if(r.type==='float')ep[r.key]=Number(r.value)||0;else ep[r.key]=String(r.value==null?'':r.value);});
+  const cur=currentAgentDraft||{};
+  // Only the Model section is editable; other fields fall through from the
+  // current draft (= last loaded effective config) so we don't accidentally
+  // wipe them out on the server.
+  return {
+    id: cur.id,
+    name: cur.name,
+    description: cur.description,
+    version: cur.version,
+    mode: cur.mode,
+    modelConfig:{
+      baseUrl: vstr('ag_m_baseUrl'),
+      apiKey: vstr('ag_m_apiKey'),
+      modelName: vstr('ag_m_modelName'),
+      provider: vstr('ag_m_provider'),
+      formatType: vstr('ag_m_formatType'),
+      extraParams: ep
+    },
+    promptTemplates: cur.promptTemplates || {},
+    contextConfig: cur.contextConfig || {},
+    dreamConfig: cur.dreamConfig || {},
+    skillDirectory: cur.skillDirectory,
+    maxIterations: cur.maxIterations,
+    dataBasePath: cur.dataBasePath,
+    maxConcurrentSessions: cur.maxConcurrentSessions,
+    defaultTools: cur.defaultTools || []
+  };
+}
+
+async function saveAgentForm(){
+  if(!currentAgentDraft||!currentAgentDraft.id)return;
+  const st=$('ag_status'); st.className='form-status'; st.textContent='保存中…';
+  let payload; try{payload=buildAgentFromForm();}catch(e){st.className='form-status err';st.textContent='构建失败: '+e.message;return;}
+  try{
+    const r=await fetch(`${API_BASE}/api/agents/${encodeURIComponent(payload.id)}`,{
+      method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+    });
+    const j=await r.json();
+    if(!r.ok){st.className='form-status err';st.textContent='失败: '+(j.error||('HTTP '+r.status));}
+    else{st.className='form-status ok';st.textContent=j.reloaded?'已保存并热重载':'已保存';await refreshAgentList();}
+  }catch(e){st.className='form-status err';st.textContent='网络错误: '+e;}
+}
+
+async function reloadAgentsFromFile(){
+  try{
+    const r=await fetch(`${API_BASE}/api/agents/reload`,{method:'POST'});
+    const j=await r.json();
+    if(r.ok){await refreshAgentList();if(selectedAgentId)selectAgent(selectedAgentId);
+      flashStatus(j.reloaded_id?`已从文件重载 (live: ${j.reloaded_id})`:'已从文件重载');
+    }else alert('重载失败: '+(j.error||r.status));
+  }catch(e){alert('重载错误: '+e);}
+}
+async function reloadAllFromFile(){
+  await reloadAgentsFromFile();
+  try{await fetch(`${API_BASE}/api/channels/reload`,{method:'POST'});await refreshChannelTree();}catch(e){}
+}
+function flashStatus(msg){const el=$('bottomStatus');const prev=el.textContent;el.textContent=msg;setTimeout(()=>{el.textContent=prev;},2500);}
+
+// ============================================================
+//  Skills
+// ============================================================
+const SKILL_AVATAR_COLORS = [
+  '#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981',
+  '#14b8a6','#06b6d4','#0ea5e9','#3b82f6','#6366f1','#8b5cf6','#a855f7',
+  '#d946ef','#ec4899','#f43f5e'
+];
+function skillAvatarColor(s){
+  const k = (s || '?').charCodeAt(0) || 63;
+  return SKILL_AVATAR_COLORS[k % SKILL_AVATAR_COLORS.length];
+}
+
+async function fetchSkills(){
+  try{
+    const r = await fetch(`${API_BASE}/api/skills`);
+    return await r.json();
+  }catch(e){ return { skills:[], count:0, root_dir:'' }; }
+}
+
+async function refreshSkillList(){
+  const j = await fetchSkills();
+  skillsCache = j.skills || [];
+  skillsRootDir = j.root_dir || '';
+  $('skillsCount').textContent = skillsCache.length + ' skills';
+  $('navSkillsCount').textContent = skillsCache.length || '';
+  $('skillsRoot').textContent = skillsRootDir || '(not configured)';
+  const root = $('skillList'); root.innerHTML = '';
+  if (!skillsCache.length){
+    root.innerHTML = `<div class="empty-state">
+      <div class="title">暂无技能</div>
+      <div>在 <span class="mono">${escapeHtml(skillsRootDir||'./my_skills')}</span> 下放置 SKILL.md 后刷新</div>
+    </div>`;
+    return;
+  }
+  skillsCache.forEach(s => {
+    const id = s.id || s.name;
+    const ch = (s.name || id).charAt(0).toUpperCase();
+    const row = document.createElement('div');
+    row.className = `skill-card${selectedSkillId === id ? ' active' : ''}`;
+    row.innerHTML = `
+      <div class="skill-avatar" style="background:${skillAvatarColor(id)}">${escapeHtml(ch)}</div>
+      <div class="skill-meta">
+        <div class="skill-name">${escapeHtml(s.name || id)}</div>
+        <div class="skill-desc">${escapeHtml(s.description || '— no description —')}</div>
+      </div>
+    `;
+    row.onclick = () => selectSkill(id);
+    root.appendChild(row);
+  });
+}
+
+async function selectSkill(id){
+  selectedSkillId = id;
+  refreshSkillList();  // update active highlight
+  showSkillLoading();
+  try{
+    const r = await fetch(`${API_BASE}/api/skills/${encodeURIComponent(id)}`);
+    if (!r.ok){ showSkillEmpty('技能不存在或已被卸载'); return; }
+    const detail = await r.json();
+    renderSkillDetail(detail);
+  }catch(e){ showSkillEmpty('加载失败: ' + e); }
+}
+
+function showSkillEmpty(msg){
+  $('skillDetailTitle').textContent = '技能详情';
+  $('skillDetailSub').textContent = '';
+  $('skillDetailBody').innerHTML = `<div class="empty-state">
+    <div class="title">${escapeHtml(msg || '在左侧选择一个技能')}</div>
+    <div>展开技能后查看完整说明与所在目录</div>
+  </div>`;
+}
+function showSkillLoading(){
+  $('skillDetailTitle').textContent = '加载中…';
+  $('skillDetailSub').textContent = '';
+  $('skillDetailBody').innerHTML = `<div class="empty-state"><div class="title">加载中…</div></div>`;
+}
+
+function renderSkillDetail(d){
+  $('skillDetailTitle').textContent = d.name || d.id;
+  $('skillDetailSub').innerHTML = `ID: <span class="mono">${escapeHtml(d.id)}</span>`;
+  const body = $('skillDetailBody');
+  body.className = 'pane-body skill-detail-body';
+  body.innerHTML = `
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
+      <div class="skill-avatar" style="background:${skillAvatarColor(d.id)};width:48px;height:48px;font-size:22px;">${escapeHtml((d.name||d.id).charAt(0).toUpperCase())}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:16px;font-weight:600;color:var(--text-strong);">${escapeHtml(d.name||d.id)}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;">${escapeHtml(d.description||'— no description —')}</div>
+      </div>
+    </div>
+    <div class="skill-tags">
+      <span class="pill">built-in</span>
+      <span class="pill accent">installed</span>
+      <span class="pill" style="font-family:var(--mono)">${escapeHtml(d.directory||'')}</span>
+    </div>
+    <div style="margin-top:18px;">
+      <div style="font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">SKILL.md</div>
+      <pre>${escapeHtml(d.body || '(empty)')}</pre>
+    </div>
+  `;
+}
+
+// ============================================================
+//  Channels
+// ============================================================
+async function fetchChannels(){
+  try{const r=await fetch(`${API_BASE}/api/channels`);return await r.json();}catch(e){return[];}
+}
+
+async function refreshChannelTree(){
+  const list=await fetchChannels();
+  channelsCache=Array.isArray(list)?list:[];
+  $('channelsCount').textContent=channelsCache.length+' channels';
+  $('navChannelsCount').textContent=channelsCache.length||'';
+  const root=$('channelTree');root.innerHTML='';
+  if(!channelsCache.length){
+    root.innerHTML='<div class="empty-state"><div class="title">暂无频道</div><div>点击「+ 新增」创建</div></div>';
+    return;
+  }
+  channelsCache.forEach(ch=>{
+    const row=document.createElement('button');
+    row.className=`list-row${selectedChannelId===ch.id?' active':''}`;
+    row.innerHTML=`
+      <div class="lr-main">
+        <span class="pill accent">${escapeHtml(ch.type||'')}</span>
+        <span class="lr-title">${escapeHtml(ch.name||ch.id)}</span>
+        <span class="lr-id">${escapeHtml(ch.id||'')}</span>
+      </div>
+      <span class="pill ${ch.enabled?'ok':'danger'}">${ch.enabled?'enabled':'disabled'}</span>`;
+    row.onclick=()=>selectChannel(ch.id);
+    root.appendChild(row);
+  });
+}
+
+function selectChannel(id){
+  selectedChannelId=id;
+  refreshChannelTree();
+  const ch=channelsCache.find(c=>c.id===id);
+  if(!ch){showChannelEmpty();return;}
+  renderChannelEditor(ch);
+}
+
+function startNewChannel(type){
+  selectedChannelId='new:'+type;
+  refreshChannelTree();
+  renderChannelEditor({type,_isNew:true});
+}
+
+function showChannelEmpty(msg){
+  $('channelDetailTitle').textContent='频道';
+  $('channelDetailSub').textContent='';
+  $('channelDetailActions').style.display='none';
+  $('channelDetailBody').innerHTML='<div class="empty-state"><div class="title">'+escapeHtml(msg||'在左侧选择频道或点击「+ 新增」')+'</div></div>';
+}
+
+function renderChannelEditor(ch){
+  const isNew=!!ch._isNew, type=ch.type||'feishu', params=ch.params||{};
+  $('channelDetailTitle').textContent=isNew?`新建 ${type} 频道`:(ch.name||ch.id);
+  $('channelDetailSub').innerHTML=isNew?`类型: <b>${escapeHtml(type)}</b>`:`ID: <span class="mono">${escapeHtml(ch.id)}</span> · 类型: <b>${escapeHtml(type)}</b>`;
+  $('channelDetailActions').style.display='flex';
+  $('channelDeleteBtn').style.display=isNew?'none':'inline-flex';
+  const body=$('channelDetailBody');
+  if(type==='feishu'){
+    body.innerHTML=`
+      <div class="field"><label>名称</label><input type="text" id="chName" value="${escapeHtml(ch.name||'')}" placeholder="飞书机器人"></div>
+      <div class="field"><label>App ID *</label><input type="text" id="chAppId" value="${escapeHtml(params.appId||'')}" placeholder="cli_xxxxxxxx"></div>
+      <div class="field"><label>App Secret *</label><div class="input-with-toggle"><input type="password" id="chAppSecret" value="${escapeHtml(params.appSecret||'')}"><button type="button" class="toggle" onclick="togglePw('chAppSecret',this)">显示</button></div></div>
+      <div class="field checkbox-field"><input type="checkbox" id="chEnabled" ${ch.enabled!==false?'checked':''}><label for="chEnabled">启用（保存后立即连接）</label></div>`;
+  }else{
+    body.innerHTML='<div class="empty-state">不支持的频道类型</div>';
+  }
+}
+
+async function saveCurrentChannel(){
+  const isNew=selectedChannelId&&selectedChannelId.startsWith('new:');
+  const type=isNew?selectedChannelId.split(':')[1]:(channelsCache.find(c=>c.id===selectedChannelId)||{}).type;
+  if(!type)return alert('无法确定频道类型');
+  if(type==='feishu'){
+    const name=$('chName').value.trim();
+    const appId=$('chAppId').value.trim();
+    const appSecret=$('chAppSecret').value.trim();
+    const enabled=$('chEnabled').checked;
+    if(!appId||!appSecret)return alert('App ID 和 App Secret 必填');
+    const payload={type:'feishu',name:name||`Feishu ${appId.slice(-4)}`,enabled,params:{appId,appSecret}};
+    try{
+      if(isNew){
+        const r=await fetch(`${API_BASE}/api/channels`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const j=await r.json();
+        selectedChannelId=j.id||null;
+      }else{
+        await fetch(`${API_BASE}/api/channels/${encodeURIComponent(selectedChannelId)}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      }
+      await refreshChannelTree();
+      if(selectedChannelId)selectChannel(selectedChannelId);
+      flashStatus('频道已保存');
+    }catch(e){alert('保存失败: '+e);}
+  }
+}
+
+async function deleteCurrentChannel(){
+  if(!selectedChannelId||selectedChannelId.startsWith('new:'))return;
+  const ch=channelsCache.find(c=>c.id===selectedChannelId);
+  if(!confirm(`删除频道 "${ch?(ch.name||ch.id):selectedChannelId}"?`))return;
+  try{
+    await fetch(`${API_BASE}/api/channels/${encodeURIComponent(selectedChannelId)}`,{method:'DELETE'});
+    selectedChannelId=null;
+    await refreshChannelTree();
+    showChannelEmpty('已删除');
+  }catch(e){alert('删除失败: '+e);}
+}
+
+// ============================================================
+//  Health / init
+// ============================================================
+async function checkHealth(){
+  try{
+    const r=await fetch(`${API_BASE}/api/health`);
+    if(r.ok){setStatus('connected');}
+    else setStatus('error');
+  }catch(e){setStatus('offline');}
+}
+
+async function init(){
+  await checkHealth();
+  await fetchSessions();
+  // Pre-fetch counts for sidebar meta badges
+  refreshAgentList();
+  refreshSkillList();
+  refreshChannelTree();
+  // Restore last session
+  const last=localStorage.getItem('jiuwen_session_id');
+  if(last && sessions.some(s=>s.id===last))switchSession(last);
+  else if(sessions.length)switchSession(sessions[0].id);
+  setInterval(fetchSessions, 5000);
+}
+
+window.switchView = switchView;
+window.createSession = createSession;
+window.deleteSession = deleteSession;
+window.switchSession = switchSession;
+window.sendMessage = sendMessage;
+window.cancelRequest = cancelRequest;
+window.clearChat = clearChat;
+window.handleKeyDown = handleKeyDown;
+window.autoResize = autoResize;
+window.toggleTool = toggleTool;
+window.refreshAgentList = refreshAgentList;
+window.selectAgent = selectAgent;
+window.saveAgentForm = saveAgentForm;
+window.revertAgentForm = revertAgentForm;
+window.reloadAgentsFromFile = reloadAgentsFromFile;
+window.reloadAllFromFile = reloadAllFromFile;
+window.togglePw = togglePw;
+window.addEpRow = addEpRow;
+window.addPpRow = addPpRow;
+window.refreshChannelTree = refreshChannelTree;
+window.startNewChannel = startNewChannel;
+window.saveCurrentChannel = saveCurrentChannel;
+window.deleteCurrentChannel = deleteCurrentChannel;
+window.fetchSessions = fetchSessions;
+window.refreshSkillList = refreshSkillList;
+window.selectSkill = selectSkill;
+
+document.addEventListener('DOMContentLoaded', init);
+if(document.readyState !== 'loading') init();
+
+
+
+</script>
 </body>
 </html>
+
+
+
+
+

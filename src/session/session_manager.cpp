@@ -121,7 +121,7 @@ void SessionManager::Initialize(const AgentConfig& config)
     }
 
     // Create the single shared Agent
-    agent_ = std::make_unique<Agent>(config_);
+    agent_ = std::make_shared<Agent>(config_);
 
     // Register default tools
     if (!config_.defaultTools.empty()) {
@@ -233,14 +233,46 @@ SessionInvokeResult SessionManager::Invoke(
         return SessionInvokeResult{"[ERROR] SessionManager not initialized", false, "Not initialized", sessionId};
     }
 
+    // Wait if a reload is in progress, then mark ourselves as in-flight.
+    // 'concurrentCount_' is reused as the reload-drain counter; it always
+    // tracks the number of Invoke calls currently between the gate enter
+    // and gate exit, regardless of whether the optional maxConcurrent gate
+    // is active.
+    {
+        std::unique_lock<std::mutex> lock(concurrencyMutex_);
+        reloadCv_.wait(lock, [this](){ return !reloading_; });
+        // If the optional concurrency cap is enabled, also wait for a slot.
+        if (maxConcurrent_ > 0) {
+            concurrencyCv_.wait(lock, [this](){
+                return !reloading_ && concurrentCount_ < maxConcurrent_;
+            });
+        }
+        ++concurrentCount_;
+    }
+
+    auto releaseGate = [this]() {
+        std::lock_guard<std::mutex> lock(concurrencyMutex_);
+        if (concurrentCount_ > 0) --concurrentCount_;
+        concurrencyCv_.notify_all();
+        reloadCv_.notify_all();
+    };
+
+    // Snapshot the current Agent; if a reload swaps after this point we
+    // still safely use the prior Agent for this call. The shared_ptr copy
+    // also guarantees the Agent stays alive even though the drain in
+    // ReloadAgent already waits for releaseGate before destruction.
+    std::shared_ptr<Agent> agentPtr;
+
     // Find or create session entry
     SessionEntry* entry = nullptr;
     {
         std::lock_guard<std::mutex> lock(sessionMutex_);
         entry = FindOrCreateEntry(sessionId);
+        agentPtr = agent_;
     }
 
-    if (!entry || !entry->contextEngine) {
+    if (!entry || !entry->contextEngine || !agentPtr) {
+        releaseGate();
         return SessionInvokeResult{"[ERROR] Failed to create session", false, "Create failed", sessionId};
     }
 
@@ -248,20 +280,12 @@ SessionInvokeResult SessionManager::Invoke(
     std::unique_lock<std::mutex> lock(entry->invokeMutex);
     entry->isBusy = true;
 
-    // Global concurrency gate
-    if (maxConcurrent_ > 0) {
-        AcquireConcurrency();
-    }
-
     std::string result;
     try {
-        result = agent_->Invoke(sessionId, message, callback);
+        result = agentPtr->Invoke(sessionId, message, callback);
     } catch (const std::exception& e) {
         entry->isBusy = false;
-
-        if (maxConcurrent_ > 0) {
-            ReleaseConcurrency();
-        }
+        releaseGate();
 
         std::string err = "Invoke failed: " + std::string(e.what());
         LOG(ERR) << "[SessionManager] [" << sessionId << "] " << err;
@@ -269,12 +293,8 @@ SessionInvokeResult SessionManager::Invoke(
         return SessionInvokeResult{"", false, e.what(), sessionId};
     }
 
-    // Release concurrency gate
-    if (maxConcurrent_ > 0) {
-        ReleaseConcurrency();
-    }
-
     entry->isBusy = false;
+    releaseGate();
 
     return SessionInvokeResult{result, true, "", sessionId};
 }
@@ -403,7 +423,88 @@ std::string SessionManager::MakeSessionKey(const std::string& channel, const std
     if (channel.empty() && chatId.empty()) {
         return kDefaultSessionId;
     }
-    return channel + ":" + chatId;
+    return channel + "_" + chatId;
+}
+
+bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* errorOut)
+{
+    if (!initialized_) {
+        LOG(WARN) << "[SessionManager] ReloadAgent called before Initialize; ignoring";
+        if (errorOut) *errorOut = "SessionManager not initialized";
+        return false;
+    }
+
+    LOG(INFO) << "[SessionManager] ReloadAgent: draining in-flight requests...";
+
+    // 1. Raise the reload barrier so new Invokes wait.
+    {
+        std::lock_guard<std::mutex> lock(concurrencyMutex_);
+        reloading_ = true;
+    }
+
+    // 2. Wait until all in-flight Invoke calls have completed.
+    {
+        std::unique_lock<std::mutex> lock(concurrencyMutex_);
+        concurrencyCv_.wait(lock, [this](){ return concurrentCount_ == 0; });
+    }
+
+    // 3. Build the new Agent BEFORE swapping; if construction fails,
+    //    we keep the old one and lower the barrier.
+    std::shared_ptr<Agent> newAgent;
+    try {
+        AgentConfig effective = newConfig;
+        // Preserve normalized basePath (Initialize made it absolute).
+        if (effective.dataBasePath.empty()) {
+            effective.dataBasePath = config_.dataBasePath;
+        }
+        newAgent = std::make_shared<Agent>(effective);
+        if (!effective.defaultTools.empty()) {
+            newAgent->AddTools(effective.defaultTools);
+        }
+    } catch (const std::exception& e) {
+        {
+            std::lock_guard<std::mutex> lock(concurrencyMutex_);
+            reloading_ = false;
+        }
+        reloadCv_.notify_all();
+        LOG(ERR) << "[SessionManager] ReloadAgent: new Agent construction failed: "
+                 << e.what() << ". Keeping old Agent.";
+        if (errorOut) *errorOut = e.what();
+        return false;
+    }
+
+    // 4. Atomic swap (under sessionMutex_ to serialize with new Invokes).
+    std::shared_ptr<Agent> oldAgent;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        config_ = newConfig;
+        if (config_.maxConcurrentSessions > 0) {
+            maxConcurrent_ = config_.maxConcurrentSessions;
+        } else {
+            maxConcurrent_ = 0;
+        }
+        oldAgent = std::move(agent_);
+        agent_ = std::move(newAgent);
+        SetupAgentContextRouting();
+    }
+
+    // 5. Lower the barrier — let waiting Invokes proceed.
+    {
+        std::lock_guard<std::mutex> lock(concurrencyMutex_);
+        reloading_ = false;
+    }
+    reloadCv_.notify_all();
+    concurrencyCv_.notify_all();
+
+    // 6. Cancel and release the old agent OUTSIDE the lock.
+    if (oldAgent) {
+        oldAgent->Cancel();
+        oldAgent.reset();
+    }
+
+    LOG(INFO) << "[SessionManager] ReloadAgent: swap complete. Sessions preserved="
+              << GetSessionIds().size();
+    return true;
 }
 
 void SessionManager::AcquireConcurrency()

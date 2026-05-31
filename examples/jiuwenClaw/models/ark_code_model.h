@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+
 #include "include/model.h"
 
 namespace jiuwen {
