@@ -53,7 +53,7 @@ void ConfigWatcher::Loop()
                 if (!fs::exists(e.path, ec) || ec) continue;
                 auto mt = fs::last_write_time(e.path, ec);
                 if (ec) continue;
-                if (e.lastMtime == fs::file_time_type::min()) {
+                if (e.lastMtime == (fs::file_time_type::min)()) {
                     // Initialise on first sighting; do not fire callback.
                     e.lastMtime = mt;
                     continue;

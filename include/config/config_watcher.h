@@ -36,8 +36,10 @@ private:
     struct Entry {
         std::string path;
         Callback cb;
+        // Parentheses around 'min' defeat the Windows <windows.h> min/max
+        // macros (which otherwise expand 'min()' into a macro call).
         std::filesystem::file_time_type lastMtime{
-            std::filesystem::file_time_type::min()};
+            (std::filesystem::file_time_type::min)()};
     };
 
     void Loop();

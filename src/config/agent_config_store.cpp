@@ -193,7 +193,7 @@ std::filesystem::file_time_type AgentConfigStore::LastWriteTime() const
     if (fs::exists(path_, ec) && !ec) {
         return fs::last_write_time(path_, ec);
     }
-    return std::filesystem::file_time_type::min();
+    return (std::filesystem::file_time_type::min)();
 }
 
 bool AgentConfigStore::FileExists() const
