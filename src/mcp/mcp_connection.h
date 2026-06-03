@@ -1,22 +1,26 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "include/tool.h"
-#include "src/protocol/mcp_client.h"
+#include "src/mcp/mcp_client.h"
 #include "third_party/include/nlohmann/json.hpp"
 
 namespace jiuwen {
 
-enum class MCPTransportType {
+enum class MCPTransportType
+{
     STDIO,
     SSE,
     STREAMABLE_HTTP
 };
 
-struct MCPEndpointConfig {
+struct MCPEndpointConfig
+{
     std::string command;
     std::vector<std::string> args;
     std::string url;
@@ -27,9 +31,10 @@ struct MCPEndpointConfig {
 
 class MCPTool;
 
-class MCPServer : public std::enable_shared_from_this<MCPServer> {
+class MCPConnection : public std::enable_shared_from_this<MCPConnection>
+{
 public:
-    MCPServer(std::string name, MCPEndpointConfig config);
+    MCPConnection(std::string name, MCPEndpointConfig config);
     void Connect();
     void Disconnect();
     std::vector<std::string> ListTools();
@@ -41,20 +46,13 @@ public:
 private:
     std::string name_;
     MCPEndpointConfig config_;
+    mutable std::mutex stateMutex_;
     bool connected_{false};
     std::vector<MCPToolInfo> availableTools_;
     std::shared_ptr<MCPClient> client_;
+    mutable std::mutex callMutex_;
 
     void CreateClient();
-};
-
-class MCPTool : public Tool {
-public:
-    MCPTool(std::string name, std::string description, std::vector<ToolParam> params, std::shared_ptr<MCPServer> server);
-    std::string Invoke(const std::string& input) override;
-
-private:
-    std::shared_ptr<MCPServer> server_;
 };
 
 } // namespace jiuwen

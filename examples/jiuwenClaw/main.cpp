@@ -18,6 +18,7 @@
 #include "examples/jiuwenClaw/adapters/feishu/feishu_bot.h"
 #include "examples/jiuwenClaw/channels/channel_manager.h"
 #include "examples/jiuwenClaw/channels/channel_service.h"
+#include "examples/jiuwenClaw/mcp/mcp_server_manager.h"
 // Heartbeat management & Cron watcher module
 #include "examples/jiuwenClaw/cron_watcher.h"
 #include "examples/jiuwenClaw/heartbeat_manager.h"
@@ -128,31 +129,6 @@ void RegisterDemoTools()
     rm.RegisterTool("notify", []() { return std::make_unique<NotifyTool>(); });
 }
 
-void InitMcpServer()
-{
-    std::cout << "\nInitializing Amap MCP Server (Streamable HTTP)...\n" << std::flush;
-    try {
-        std::string amapJson = R"({
-            "url": "https://mcp.amap.com",
-            "endpoint": "/mcp?key=<YOUR_AMAP_KEY>",
-            "isActive": "true",
-            "description": "this is a mcp map server",
-            "type": "streamable-http-client"
-        })";
-
-        auto& rm = ResourceManager::GetInstance();
-        rm.RegisterMCPServer("amap", amapJson);
-
-        std::cout << "[SUCCESS] Amap MCP server connected. Available tools:\n" << std::flush;
-        auto mcpTools = rm.GetAvailableTools();
-        for (const auto& toolName : mcpTools) {
-            std::cout << "  - " << toolName << "\n" << std::flush;
-        }
-    } catch (const std::exception& e) {
-        std::cout << "[WARN] MCP Server initialization failed: " << e.what() << "\n" << std::flush;
-    }
-}
-
 void RunCliMode()
 {
     std::cout << "\nEnter '/exit' to quit, '/session <id>' to switch session.\n" << std::flush;
@@ -195,7 +171,9 @@ void RunCliMode()
             auto ids = GetSessionManager().GetSessionIds();
             std::cout << "Active sessions (" << ids.size() << "): ";
             for (size_t i = 0; i < ids.size(); ++i) {
-                if (i > 0) std::cout << ", ";
+                if (i > 0) {
+                    std::cout << ", ";
+                }
                 std::cout << ids[i] << (ids[i] == currentSession ? " (current)" : "");
             }
             std::cout << "\n";
@@ -227,7 +205,9 @@ void RunCliMode()
         // Handle /config show [<id>]
         if (query == "/config show" || query.substr(0, 13) == "/config show ") {
             std::string id = query.length() > 13 ? TrimStr(query.substr(13)) : "";
-            if (id.empty()) id = GetSessionManager().GetConfig().id;
+            if (id.empty()) {
+                id = GetSessionManager().GetConfig().id;
+            }
             auto cfgOpt = AgentConfigStore::Instance().Get(id);
             if (!cfgOpt) {
                 std::cout << "[Config] No agent with id=" << id << "\n";
@@ -260,11 +240,15 @@ void RunCliMode()
             currentSession,
             utf8Query,
             [&](const std::string& resp) {
-                if (resp.empty()) return;
+                if (resp.empty()) {
+                    return;
+                }
 
                 std::string s = resp;
                 // 1. Tool calls, content overlaps with streaming, no echo
-                if (s.find(TAG_TOOL_CALLS) != std::string::npos) return;
+                if (s.find(TAG_TOOL_CALLS) != std::string::npos) {
+                    return;
+                }
 
                 // 2. Tool response
                 if (s.find(TAG_TOOL_RESPONSE) != std::string::npos) {
@@ -314,7 +298,9 @@ void RunCliMode()
                 }
 
                 // 5. [FINAL] tag means done, no special handling
-                if (s.find(TAG_FINAL) != std::string::npos) return;
+                if (s.find(TAG_FINAL) != std::string::npos) {
+                    return;
+                }
 
                 // 6. Fallback: plain text without tag
                 if (!s.empty()) {
@@ -339,7 +325,9 @@ bool ReloadAgent(const std::string& agentId)
     std::string id = agentId;
     if (id.empty()) {
         id = GetSessionManager().GetConfig().id;
-        if (id.empty()) id = "demo-agent";
+        if (id.empty()) {
+            id = "demo-agent";
+        }
     }
 
     auto cfgOpt = store.Get(id);
@@ -443,10 +431,6 @@ int main(int argc, char* argv[])
     RegisterDemoTools();
     std::cout << "[Boot] Demo tools registered\n" << std::flush;
 
-    // Initialize MCP server
-    InitMcpServer();
-    std::cout << "[Boot] MCP server initialized\n" << std::flush;
-
     // Build the hard-coded default (kept for backward compatibility)
     AgentConfig defaultConfig = BuildAgentConfig();
     std::cout << "[Boot] Default AgentConfig built (id=" << defaultConfig.id << ")\n" << std::flush;
@@ -470,6 +454,30 @@ int main(int argc, char* argv[])
 
     InitSessionManager(config);
     std::cout << "[Boot] SessionManager initialized\n" << std::flush;
+
+    // Load MCP servers from the application-layer registry (mcp_servers.json).
+    // The framework itself only knows how to register/connect McpServerConfig
+    // objects; it does not care where those configs come from. Other apps
+    // can supply them via hard-coded values or their own config loader.
+    {
+        auto& mcpMgr = McpServerManager::GetInstance();
+        mcpMgr.SetPersistPath("./data/mcp_servers.json");
+        mcpMgr.Load(); // tolerate missing file (empty pool is a valid state)
+        auto configs = mcpMgr.ToFrameworkConfigs();
+        if (!configs.empty()) {
+            ResourceManager::GetInstance().LoadMCPServers(configs);
+            // Sync MCP-discovered tools into the Agent so they appear in the prompt
+            if (auto agent = GetSessionManager().GetAgent()) {
+                int n = agent->SyncMcpTools();
+                std::cout << "[Boot] Synced " << n << " MCP tool(s) to Agent\n" << std::flush;
+            }
+            std::cout << "[Boot] Loaded " << configs.size()
+                      << " MCP server(s) from mcp_servers.json\n" << std::flush;
+        } else {
+            std::cout << "[Boot] No MCP servers configured (edit ./data/mcp_servers.json or use the web UI to add)\n"
+                      << std::flush;
+        }
+    }
 
     // Initialize heartbeat and cron using reserved sessions
     HeartbeatManager heartbeat(
@@ -499,7 +507,8 @@ int main(int argc, char* argv[])
         ChannelService::Instance().StartAll();
         auto active = ChannelService::Instance().ActiveIds();
         if (active.empty()) {
-            std::cout << "[Boot] No channels active (edit ./data/channels.json or use the web UI to add)\n" << std::flush;
+            std::cout << "[Boot] No channels active (edit ./data/channels.json or use the web UI to add)\n"
+                      << std::flush;
         } else {
             std::cout << "[Boot] Active channels: " << active.size() << "\n" << std::flush;
         }
@@ -517,6 +526,17 @@ int main(int argc, char* argv[])
             (void)p;
             LOG(INFO) << "[Watch] channels.json changed -> reconcile";
             ReloadChannels();
+        });
+        g_ConfigWatcher->Watch("./data/mcp_servers.json", [](const std::string& p) {
+            (void)p;
+            LOG(INFO) << "[Watch] mcp_servers.json changed -> reload MCP pool";
+            auto& mcpMgr = McpServerManager::GetInstance();
+            mcpMgr.Load();
+            ResourceManager::GetInstance().LoadMCPServers(mcpMgr.ToFrameworkConfigs());
+            // Sync discovered tools to live Agent
+            if (auto agent = GetSessionManager().GetAgent()) {
+                agent->SyncMcpTools();
+            }
         });
         g_ConfigWatcher->Start(3);
         std::cout << "[Boot] Config watcher enabled (poll every 3s)\n" << std::flush;

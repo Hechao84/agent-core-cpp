@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "include/model.h"
@@ -110,7 +111,9 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
 
     // 3. Call worker and get the final answer (pass contextEngine directly to avoid race conditions)
     // We wrap the callback to intercept and save tool calls/responses to context
-    std::string finalAnswer = worker_->Invoke(query, contextEngine.get(), [callback, contextEngine, sessionId](const std::string& response) {
+    std::string finalAnswer = worker_->Invoke(
+        query, contextEngine.get(),
+        [callback, contextEngine, sessionId](const std::string& response) {
         if (!response.empty() && callback) {
             callback(response);
         }
@@ -122,7 +125,9 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
             if (start != std::string::npos) {
                 size_t end = content.find("[/TOOL_CALLS]");
                 // If end tag is missing, take the whole thing
-                std::string payload = (end != std::string::npos) ? content.substr(start + 12, end - start - 12) : content.substr(start + 12);
+                std::string payload = (end != std::string::npos)
+                    ? content.substr(start + 12, end - start - 12)
+                    : content.substr(start + 12);
                 
                 // Try to find the first '{' to extract pure JSON if tags are messy
                 size_t jsonStart = payload.find('{');
@@ -138,7 +143,9 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
             size_t start = content.find("[TOOL_RESPONSE]");
             if (start != std::string::npos) {
                 size_t end = content.find("[/TOOL_RESPONSE]");
-                std::string payload = (end != std::string::npos) ? content.substr(start + 15, end - start - 15) : content.substr(start + 15);
+                std::string payload = (end != std::string::npos)
+                    ? content.substr(start + 15, end - start - 15)
+                    : content.substr(start + 15);
                 
                 // Save with "tool" role
                 contextEngine->AddMessage({"tool", payload});
@@ -184,7 +191,9 @@ bool Agent::IsSessionBusy(const std::string& sessionId) const
 {
     std::lock_guard<std::mutex> lock(sessionActivityMutex_);
     auto it = sessionActivity_.find(sessionId);
-    if (it == sessionActivity_.end()) return false;
+    if (it == sessionActivity_.end()) {
+        return false;
+    }
     return it->second.isBusy;
 }
 
@@ -209,6 +218,51 @@ void Agent::AddTools(const std::vector<std::string>& toolNames)
     }
 }
 
+int Agent::SyncMcpTools()
+{
+    auto currentSet = ResourceManager::GetInstance().GetMcpToolNames();
+    std::unordered_set<std::string> desired(currentSet.begin(), currentSet.end());
+
+    // Compute additions: in 'desired' but not yet in ownedMcpTools_
+    std::vector<std::string> toAdd;
+    for (const auto& name : currentSet) {
+        bool owned = std::find(ownedMcpTools_.begin(), ownedMcpTools_.end(), name) != ownedMcpTools_.end();
+        if (!owned) {
+            toAdd.push_back(name);
+        }
+    }
+
+    // Compute removals: in ownedMcpTools_ but no longer in 'desired'
+    std::vector<std::string> toRemove;
+    for (const auto& name : ownedMcpTools_) {
+        if (desired.find(name) == desired.end()) {
+            toRemove.push_back(name);
+        }
+    }
+
+    // Apply additions: extend Agent's master list + worker pool
+    for (const auto& name : toAdd) {
+        if (std::find(toolNames_.begin(), toolNames_.end(), name) == toolNames_.end()) {
+            toolNames_.push_back(name);
+        }
+        ownedMcpTools_.push_back(name);
+    }
+    if (!toAdd.empty() && worker_) {
+        worker_->AddTools(toAdd);
+    }
+
+    // Apply removals: shrink Agent's master list + worker pool
+    for (const auto& name : toRemove) {
+        toolNames_.erase(std::remove(toolNames_.begin(), toolNames_.end(), name), toolNames_.end());
+        ownedMcpTools_.erase(std::remove(ownedMcpTools_.begin(), ownedMcpTools_.end(), name), ownedMcpTools_.end());
+    }
+    if (!toRemove.empty() && worker_) {
+        worker_->RemoveTools(toRemove);
+    }
+
+    return static_cast<int>(toAdd.size() + toRemove.size());
+}
+
 std::vector<std::string> Agent::GetRegisteredTools() const
 {
     return toolNames_;
@@ -220,12 +274,16 @@ void Agent::ConsolidationLoop()
         {
             std::unique_lock<std::mutex> lock(consolidationMutex_);
             auto idleSeconds = static_cast<unsigned int>(config_.contextConfig.idleConsolidationSeconds);
-            if (idleSeconds <= 0) idleSeconds = 60;
+            if (idleSeconds <= 0) {
+                idleSeconds = 60;
+            }
 
             cv_.wait_for(lock, std::chrono::seconds(idleSeconds), [this]() {
                 return !running_;
             });
-            if (!running_) break;
+            if (!running_) {
+                break;
+            }
         }
 
         // Check if any session is idle (not busy) before running Dream
@@ -240,7 +298,9 @@ void Agent::ConsolidationLoop()
             }
         }
 
-        if (!anyIdle) continue;
+        if (!anyIdle) {
+            continue;
+        }
 
         try {
             auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);

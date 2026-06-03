@@ -38,11 +38,25 @@ void AgentWorker::AddTools(const std::vector<std::string>& toolNames)
     std::lock_guard<std::mutex> lock(toolMutex_);
     auto& rm = ResourceManager::GetInstance();
     for (const auto& name : toolNames) {
-        if (rm.HasTool(name)) {
-            toolNames_.push_back(name);
-            toolSelector_->AddToolToPool(name);
-        } else {
+        if (!rm.HasTool(name)) {
             std::cerr << "Warning: Tool '" << name << "' not found" << std::endl;
+            continue;
+        }
+        if (std::find(toolNames_.begin(), toolNames_.end(), name) != toolNames_.end()) {
+            continue;
+        }
+        toolNames_.push_back(name);
+        toolSelector_->AddToolToPool(name);
+    }
+}
+
+void AgentWorker::RemoveTools(const std::vector<std::string>& toolNames)
+{
+    std::lock_guard<std::mutex> lock(toolMutex_);
+    for (const auto& name : toolNames) {
+        toolNames_.erase(std::remove(toolNames_.begin(), toolNames_.end(), name), toolNames_.end());
+        if (toolSelector_) {
+            toolSelector_->RemoveToolFromPool(name);
         }
     }
 }
@@ -52,8 +66,10 @@ void AgentWorker::SetSkillEngine(std::shared_ptr<SkillEngine> engine)
     skillEngine_ = engine;
 }
 
-void AgentWorker::CallModelStream(const std::string& prompt, const std::vector<std::pair<std::string, std::string>>& messages,
-                                  std::function<void(const std::string&)> onChunk, std::function<void(const std::string&)> onComplete,
+void AgentWorker::CallModelStream(const std::string& prompt,
+                                  const std::vector<std::pair<std::string, std::string>>& messages,
+                                  std::function<void(const std::string&)> onChunk,
+                                  std::function<void(const std::string&)> onComplete,
                                   uint64_t generation)
 {
     if (!IsCancelled(generation)) {
@@ -73,15 +89,22 @@ void AgentWorker::CallModelStream(const std::string& prompt, const std::vector<s
         LOG(INFO) << "Model returned " << fullResponse.length() << " chars. Content preview: \n"
                   << fullResponse;
         
-        if (onComplete) onComplete(fullResponse);
+        if (onComplete) {
+            onComplete(fullResponse);
+        }
     } catch (const std::exception& e) {
         std::string err = "Model Error: " + std::string(e.what());
-        if (onChunk) onChunk(err);
-        if (onComplete) onComplete(err);
+        if (onChunk) {
+            onChunk(err);
+        }
+        if (onComplete) {
+            onComplete(err);
+        }
     }
 }
 
-std::string AgentWorker::BuildPrompt(const std::string& templateName, const std::string& query, const std::string& context, ContextEngine* contextEngine)
+std::string AgentWorker::BuildPrompt(const std::string& templateName, const std::string& query,
+                                    const std::string& context, ContextEngine* contextEngine)
 {
     // 1. Resolve the template content (load from file if configured, or fallback to templates/REACT_SYSTEM.md)
     std::string promptTemplate;
@@ -101,7 +124,9 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
         }
     }
 
-    if (promptTemplate.empty()) return query;
+    if (promptTemplate.empty()) {
+        return query;
+    }
 
     // 2. Prepare variables for rendering
     std::unordered_map<std::string, std::string> vars;
@@ -118,7 +143,9 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
 
     // 3. Resolve sub-templates from config (e.g., {$identity}, {$custom_section})
     for (const auto& tpl : config_.promptTemplates) {
-        if (tpl.first == templateName) continue;
+        if (tpl.first == templateName) {
+            continue;
+        }
         vars[tpl.first] = ResolvePromptResource(tpl.second);
     }
 
@@ -176,6 +203,9 @@ std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
     auto& rm = ResourceManager::GetInstance();
     std::string schema;
     for (const auto& name : toolNames_) {
+        if (!rm.HasTool(name)) {
+            continue;
+        }
         try {
             schema += rm.GetToolSchema(name) + "\n\n";
         } catch (const std::exception& e) {

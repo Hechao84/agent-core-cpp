@@ -5,29 +5,28 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+
 #include "include/model.h"
 #include "include/tool.h"
+#include "include/types.h"
 
 namespace jiuwen {
 
-class MCPServer;
+class MCPConnection;
 
 class AGENT_API ResourceManager {
 public:
     static ResourceManager& GetInstance();
 
     void RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory);
-    
-    // Register custom provider model (for integration partners to use)
     void RegisterModel(const std::string& provider, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory);
-    
-    void RegisterMCPServer(const std::string& name, const std::string& jsonConfig);
 
     std::unique_ptr<Tool> CreateTool(const std::string& name);
     std::string GetToolSchema(const std::string& name);
     std::unique_ptr<Model> CreateModel(const ModelConfig& config);
-    std::shared_ptr<MCPServer> GetMCPServer(const std::string& name);
+    std::shared_ptr<MCPConnection> GetMCPServer(const std::string& name);
 
     std::vector<std::string> GetAvailableTools() const;
     std::vector<std::string> GetAvailableModels() const;
@@ -38,20 +37,29 @@ public:
     bool HasModel(const std::string& provider) const;
     bool HasMCPServer(const std::string& name) const;
 
+    void LoadMCPServers(const std::vector<McpServerConfig>& configs);
+    void RegisterMCPServer(const McpServerConfig& config);
+    void UnregisterMCPServer(const std::string& id);
+    void RemoveMCPServerRecord(const std::string& id);
+    void RegisterMcpTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory);
+    void UnregisterMcpTool(const std::string& name);
+    std::vector<McpServerConfig> GetMCPServerConfigs() const;
+    std::vector<std::string> GetConnectedMCPServerIds() const;
+    std::vector<std::string> GetMcpToolNames() const;
+
 private:
     ResourceManager();
     void RegisterBuiltinTools();
     void RegisterBuiltinModels();
-
-    // Internal use only: register built-in models by format type
     void RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory);
 
     mutable std::mutex mutex_;
     std::unordered_map<std::string, std::function<std::unique_ptr<Tool>()>> toolFactories_;
     std::unordered_map<std::string, std::string> toolSchemas_;
+    std::unordered_set<std::string> mcpToolNames_;
     std::unordered_map<ModelFormatType, std::function<std::unique_ptr<Model>(const ModelConfig&)>> modelFactories_;
     std::unordered_map<std::string, std::function<std::unique_ptr<Model>(const ModelConfig&)>> providerModelFactories_;
-    std::unordered_map<std::string, std::shared_ptr<MCPServer>> mcpServers_;
+    std::unordered_map<std::string, std::shared_ptr<MCPConnection>> mcpServers_;
 };
 
 } // namespace jiuwen

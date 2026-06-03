@@ -187,6 +187,22 @@ struct DreamConfig
     int memoryFileMaxChars{32000};
 };
 
+struct McpServerConfig
+{
+    std::string id;
+    std::string name;
+    std::string description;
+    bool enabled{true};
+    // Transport config
+    std::string type;  // "streamable-http-client", "stdio", "sse"
+    std::string url;
+    std::string endpoint;
+    std::string command;  // for stdio
+    std::vector<std::string> args;  // for stdio
+    std::map<std::string, std::string> env;
+    std::map<std::string, std::string> headers;
+};
+
 struct AgentConfig 
 {
     std::string id;
@@ -205,6 +221,11 @@ struct AgentConfig
     std::string dataBasePath; // "./data" - root of all data
     int maxConcurrentSessions{3}; // Global concurrency gate (0 = unlimited)
     std::vector<std::string> defaultTools; // Tools registered for all sessions
+
+    // MCP server ids referenced by this agent (servers are managed by the
+    // application layer, e.g. McpServerManager, and registered with
+    // ResourceManager::LoadMCPServers at startup).
+    std::vector<std::string> mcpServerIds;
 };
 
 // Channel message format for web/feishu/telegram routing

@@ -1,18 +1,21 @@
-#include "src/protocol/mcp_client.h"
-#include <iostream>
+#include "src/mcp/mcp_client.h"
+
 #include <memory>
 #include <string>
 #include <vector>
+
 #include "third_party/include/curl/curl.h"
 #include "third_party/include/nlohmann/json.hpp"
 
 namespace {
-    size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output)
-    {
-        size_t totalSize = size * nmemb;
-        output->append(static_cast<char*>(contents), totalSize);
-        return totalSize;
-    }
+
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output)
+{
+    size_t totalSize = size * nmemb;
+    output->append(static_cast<char*>(contents), totalSize);
+    return totalSize;
+}
+
 } // namespace
 
 namespace jiuwen {
@@ -21,17 +24,29 @@ MCPClient::MCPClient(const std::string& name, const std::string& version, const 
     : name_(name), version_(version), endpoint_(endpoint)
 {
     if (endpoint_.empty()) {
-        throw std::invalid_argument("MCP endpoint must not be empty");
+        lastError_ = "MCP endpoint must not be empty";
     }
 }
 
 MCPClient::~MCPClient() = default;
 
+nlohmann::json MCPClient::MakeErrorResponse(const std::string& message)
+{
+    lastError_ = message;
+    nlohmann::json response;
+    response["error"]["message"] = message;
+    return response;
+}
+
 nlohmann::json MCPClient::SendRequest(const nlohmann::json& request)
 {
+    if (endpoint_.empty()) {
+        return MakeErrorResponse("MCP endpoint must not be empty");
+    }
+
     CURL* curl = curl_easy_init();
     if (!curl) {
-        throw std::runtime_error("Failed to initialize curl");
+        return MakeErrorResponse("Failed to initialize curl");
     }
 
     std::string requestBody = request.dump();
@@ -46,13 +61,18 @@ nlohmann::json MCPClient::SendRequest(const nlohmann::json& request)
     headers = curl_slist_append(headers, "Content-Type: application/json");
     headers = curl_slist_append(headers, "Accept: application/json, text/event-stream");
 
-    if (!sessionId_.empty()) {
-        std::string sessionHeader = "Mcp-Session-Id: " + sessionId_;
+    std::string sessionSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        sessionSnapshot = sessionId_;
+    }
+    if (!sessionSnapshot.empty()) {
+        std::string sessionHeader = "Mcp-Session-Id: " + sessionSnapshot;
         headers = curl_slist_append(headers, sessionHeader.c_str());
     }
 
-    for (const auto& h : headers_) {
-        headers = curl_slist_append(headers, h.c_str());
+    for (const auto& header : headers_) {
+        headers = curl_slist_append(headers, header.c_str());
     }
 
     if (headers) {
@@ -61,9 +81,10 @@ nlohmann::json MCPClient::SendRequest(const nlohmann::json& request)
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
 
-    CURLcode res = curl_easy_perform(curl);
+    CURLcode curlResult = curl_easy_perform(curl);
 
     long httpCode = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
@@ -71,33 +92,34 @@ nlohmann::json MCPClient::SendRequest(const nlohmann::json& request)
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 
-    if (res != CURLE_OK) {
-        throw std::runtime_error("CURL error: " + std::string(curl_easy_strerror(res)));
+    if (curlResult != CURLE_OK) {
+        return MakeErrorResponse("CURL error: " + std::string(curl_easy_strerror(curlResult)));
     }
 
     if (httpCode != 200 && httpCode != 202) {
-        std::string err = "HTTP error " + std::to_string(httpCode);
+        std::string error = "HTTP error " + std::to_string(httpCode);
         if (!responseBody.empty()) {
-            err += ": " + responseBody;
+            error += ": " + responseBody;
         }
-        throw std::runtime_error(err);
+        return MakeErrorResponse(error);
     }
 
     if (responseBody.empty()) {
         return nlohmann::json();
     }
 
-    try {
-        return nlohmann::json::parse(responseBody);
-    } catch (const std::exception& e) {
-        throw std::runtime_error("JSON parse error: " + std::string(e.what()));
+    nlohmann::json response = nlohmann::json::parse(responseBody, nullptr, false);
+    if (response.is_discarded()) {
+        return MakeErrorResponse("JSON parse error");
     }
+    lastError_.clear();
+    return response;
 }
 
-void MCPClient::Initialize()
+bool MCPClient::Initialize()
 {
     if (isInitialized_) {
-        return;
+        return true;
     }
 
     nlohmann::json request;
@@ -110,36 +132,27 @@ void MCPClient::Initialize()
     request["params"]["clientInfo"]["version"] = version_;
 
     nlohmann::json response = SendRequest(request);
-
     if (response.contains("error")) {
-        std::string errMsg = response["error"].contains("message") ? response["error"]["message"].get<std::string>() : "";
-        throw std::runtime_error("Initialize failed: " + errMsg);
-    }
-
-    if (response.contains("result")) {
-        if (response["result"].contains("protocolVersion")) {
-            // protocolVersion_ = response["result"]["protocolVersion"].get<std::string>();
-        }
+        lastError_ = response["error"].value("message", "Initialize failed");
+        return false;
     }
 
     nlohmann::json notify;
     notify["jsonrpc"] = "2.0";
     notify["method"] = "notifications/initialized";
     notify["params"]["capabilities"] = nlohmann::json::object();
-
-    try {
-        SendRequest(notify);
-    } catch (...) {
-        // Ignore notification errors
-    }
+    SendRequest(notify);
 
     isInitialized_ = true;
+    return true;
 }
 
 std::vector<MCPToolInfo> MCPClient::ListTools()
 {
+    std::vector<MCPToolInfo> tools;
     if (!isInitialized_) {
-        throw std::runtime_error("MCP client not initialized");
+        lastError_ = "MCP client not initialized";
+        return tools;
     }
 
     nlohmann::json request;
@@ -149,8 +162,11 @@ std::vector<MCPToolInfo> MCPClient::ListTools()
     request["params"] = nlohmann::json::object();
 
     nlohmann::json response = SendRequest(request);
+    if (response.contains("error")) {
+        lastError_ = response["error"].value("message", "List tools failed");
+        return tools;
+    }
 
-    std::vector<MCPToolInfo> tools;
     if (response.contains("result") && response["result"].contains("tools")) {
         for (const auto& toolDef : response["result"]["tools"]) {
             MCPToolInfo info;
@@ -168,8 +184,12 @@ std::vector<MCPToolInfo> MCPClient::ListTools()
 
 std::shared_ptr<MCPToolResult> MCPClient::CallTool(const std::string& toolName, const nlohmann::json& arguments)
 {
+    auto result = std::make_shared<MCPToolResult>();
     if (!isInitialized_) {
-        throw std::runtime_error("MCP client not initialized");
+        result->isError = true;
+        result->content.push_back("MCP client not initialized");
+        lastError_ = result->content.back();
+        return result;
     }
 
     nlohmann::json request;
@@ -180,23 +200,23 @@ std::shared_ptr<MCPToolResult> MCPClient::CallTool(const std::string& toolName, 
     request["params"]["arguments"] = arguments;
 
     nlohmann::json response = SendRequest(request);
-
-    auto result = std::make_shared<MCPToolResult>();
-
     if (response.contains("error")) {
         result->isError = true;
-        std::string msg = response["error"].value("message", "Unknown error");
-        result->content.push_back("Error: " + msg);
-    } else if (response.contains("result")) {
-        auto& res = response["result"];
-        if (res.contains("isError") && res["isError"].is_boolean()) {
-            result->isError = res["isError"].get<bool>();
+        std::string message = response["error"].value("message", "Unknown error");
+        result->content.push_back("Error: " + message);
+        return result;
+    }
+
+    if (response.contains("result")) {
+        auto& responseResult = response["result"];
+        if (responseResult.contains("isError") && responseResult["isError"].is_boolean()) {
+            result->isError = responseResult["isError"].get<bool>();
         }
 
-        if (res.contains("content") && res["content"].is_array()) {
-            for (const auto& c : res["content"]) {
-                if (c.contains("text")) {
-                    result->content.push_back(c["text"].get<std::string>());
+        if (responseResult.contains("content") && responseResult["content"].is_array()) {
+            for (const auto& contentItem : responseResult["content"]) {
+                if (contentItem.contains("text")) {
+                    result->content.push_back(contentItem["text"].get<std::string>());
                 }
             }
         }

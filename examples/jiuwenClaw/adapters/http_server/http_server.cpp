@@ -4,6 +4,7 @@
 
 #include "examples/jiuwenClaw/adapters/http_server/http_server.h"
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
@@ -16,6 +17,7 @@
 
 #include "examples/jiuwenClaw/channels/channel_manager.h"
 #include "examples/jiuwenClaw/channels/channel_service.h"
+#include "examples/jiuwenClaw/mcp/mcp_server_manager.h"
 #include "examples/jiuwenClaw/utils/logger.h"
 #include "include/agent.h"
 #include "include/config/agent_config_json.h"
@@ -270,7 +272,9 @@ void HttpServer::Start(const HttpServerConfig& config)
         auto sseCtx = std::make_shared<SseContext>();
 
         auto streamCallback = [sseCtx](const std::string& resp) {
-            if (resp.empty()) return;
+            if (resp.empty()) {
+                return;
+            }
 
             std::string eventType = "message";
             std::string data = resp;
@@ -588,7 +592,9 @@ void HttpServer::Start(const HttpServerConfig& config)
             AgentConfig base;
             base.id = id;
             auto cur = AgentConfigStore::Instance().Get(id);
-            if (cur) base = *cur;
+            if (cur) {
+                base = *cur;
+            }
             MergeAgentConfigFromJson(j, base);
             base.id = id;
 
@@ -668,6 +674,219 @@ void HttpServer::Start(const HttpServerConfig& config)
         res.set_content(result.dump(2), "application/json");
     });
 
+    // --- MCP Server Management ---
+
+    // GET /api/mcp_servers - list all (from persistent store + connected status)
+    impl_->server->Get("/api/mcp_servers", [](const httplib::Request&, httplib::Response& res) {
+        auto entries = McpServerManager::GetInstance().GetAllServers();
+        auto active = ResourceManager::GetInstance().GetConnectedMCPServerIds();
+        std::unordered_map<std::string, bool> isActive;
+        for (const auto& activeId : active) {
+            isActive[activeId] = true;
+        }
+
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& e : entries) {
+            nlohmann::json entry;
+            entry["id"] = e.id;
+            entry["name"] = e.name;
+            entry["description"] = e.description;
+            entry["enabled"] = e.enabled;
+            entry["type"] = e.type;
+            entry["url"] = e.url;
+            entry["endpoint"] = e.endpoint;
+            entry["command"] = e.command;
+            entry["args"] = e.args;
+            nlohmann::json env = nlohmann::json::object();
+            for (const auto& kv : e.env) {
+                env[kv.first] = kv.second;
+            }
+            entry["env"] = env;
+            nlohmann::json headers = nlohmann::json::object();
+            for (const auto& kv : e.headers) {
+                headers[kv.first] = kv.second;
+            }
+            entry["headers"] = headers;
+            entry["connected"] = (e.enabled && isActive.count(e.id) > 0);
+            arr.push_back(entry);
+        }
+        res.set_content(arr.dump(2), "application/json");
+    });
+
+    // POST /api/mcp_servers - create
+    impl_->server->Post("/api/mcp_servers", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            McpServerEntry entry;
+            entry.id = j.value("id", "");
+            entry.name = j.value("name", "");
+            entry.description = j.value("description", "");
+            entry.enabled = j.value("enabled", true);
+            entry.type = j.value("type", "");
+            entry.url = j.value("url", "");
+            entry.endpoint = j.value("endpoint", "");
+            entry.command = j.value("command", "");
+            if (j.contains("args") && j["args"].is_array()) {
+                for (const auto& a : j["args"]) {
+                    if (a.is_string()) {
+                        entry.args.push_back(a.get<std::string>());
+                    }
+                }
+            }
+            if (j.contains("env") && j["env"].is_object()) {
+                for (auto it = j["env"].begin(); it != j["env"].end(); ++it) {
+                    if (it.value().is_string()) {
+                        entry.env[it.key()] = it.value().get<std::string>();
+                    }
+                }
+            }
+            if (j.contains("headers") && j["headers"].is_object()) {
+                for (auto it = j["headers"].begin(); it != j["headers"].end(); ++it) {
+                    if (it.value().is_string()) {
+                        entry.headers[it.key()] = it.value().get<std::string>();
+                    }
+                }
+            }
+
+            if (entry.id.empty()) {
+                nlohmann::json err;
+                err["error"] = "id required";
+                res.status = 400;
+                res.set_content(err.dump(2), "application/json");
+                return;
+            }
+
+            // Persist to mcp_servers.json
+            McpServerManager::GetInstance().AddServer(entry);
+
+            ResourceManager::GetInstance().LoadMCPServers(McpServerManager::GetInstance().ToFrameworkConfigs());
+
+            if (auto liveAgent = GetSessionManager().GetAgent()) {
+                int delta = liveAgent->SyncMcpTools();
+                LOG(INFO) << "[HttpServer] SyncMcpTools delta=" << delta;
+            }
+
+            nlohmann::json result;
+            result["id"] = entry.id;
+            result["created"] = true;
+            res.status = 201;
+            res.set_content(result.dump(2), "application/json");
+        } catch (const std::exception& e) {
+            nlohmann::json err;
+            err["error"] = e.what();
+            res.status = 400;
+            res.set_content(err.dump(2), "application/json");
+        }
+    });
+
+    // PUT /api/mcp_servers/{id} - update
+    impl_->server->Put(R"(/api/mcp_servers/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            std::string id = req.matches[1];
+            auto j = nlohmann::json::parse(req.body);
+
+            McpServerEntry entry;
+            entry.id = id;
+            entry.name = j.value("name", "");
+            entry.description = j.value("description", "");
+            entry.enabled = j.value("enabled", true);
+            entry.type = j.value("type", "");
+            entry.url = j.value("url", "");
+            entry.endpoint = j.value("endpoint", "");
+            entry.command = j.value("command", "");
+            if (j.contains("args") && j["args"].is_array()) {
+                for (const auto& a : j["args"]) {
+                    if (a.is_string()) {
+                        entry.args.push_back(a.get<std::string>());
+                    }
+                }
+            }
+            if (j.contains("env") && j["env"].is_object()) {
+                for (auto it = j["env"].begin(); it != j["env"].end(); ++it) {
+                    if (it.value().is_string()) {
+                        entry.env[it.key()] = it.value().get<std::string>();
+                    }
+                }
+            }
+            if (j.contains("headers") && j["headers"].is_object()) {
+                for (auto it = j["headers"].begin(); it != j["headers"].end(); ++it) {
+                    if (it.value().is_string()) {
+                        entry.headers[it.key()] = it.value().get<std::string>();
+                    }
+                }
+            }
+
+            // Persist update
+            McpServerManager::GetInstance().UpdateServer(id, entry);
+
+            ResourceManager::GetInstance().LoadMCPServers(McpServerManager::GetInstance().ToFrameworkConfigs());
+
+            if (auto liveAgent = GetSessionManager().GetAgent()) {
+                int delta = liveAgent->SyncMcpTools();
+                LOG(INFO) << "[HttpServer] SyncMcpTools delta=" << delta;
+            }
+
+            nlohmann::json result;
+            result["id"] = id;
+            result["updated"] = true;
+            res.set_content(result.dump(2), "application/json");
+        } catch (const std::exception& e) {
+            nlohmann::json err;
+            err["error"] = e.what();
+            res.status = 400;
+            res.set_content(err.dump(2), "application/json");
+        }
+    });
+
+    // DELETE /api/mcp_servers/{id} - delete
+    impl_->server->Delete(R"(/api/mcp_servers/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        std::string id = req.matches[1];
+
+        // Remove from persistent store
+        McpServerManager::GetInstance().RemoveServer(id);
+
+        // Disconnect from framework (this also unregisters the server's
+        // tools from ResourceManager via MCPConnection::Disconnect)
+        ResourceManager::GetInstance().UnregisterMCPServer(id);
+
+        // Reconcile MCP tool list on the live Agent so the disconnected
+        // server's tools are dropped from the prompt
+        if (auto liveAgent = GetSessionManager().GetAgent()) {
+            int delta = liveAgent->SyncMcpTools();
+            LOG(INFO) << "[HttpServer] SyncMcpTools delta=" << delta;
+        }
+
+        // Cascade: remove this id from all agents' mcpServerIds
+        auto allCfgs = AgentConfigStore::Instance().List();
+        for (auto& agentCfg : allCfgs) {
+            auto& ids = agentCfg.mcpServerIds;
+            auto newEnd = std::remove(ids.begin(), ids.end(), id);
+            if (newEnd != ids.end()) {
+                ids.erase(newEnd, ids.end());
+                AgentConfigStore::Instance().Upsert(agentCfg);
+            }
+        }
+
+        nlohmann::json result;
+        result["id"] = id;
+        result["deleted"] = true;
+        res.set_content(result.dump(2), "application/json");
+    });
+
+    // POST /api/mcp_servers/reload - reload from mcp_servers.json
+    impl_->server->Post("/api/mcp_servers/reload", [](const httplib::Request&, httplib::Response& res) {
+        McpServerManager::GetInstance().Load();
+        auto configs = McpServerManager::GetInstance().ToFrameworkConfigs();
+        ResourceManager::GetInstance().LoadMCPServers(configs);
+        if (auto liveAgent = GetSessionManager().GetAgent()) {
+            int delta = liveAgent->SyncMcpTools();
+            LOG(INFO) << "[HttpServer] SyncMcpTools delta=" << delta;
+        }
+        nlohmann::json result;
+        result["reloaded"] = true;
+        res.set_content(result.dump(2), "application/json");
+    });
+
     // Serve static frontend files if configured
     if (!config.staticDir.empty()) {
         impl_->server->set_mount_point("/", config.staticDir);
@@ -691,7 +910,9 @@ void HttpServer::Start(const HttpServerConfig& config)
 void HttpServer::Stop()
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!running_) return;
+    if (!running_) {
+        return;
+    }
 
     running_ = false;
 

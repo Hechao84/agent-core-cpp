@@ -303,6 +303,13 @@ void MergeAgentConfigFromJson(const nlohmann::json& j, AgentConfig& out)
         }
         out.defaultTools = std::move(tools);
     }
+    if (j.contains("mcpServerIds") && j["mcpServerIds"].is_array()) {
+        std::vector<std::string> ids;
+        for (const auto& v : j["mcpServerIds"]) {
+            if (v.is_string()) ids.push_back(v.get<std::string>());
+        }
+        out.mcpServerIds = std::move(ids);
+    }
 }
 
 nlohmann::json AgentConfigToJson(const AgentConfig& cfg)
@@ -322,6 +329,7 @@ nlohmann::json AgentConfigToJson(const AgentConfig& cfg)
     j["dataBasePath"]          = cfg.dataBasePath;
     j["maxConcurrentSessions"] = cfg.maxConcurrentSessions;
     j["defaultTools"]          = cfg.defaultTools;
+    j["mcpServerIds"]          = cfg.mcpServerIds;
     return j;
 }
 

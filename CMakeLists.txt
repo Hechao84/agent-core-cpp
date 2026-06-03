@@ -115,7 +115,7 @@ endif()
 # Core Library: agent_framework (pure core, no transport-layer deps)
 # ============================================================
 add_library(agent_framework SHARED
-    src/protocol/mcp_client.cpp
+
     src/core/agent.cpp
     src/core/agent_worker.cpp
     src/core/history_store.cpp
@@ -132,7 +132,10 @@ add_library(agent_framework SHARED
     src/resource_manager/resource_manager.cpp
     src/tools/tool.cpp
     src/tools/tool_selector.cpp
-    src/tools/mcp_tool.cpp
+    src/mcp/mcp_client.cpp
+    src/mcp/mcp_connection.cpp
+    src/mcp/mcp_tool.cpp
+    src/mcp/mcp_config_manager.cpp
     src/tools/builtin_tools/time_info_tool.cpp
     src/tools/builtin_tools/web_search_tool.cpp
     src/tools/builtin_tools/web_fetch_tool.cpp
@@ -200,6 +203,7 @@ add_library(jiuwenClaw_http_server_adapter STATIC
     examples/jiuwenClaw/adapters/http_server/http_server.cpp
     examples/jiuwenClaw/channels/channel_manager.cpp
     examples/jiuwenClaw/channels/channel_service.cpp
+    examples/jiuwenClaw/mcp/mcp_server_manager.cpp
 )
 target_include_directories(jiuwenClaw_http_server_adapter PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}

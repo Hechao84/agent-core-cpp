@@ -5,7 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "src/utils/logger.h"
+
 #include "include/model.h"
 #include "src/models/anthropic_model.h"
 #include "src/models/openai_model.h"
@@ -22,7 +22,9 @@
 #include "src/tools/builtin_tools/web_fetch_tool.h"
 #include "src/tools/builtin_tools/web_search_tool.h"
 #include "src/tools/builtin_tools/write_file_tool.h"
-#include "src/tools/mcp_tool.h"
+#include "src/mcp/mcp_config_manager.h"
+#include "src/mcp/mcp_connection.h"
+#include "src/utils/logger.h"
 #include "third_party/include/nlohmann/json.hpp"
 
 namespace jiuwen {
@@ -70,91 +72,101 @@ void ResourceManager::RegisterTool(const std::string& name, std::function<std::u
     toolSchemas_.erase(name);
 }
 
-void ResourceManager::RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory)
+void ResourceManager::RegisterModel(
+    ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     modelFactories_[type] = std::move(factory);
 }
 
-void ResourceManager::RegisterModel(const std::string& provider, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory)
+void ResourceManager::RegisterModel(
+    const std::string& provider, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     providerModelFactories_[provider] = std::move(factory);
 }
 
-void ResourceManager::RegisterMCPServer(const std::string& name, const std::string& jsonConfig)
+void ResourceManager::RegisterMCPServer(const McpServerConfig& config)
 {
-    MCPEndpointConfig endpointCfg;
-    nlohmann::json config;
-
-    try {
-        config = nlohmann::json::parse(jsonConfig);
-    } catch (const std::exception& e) {
-        throw std::runtime_error("Invalid MCP JSON config: " + std::string(e.what()));
+    std::shared_ptr<MCPConnection> oldServer;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = mcpServers_.find(config.id);
+        if (it != mcpServers_.end()) {
+            oldServer = it->second;
+            mcpServers_.erase(it);
+        }
+    }
+    if (oldServer) {
+        oldServer->Disconnect();
     }
 
-    std::string baseUrl = config.value("url", "");
-    std::string endpoint = config.value("endpoint", "");
+    MCPEndpointConfig endpointCfg;
 
-    // Combine URL and endpoint
+    std::string baseUrl = config.url;
     if (baseUrl.empty()) {
-        baseUrl = endpoint;
-    } else if (!endpoint.empty()) {
-        if (baseUrl.back() != '/' && endpoint.front() != '/') {
+        baseUrl = config.endpoint;
+    } else if (!config.endpoint.empty()) {
+        if (baseUrl.back() != '/' && config.endpoint.front() != '/') {
             baseUrl += "/";
         }
-        baseUrl += endpoint;
+        baseUrl += config.endpoint;
     }
-
     endpointCfg.url = baseUrl;
 
-    std::string transportTypeStr = config.value("type", "");
-    if (transportTypeStr.empty()) {
-        transportTypeStr = config.value("transport", "");
-    }
-
+    // Determine transport type
     if (!endpointCfg.url.empty()) {
-        if (transportTypeStr == "sse" ||
-            (transportTypeStr.empty() && endpointCfg.url.find("/sse") != std::string::npos)) {
+        if (config.type == "sse" ||
+            (config.type.empty() && endpointCfg.url.find("/sse") != std::string::npos)) {
             endpointCfg.transportType = MCPTransportType::SSE;
         } else {
             endpointCfg.transportType = MCPTransportType::STREAMABLE_HTTP;
         }
-
-        if (config.contains("headers") && config["headers"].is_object()) {
-            for (auto& [k, v] : config["headers"].items()) {
-                if (v.is_string()) {
-                    endpointCfg.headers[k] = v.get<std::string>();
-                }
-            }
+        // Copy headers (std::map -> std::unordered_map)
+        for (const auto& kv : config.headers) {
+            endpointCfg.headers[kv.first] = kv.second;
         }
-    } else if (config.contains("command")) {
+    } else if (!config.command.empty()) {
         endpointCfg.transportType = MCPTransportType::STDIO;
-        endpointCfg.command = config["command"].get<std::string>();
-
-        if (config.contains("args") && config["args"].is_array()) {
-            for (const auto& arg : config["args"]) {
-                if (arg.is_string()) endpointCfg.args.push_back(arg.get<std::string>());
-            }
-        }
-
-        if (config.contains("env") && config["env"].is_object()) {
-            for (auto& [k, v] : config["env"].items()) {
-                if (v.is_string()) endpointCfg.env[k] = v.get<std::string>();
-            }
+        endpointCfg.command = config.command;
+        endpointCfg.args = config.args;
+        for (const auto& kv : config.env) {
+            endpointCfg.env[kv.first] = kv.second;
         }
     } else {
-        throw std::runtime_error("Invalid MCP server config: missing 'url' or 'command'");
+        LOG(ERR) << "Invalid MCP server config: missing 'url' or 'command'";
+        return;
     }
 
-    auto server = std::make_shared<MCPServer>(name, endpointCfg);
+    auto server = std::make_shared<MCPConnection>(config.id, endpointCfg);
 
-    // Connect immediately to initialize handshake and discover tools
+    // Connect immediately to initialize handshake and discover tools.
+    // Connect() catches its own exceptions and leaves the connection in a
+    // disconnected state on failure, so an unreachable MCP server cannot
+    // prevent the rest of the framework from starting.
     server->Connect();
 
-    // Register after connection to avoid race
+    // Register after connection attempt so subsequent reconnects or
+    // status queries work uniformly for both connected and failed servers.
     std::lock_guard<std::mutex> lock(mutex_);
-    mcpServers_[name] = server;
+    mcpServers_[config.id] = server;
+}
+
+void ResourceManager::RegisterMcpTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory)
+{
+    RegisterTool(name, factory);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        mcpToolNames_.insert(name);
+    }
+}
+
+void ResourceManager::UnregisterMcpTool(const std::string& name)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    mcpToolNames_.erase(name);
+    toolFactories_.erase(name);
+    toolSchemas_.erase(name);
 }
 
 std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
@@ -162,7 +174,9 @@ std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
     std::lock_guard<std::mutex> lock(mutex_);
     LOG(INFO) << "Creating tool instance: " << name;
     auto it = toolFactories_.find(name);
-    if (it != toolFactories_.end()) return it->second();
+    if (it != toolFactories_.end()) {
+        return it->second();
+    }
     LOG(INFO) << "Tool not found in factories: " << name;
     throw std::runtime_error("Tool not found: " + name);
 }
@@ -172,7 +186,9 @@ std::string ResourceManager::GetToolSchema(const std::string& name)
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = toolSchemas_.find(name);
-        if (it != toolSchemas_.end()) return it->second;
+        if (it != toolSchemas_.end()) {
+            return it->second;
+        }
     }
 
     auto tool = CreateTool(name);
@@ -189,20 +205,26 @@ std::unique_ptr<Model> ResourceManager::CreateModel(const ModelConfig& config)
     // 1. First match custom provider implementation (for vendor-specific behavior)
     if (!config.provider.empty()) {
         auto it = providerModelFactories_.find(config.provider);
-        if (it != providerModelFactories_.end()) return it->second(config);
+        if (it != providerModelFactories_.end()) {
+            return it->second(config);
+        }
     }
     
     // 2. Fall back to standard format implementation
     auto it = modelFactories_.find(config.formatType);
-    if (it != modelFactories_.end()) return it->second(config);
+    if (it != modelFactories_.end()) {
+        return it->second(config);
+    }
     throw std::runtime_error("Model format not registered: use ModelFormatType or register custom provider");
 }
 
-std::shared_ptr<MCPServer> ResourceManager::GetMCPServer(const std::string& name)
+std::shared_ptr<MCPConnection> ResourceManager::GetMCPServer(const std::string& name)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = mcpServers_.find(name);
-    if (it != mcpServers_.end()) return it->second;
+    if (it != mcpServers_.end()) {
+        return it->second;
+    }
     return nullptr;
 }
 
@@ -210,7 +232,9 @@ std::vector<std::string> ResourceManager::GetAvailableTools() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> names;
-    for (const auto& p : toolFactories_) names.push_back(p.first);
+    for (const auto& p : toolFactories_) {
+        names.push_back(p.first);
+    }
     return names;
 }
 
@@ -223,7 +247,9 @@ std::vector<std::string> ResourceManager::GetAvailableModels() const
         {ModelFormatType::ANTHROPIC, "anthropic"}
     };
     for (const auto& p : modelFactories_) {
-        if (typeMap.count(p.first)) names.push_back(typeMap[p.first]);
+        if (typeMap.count(p.first)) {
+            names.push_back(typeMap[p.first]);
+        }
     }
     for (const auto& p : providerModelFactories_) {
         names.push_back(p.first);
@@ -235,7 +261,9 @@ std::vector<std::string> ResourceManager::GetAvailableMCPServers() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> names;
-    for (const auto& p : mcpServers_) names.push_back(p.first);
+    for (const auto& p : mcpServers_) {
+        names.push_back(p.first);
+    }
     return names;
 }
 
@@ -261,6 +289,43 @@ bool ResourceManager::HasMCPServer(const std::string& name) const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return mcpServers_.count(name) > 0;
+}
+
+void ResourceManager::LoadMCPServers(const std::vector<McpServerConfig>& configs)
+{
+    MCPConfigManager::Instance().Load(configs);
+}
+
+void ResourceManager::UnregisterMCPServer(const std::string& id)
+{
+    MCPConfigManager::Instance().Remove(id);
+}
+
+void ResourceManager::RemoveMCPServerRecord(const std::string& id)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    mcpServers_.erase(id);
+}
+
+std::vector<McpServerConfig> ResourceManager::GetMCPServerConfigs() const
+{
+    return MCPConfigManager::Instance().GetAllConfigs();
+}
+
+std::vector<std::string> ResourceManager::GetConnectedMCPServerIds() const
+{
+    return MCPConfigManager::Instance().ActiveIds();
+}
+
+std::vector<std::string> ResourceManager::GetMcpToolNames() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> out;
+    out.reserve(mcpToolNames_.size());
+    for (const auto& name : mcpToolNames_) {
+        out.push_back(name);
+    }
+    return out;
 }
 
 } // namespace jiuwen
