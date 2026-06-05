@@ -5,7 +5,6 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -27,9 +26,7 @@ ContextEngine::ContextEngine(const ContextConfig& config)
 {
 }
 
-ContextEngine::~ContextEngine()
-{
-}
+ContextEngine::~ContextEngine() = default;
 
 bool ContextEngine::Initialize()
 {
@@ -47,16 +44,25 @@ bool ContextEngine::Initialize()
     }
 
     if (storage_) {
-        return storage_->LoadHistory(memoryBuffer_);
+        if (!storage_->LoadHistory(memoryBuffer_)) {
+            return false;
+        }
+        // Defensive: drop trailing assistant(tool_calls) with no matching
+        // tool response. This guards against histories left in a broken
+        // state by a previous interrupted run.
+        size_t before = memoryBuffer_.size();
+        TrimOrphanTrailingToolCalls(memoryBuffer_);
+        if (memoryBuffer_.size() < before) {
+            LOG(WARN) << "[ContextEngine] Dropped " << (before - memoryBuffer_.size())
+                      << " trailing message(s) with orphan tool_calls in session=" << config_.sessionId;
+        }
     }
     return true;
 }
 
 void ContextEngine::AddMessage(const Message& message)
 {
-    // Reject empty messages at the engine level; they corrupt context history
-    if (message.content.empty()) return;
-
+    if (!ContextStorageBase::IsValidMessage(message)) return;
     memoryBuffer_.push_back(message);
     if (storage_) {
         storage_->SaveMessage(message);
@@ -71,20 +77,39 @@ std::vector<Message> ContextEngine::GetContextWindow() const
 
 int ContextEngine::CalculateMessageTokens(const Message& msg) const
 {
-    return EstimateTokens(msg.content) + EstimateTokens(msg.role);
+    int total = EstimateTokens(msg.role) + EstimateTokens(msg.content);
+    for (const auto& tc : msg.toolCalls) {
+        total += EstimateTokens(tc.name) + EstimateTokens(tc.argumentsJson);
+    }
+    total += EstimateTokens(msg.toolCallId) + EstimateTokens(msg.toolName);
+    return total;
+}
+
+bool ContextEngine::CanMerge(const Message& prev, const Message& cur)
+{
+    if (prev.role != cur.role) return false;
+    // tool messages must each retain their own tool_call_id
+    if (prev.role == "tool") return false;
+    // assistant carrying tool_calls is structural
+    if (prev.role == "assistant" && (!prev.toolCalls.empty() || !cur.toolCalls.empty())) {
+        return false;
+    }
+    // user / system / plain assistant text: safe to merge
+    return true;
 }
 
 std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message>& messages) const
 {
     if (messages.empty()) return {};
 
-    // 1. Safety Sanitization: Merge adjacent messages with the same role
-    // This prevents "assistant", "assistant" sequences which confuse LLMs.
+    // 1. Safety sanitisation: merge consecutive same-role messages where
+    // structural fields permit. This guards against duplicated user turns
+    // (e.g. a previous empty-response interrupt) without breaking the
+    // assistant(tool_calls) -> tool(result) pairing required by the API.
     std::vector<Message> sanitized;
     sanitized.reserve(messages.size());
     for (const auto& msg : messages) {
-        if (!sanitized.empty() && sanitized.back().role == msg.role) {
-            // Merge content if roles match
+        if (!sanitized.empty() && CanMerge(sanitized.back(), msg)) {
             sanitized.back().content = MergeMessageContent(sanitized.back().content, msg.content);
         } else {
             sanitized.push_back(msg);
@@ -96,34 +121,22 @@ std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message
     std::vector<Message> result;
     int totalTokens = 0;
 
-    // 2. If message count exceeds maxMessages, apply trimming strategy
+    // 2. Trim by message count first (keep first + most recent).
     if (static_cast<int>(workingMessages.size()) > config_.maxMessages) {
-        // Always keep the first message (usually user's initial query)
-        // And keep the most recent messages within limits
         int messagesToKeep = config_.maxMessages;
-        
-        // Reserve space for first message + recent messages
         result.reserve(messagesToKeep + 1);
-        
-        // Add first message
         result.push_back(workingMessages[0]);
         totalTokens += CalculateMessageTokens(workingMessages[0]);
-        
-        // Add recent messages from the end, respecting token limit
+
         int startIndex = static_cast<int>(workingMessages.size()) - 1;
         int keptCount = 0;
-        
         for (int i = startIndex; i > 0 && keptCount < messagesToKeep - 1; --i) {
             int msgTokens = CalculateMessageTokens(workingMessages[i]);
-            if (totalTokens + msgTokens > config_.maxContextTokens) {
-                break;
-            }
+            if (totalTokens + msgTokens > config_.maxContextTokens) break;
             result.push_back(workingMessages[i]);
             totalTokens += msgTokens;
-            keptCount++;
+            ++keptCount;
         }
-        
-        // Reverse the recent messages to maintain order
         if (result.size() > 1) {
             std::vector<Message> recent(result.begin() + 1, result.end());
             std::reverse(recent.begin(), recent.end());
@@ -131,17 +144,13 @@ std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message
             result.insert(result.end(), recent.begin(), recent.end());
         }
     } else {
-        // Within message limit, just apply token limit
         for (auto it = workingMessages.rbegin(); it != workingMessages.rend(); ++it) {
             int msgTokens = CalculateMessageTokens(*it);
-            if (!result.empty() && (totalTokens + msgTokens > config_.maxContextTokens)) {
-                break;
-            }
+            if (!result.empty() && (totalTokens + msgTokens > config_.maxContextTokens)) break;
             result.insert(result.begin(), *it);
             totalTokens += msgTokens;
         }
     }
-
     return result;
 }
 
@@ -151,7 +160,14 @@ std::string ContextEngine::GetContextAsString() const
     if (messages.empty()) return "";
     std::ostringstream oss;
     for (const auto& msg : messages) {
-        oss << msg.role << ": " << msg.content << "\n";
+        oss << msg.role;
+        if (!msg.toolCalls.empty()) {
+            oss << " (tool_calls=" << msg.toolCalls.size() << ")";
+        }
+        if (!msg.toolCallId.empty()) {
+            oss << " (tool_call_id=" << msg.toolCallId << ")";
+        }
+        oss << ": " << msg.content << "\n";
     }
     return oss.str();
 }
@@ -173,7 +189,7 @@ int ContextEngine::GetTokenCount() const
 {
     int total = 0;
     for (const auto& msg : memoryBuffer_) {
-        total += EstimateTokens(msg.content) + EstimateTokens(msg.role);
+        total += CalculateMessageTokens(msg);
     }
     return total;
 }
@@ -192,7 +208,6 @@ std::string ContextEngine::LoadMemoryContext() const
 {
     std::lock_guard<std::mutex> lock(memoryMutex_);
     fs::path memoryPath = fs::path(GetDataDir().GetMemoryPath());
-
     if (fs::exists(memoryPath) && fs::is_regular_file(memoryPath)) {
         std::ifstream file(memoryPath);
         if (file.is_open()) {
@@ -201,7 +216,6 @@ std::string ContextEngine::LoadMemoryContext() const
             return buffer.str();
         }
     }
-
     return "";
 }
 
@@ -212,26 +226,37 @@ std::string ContextEngine::MergeMessageContent(const std::string& left, const st
     return left + "\n\n" + right;
 }
 
+void ContextEngine::TrimOrphanTrailingToolCalls(std::vector<Message>& msgs)
+{
+    while (!msgs.empty()) {
+        const auto& last = msgs.back();
+        if (last.role == "assistant" && !last.toolCalls.empty()) {
+            msgs.pop_back();
+        } else {
+            break;
+        }
+    }
+}
+
 std::vector<Message> ContextEngine::BuildMessagesForLLM(
     const std::string& systemPrompt,
     const std::vector<Message>& history,
     const Message& currentMessage) const
 {
     std::vector<Message> result;
-    
     if (!systemPrompt.empty()) {
-        result.push_back({"system", systemPrompt});
+        Message sys;
+        sys.role = "system";
+        sys.content = systemPrompt;
+        result.push_back(sys);
     }
-    
     auto limitedHistory = ApplyContextLimits(history);
     result.insert(result.end(), limitedHistory.begin(), limitedHistory.end());
-    
-    if (!result.empty() && result.back().role == currentMessage.role) {
+    if (!result.empty() && CanMerge(result.back(), currentMessage)) {
         result.back().content = MergeMessageContent(result.back().content, currentMessage.content);
     } else {
-        result.push_back({currentMessage.role, currentMessage.content});
+        result.push_back(currentMessage);
     }
-    
     return result;
 }
 
@@ -243,15 +268,14 @@ std::string ContextEngine::GetMemoryContent() const
 std::string ContextEngine::GetConsolidationPayload(int maxMessages) const
 {
     if (memoryBuffer_.empty()) return "";
-        
     int startIdx = 0;
     if (static_cast<int>(memoryBuffer_.size()) > maxMessages) {
         startIdx = static_cast<int>(memoryBuffer_.size()) - maxMessages;
     }
-        
     std::string result;
     for (int i = startIdx; i < static_cast<int>(memoryBuffer_.size()); ++i) {
-        result += memoryBuffer_[i].role + ": " + memoryBuffer_[i].content + "\n\n";
+        const auto& m = memoryBuffer_[i];
+        result += m.role + ": " + m.content + "\n\n";
     }
     return result;
 }

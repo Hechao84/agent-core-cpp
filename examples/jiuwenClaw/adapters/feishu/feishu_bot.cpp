@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "examples/jiuwenClaw/utils/logger.h"
 #include "include/session_manager.h"
@@ -25,11 +26,12 @@ constexpr auto kFeishuDedupWindow = std::chrono::minutes(5);
 
 // Stream-callback tags emitted by the agent loop.
 constexpr const char* kTagToolCalls = "[TOOL_CALLS]";
-constexpr const char* kTagToolResponse = "[TOOL_RESPONSE]";
+constexpr const char* kTagToolResponsePrefix = "[TOOL_RESPONSE";
 constexpr const char* kTagFinal = "[FINAL]";
 
-constexpr const char* kStatusProcessing = "[Status] Processing...";
-constexpr const char* kStatusComplete = "[Status] Complete";
+constexpr const char* kStatusProcessing = "处理中";
+constexpr const char* kStatusComplete = "已完成";
+constexpr size_t kMaxToolResultChars = 6000;
 
 // Aggregated state shared between the agent worker thread and the bubble-sender
 // thread for a single Feishu inbound event.
@@ -63,6 +65,30 @@ bool TryExtractTag(const std::string& text, const char* tag, std::string& body)
     body = text.substr(pos + std::char_traits<char>::length(tag));
     TrimAround(body);
     return true;
+}
+
+bool TryExtractToolResponseTag(const std::string& text, std::string& body)
+{
+    size_t pos = text.find(kTagToolResponsePrefix);
+    if (pos == std::string::npos) {
+        return false;
+    }
+    size_t close = text.find(']', pos);
+    if (close == std::string::npos) {
+        return false;
+    }
+    body = text.substr(close + 1);
+    TrimAround(body);
+    return true;
+}
+
+std::string LimitText(std::string s, size_t maxChars)
+{
+    if (s.size() <= maxChars) {
+        return s;
+    }
+    s.resize(maxChars);
+    return s + "\n...（结果过长，已截断）";
 }
 
 // Returns JSON field as string. Non-string scalars are dump()'d; missing/null
@@ -101,39 +127,107 @@ bool RegisterFeishuEventOnce(const std::string& messageId)
     return true;
 }
 
-// Sends a single text message to Feishu as one bubble. Empty strings are
-// ignored so callers can pass intermediate computed text freely.
-void SendBubble(FeishuChannel* channel, const std::string& chatId, const std::string& text)
+nlohmann::json MakeMarkdownDiv(const std::string& content)
 {
-    if (text.empty()) {
-        return;
-    }
-    LOG(INFO) << "[FeishuBot] Bubble to chat=" << chatId
-              << ", size=" << text.size()
-              << ", first=" << text.substr(0, 80);
-    channel->SendTextMessage(chatId, text);
+    return {
+        {"tag", "div"},
+        {"text", {{"tag", "lark_md"}, {"content", content}}}
+    };
 }
 
-// Renders a [TOOL_CALLS] stream chunk as a Feishu bubble.
-// The chunk body is a JSON object {"name": "...", "arguments": ...}; we fall
-// back to the raw body if parsing fails.
-void EmitToolCallBubble(FeishuChannel* channel, const std::string& chatId,
-                        const std::string& body)
+std::vector<std::string> SplitParagraphs(const std::string& text)
+{
+    std::vector<std::string> parts;
+    std::string current;
+    size_t i = 0;
+    while (i < text.size()) {
+        size_t pos = text.find("\n\n", i);
+        std::string chunk = (pos == std::string::npos) ? text.substr(i) : text.substr(i, pos - i);
+        TrimAround(chunk);
+        if (!chunk.empty()) {
+            parts.push_back(chunk);
+        }
+        if (pos == std::string::npos) break;
+        i = pos + 2;
+    }
+    if (parts.empty()) {
+        std::string t = text;
+        TrimAround(t);
+        if (!t.empty()) parts.push_back(t);
+    }
+    return parts;
+}
+
+nlohmann::json MakeCard(const nlohmann::json& elements)
+{
+    return {
+        {"config", {{"wide_screen_mode", true}}},
+        {"elements", elements}
+    };
+}
+
+void SendCard(FeishuChannel* channel, const std::string& chatId,
+              const std::string& type, const nlohmann::json& card)
+{
+    if (chatId.empty()) {
+        LOG(ERR) << "[FeishuBot] Failed to send " << type << " card: empty chat id";
+        return;
+    }
+    if (!channel || !channel->SendCardMessage(chatId, card)) {
+        LOG(ERR) << "[FeishuBot] Failed to send " << type << " card, chat=" << chatId;
+    }
+}
+
+void SendStatusCard(FeishuChannel* channel, const std::string& chatId,
+                    const std::string& text, const std::string& color)
+{
+    (void)color;
+    nlohmann::json elements = nlohmann::json::array({
+        MakeMarkdownDiv(std::string("[状态] **") + text + "**")
+    });
+    SendCard(channel, chatId, "status", MakeCard(elements));
+}
+
+void SendToolCallCard(FeishuChannel* channel, const std::string& chatId,
+                      const std::string& body)
 {
     std::string name = body;
-    std::string args;
     try {
         auto j = nlohmann::json::parse(body);
         name = JsonFieldAsString(j, "name");
-        args = JsonFieldAsString(j, "arguments");
     } catch (...) {
-        // Leave name as raw body, args empty.
     }
-    std::string bubble = "[TOOL_CALL]" + name;
-    if (!args.empty()) {
-        bubble += " args=" + args;
+    if (name.empty()) {
+        name = "tool";
     }
-    SendBubble(channel, chatId, bubble);
+    nlohmann::json elements = nlohmann::json::array({
+        MakeMarkdownDiv(std::string("[工具调用] ") + name)
+    });
+    SendCard(channel, chatId, "tool_call", MakeCard(elements));
+}
+
+void SendToolResultCard(FeishuChannel* channel, const std::string& chatId,
+                        const std::string& result)
+{
+    std::string shown = LimitText(result, kMaxToolResultChars);
+    nlohmann::json elements = nlohmann::json::array();
+    elements.push_back(MakeMarkdownDiv("[工具结果]"));
+    for (const auto& part : SplitParagraphs(shown)) {
+        elements.push_back(MakeMarkdownDiv(part));
+    }
+    SendCard(channel, chatId, "tool_result", MakeCard(elements));
+}
+
+void SendFinalAnswerCard(FeishuChannel* channel, const std::string& chatId,
+                         const std::string& answer)
+{
+    if (answer.empty()) {
+        return;
+    }
+    nlohmann::json elements = nlohmann::json::array({
+        MakeMarkdownDiv(answer)
+    });
+    SendCard(channel, chatId, "final_answer", MakeCard(elements));
 }
 
 // Routes one stream chunk from the agent loop into Feishu bubbles.
@@ -150,11 +244,11 @@ void RouteAgentStreamChunk(const std::shared_ptr<FeishuTurnContext>& ctx,
     }
     std::string body;
     if (TryExtractTag(resp, kTagToolCalls, body)) {
-        EmitToolCallBubble(channel, chatId, body);
+        SendToolCallCard(channel, chatId, body);
         return;
     }
-    if (TryExtractTag(resp, kTagToolResponse, body)) {
-        SendBubble(channel, chatId, std::string("[TOOL_RESULT]\n") + body);
+    if (TryExtractToolResponseTag(resp, body)) {
+        SendToolResultCard(channel, chatId, body);
         return;
     }
     if (TryExtractTag(resp, kTagFinal, body)) {
@@ -208,8 +302,8 @@ void SpawnClosingSender(const std::shared_ptr<FeishuTurnContext>& ctx,
         }
         lk.unlock();
 
-        SendBubble(channel, chatId, finalText);
-        SendBubble(channel, chatId, kStatusComplete);
+        SendFinalAnswerCard(channel, chatId, finalText);
+        SendStatusCard(channel, chatId, kStatusComplete, "green");
     }).detach();
 }
 
@@ -231,7 +325,7 @@ void HandleFeishuEvent(FeishuChannel* channel,
               << ", messageId=" << messageId
               << ", content=" << msgContent.substr(0, 100);
 
-    SendBubble(channel, chatId, kStatusProcessing);
+    SendStatusCard(channel, chatId, kStatusProcessing, "blue");
 
     auto ctx = std::make_shared<FeishuTurnContext>();
 

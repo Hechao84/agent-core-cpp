@@ -51,6 +51,11 @@ public:
     // Write a single agent override back to disk (CRUD via API).
     // Triggers an immediate Save() of the whole agents.json.
     void Upsert(const AgentConfig& cfg);
+
+    // Write a raw JSON override. This is used by Web UI saves so agents.json
+    // persists only the fields the UI can edit, instead of serialising the
+    // fully-merged effective AgentConfig with all code defaults expanded.
+    void UpsertOverride(const std::string& id, const nlohmann::json& overrideJson);
     void Remove(const std::string& id);
 
     // Persist current in-memory snapshot to disk.

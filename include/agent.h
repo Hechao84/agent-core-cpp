@@ -21,6 +21,9 @@ class ContextEngine;
 class SkillEngine;
 class HistoryStore;
 class DreamProcessor;
+class SessionTodoList;
+class AskUserDispatcher;
+class WorkerEnvImpl;
 
 struct SessionActivity
 {
@@ -37,7 +40,7 @@ public:
                        std::function<void(const std::string&)> callback);
     bool IsSessionBusy(const std::string& sessionId) const;
     void Cancel();
-    
+
     void AddTools(const std::vector<std::string>& toolNames);
     std::vector<std::string> GetRegisteredTools() const;
 
@@ -47,6 +50,12 @@ public:
 
     const std::vector<std::string>& GetMcpServerIds() const { return config_.mcpServerIds; }
     int SyncMcpTools();
+
+    // Resolve a pending ask_user request. Called by application-layer
+    // adapters (HTTP, CLI, channel bridges) after they collected the user's
+    // answer for a particular request id emitted via the [ASK_USER] tag.
+    // Returns true if the request id matched a pending slot.
+    bool ProvideUserResponse(const std::string& requestId, const std::string& answer);
 
     void NotifySessionIdle(const std::string& sessionId);
     void NotifySessionActive(const std::string& sessionId);
@@ -69,6 +78,17 @@ private:
 
     std::unique_ptr<HistoryStore> historyStore_;
     std::unique_ptr<DreamProcessor> dreamProcessor_;
+
+    // Session-scoped resources owned by Agent and accessed by AgentWorker
+    // through the private WorkerEnv adapter.
+    std::unordered_map<std::string, std::unique_ptr<SessionTodoList>> sessionTodos_;
+    mutable std::mutex sessionTodosMutex_;
+    std::unique_ptr<AskUserDispatcher> askUserDispatcher_;
+    std::unique_ptr<WorkerEnvImpl> workerEnv_;
+
+    SessionTodoList* GetOrCreateSessionTodoList(const std::string& sessionId);
+    AskUserDispatcher* GetAskUserDispatcher();
+    friend class WorkerEnvImpl;
 
     mutable std::mutex sessionActivityMutex_;
     std::unordered_map<std::string, SessionActivity> sessionActivity_;

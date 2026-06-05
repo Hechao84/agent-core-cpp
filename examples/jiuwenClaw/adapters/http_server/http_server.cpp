@@ -8,6 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -165,7 +166,9 @@ void HttpServer::Start(const HttpServerConfig& config)
         res.set_content(result.dump(2), "application/json");
     });
 
-    // GET /api/sessions/{id}/history
+    // GET /api/sessions/{id}/history -- structured messages with native
+    // function-calling fields. Front-end consumes this to render tool
+    // bubbles by id pairing (assistant.tool_calls[].id <-> tool.tool_call_id).
     impl_->server->Get(R"(/api/sessions/([^/]+)/history)", [](const httplib::Request& req, httplib::Response& res) {
         std::string sessionId = req.matches[1];
 
@@ -176,6 +179,23 @@ void HttpServer::Start(const HttpServerConfig& config)
                 nlohmann::json entry;
                 entry["role"] = msg.role;
                 entry["content"] = msg.content;
+                if (!msg.toolCalls.empty()) {
+                    nlohmann::json arr = nlohmann::json::array();
+                    for (const auto& tc : msg.toolCalls) {
+                        nlohmann::json j;
+                        j["id"] = tc.id;
+                        j["name"] = tc.name;
+                        j["arguments"] = tc.argumentsJson;
+                        arr.push_back(j);
+                    }
+                    entry["tool_calls"] = arr;
+                }
+                if (!msg.toolCallId.empty()) {
+                    entry["tool_call_id"] = msg.toolCallId;
+                }
+                if (!msg.toolName.empty()) {
+                    entry["tool_name"] = msg.toolName;
+                }
                 history.push_back(entry);
             }
 
@@ -283,7 +303,6 @@ void HttpServer::Start(const HttpServerConfig& config)
                 eventType = "stream";
                 size_t pos = resp.find("[STREAM]");
                 data = resp.substr(pos + 8);
-                while (!data.empty() && data[0] == ' ') data = data.substr(1);
             } else if (resp.find("[STATUS]") != std::string::npos) {
                 eventType = "status";
                 size_t pos = resp.find("[STATUS]");
@@ -294,26 +313,67 @@ void HttpServer::Start(const HttpServerConfig& config)
                 size_t pos = resp.find("[TOOL_CALLS]");
                 data = resp.substr(pos + 12);
                 while (!data.empty() && (data[0] == ' ' || data[0] == '\n')) data = data.substr(1);
-            } else if (resp.find("[TOOL_RESPONSE]") != std::string::npos) {
+            } else if (resp.find("[TOOL_RESPONSE") != std::string::npos) {
+                // Two on-wire forms supported:
+                //   [TOOL_RESPONSE] <content>             (legacy)
+                //   [TOOL_RESPONSE <call_id>] <content>   (native function-call)
+                // In the second form the front-end uses call_id to route the
+                // result back to the right tool bubble.
                 eventType = "tool_response";
-                size_t pos = resp.find("[TOOL_RESPONSE]");
-                data = resp.substr(pos + 15);
-                while (!data.empty() && data[0] == ' ') data = data.substr(1);
+                size_t pos = resp.find("[TOOL_RESPONSE");
+                size_t closeBracket = resp.find("]", pos);
+                if (closeBracket == std::string::npos) {
+                    data = resp.substr(pos + 14); // strlen("[TOOL_RESPONSE")
+                } else {
+                    std::string header = resp.substr(pos + 14, closeBracket - pos - 14);
+                    // Strip a leading space (i.e. "[TOOL_RESPONSE call_xxx]" form).
+                    while (!header.empty() && header.front() == ' ') header.erase(0, 1);
+                    std::string payload = resp.substr(closeBracket + 1);
+                    while (!payload.empty() && payload.front() == ' ') payload.erase(0, 1);
+                    if (header.empty()) {
+                        data = payload;
+                    } else {
+                        // Prefix payload with "<call_id>: " for the SSE so the
+                        // front-end pattern-matches it.
+                        data = header + ": " + payload;
+                    }
+                }
+                while (!data.empty() && data[0] == '\n') data = data.substr(1);
+            } else if (resp.find("[ASK_USER]") != std::string::npos) {
+                eventType = "ask_user";
+                size_t pos = resp.find("[ASK_USER]");
+                size_t endPos = resp.find("[/ASK_USER]", pos);
+                size_t startData = pos + 10; // strlen("[ASK_USER]")
+                if (endPos != std::string::npos) {
+                    data = resp.substr(startData, endPos - startData);
+                } else {
+                    data = resp.substr(startData);
+                }
+                while (!data.empty() && (data[0] == ' ' || data[0] == '\n')) data = data.substr(1);
             } else if (resp.find("[FINAL]") != std::string::npos) {
                 eventType = "done";
                 data = "";
             }
 
+            size_t crpos;
+            while ((crpos = data.find('\r')) != std::string::npos) {
+                data.erase(crpos, 1);
+            }
+
             if (!data.empty()) {
                 std::string sseEvent = "event: " + eventType + "\n";
-                size_t start = 0;
-                size_t end = data.find('\n');
-                while (end != std::string::npos) {
-                    sseEvent += "data: " + data.substr(start, end - start) + "\n";
-                    start = end + 1;
-                    end = data.find('\n', start);
+                if (eventType == "stream") {
+                    sseEvent += "data: " + nlohmann::json(data).dump() + "\n\n";
+                } else {
+                    size_t start = 0;
+                    size_t end = data.find('\n');
+                    while (end != std::string::npos) {
+                        sseEvent += "data: " + data.substr(start, end - start) + "\n";
+                        start = end + 1;
+                        end = data.find('\n', start);
+                    }
+                    sseEvent += "data: " + data.substr(start) + "\n\n";
                 }
-                sseEvent += "data: " + data.substr(start) + "\n\n";
 
                 std::lock_guard<std::mutex> lock(sseCtx->mutex);
                 sseCtx->events.push_back(sseEvent);
@@ -598,7 +658,9 @@ void HttpServer::Start(const HttpServerConfig& config)
             MergeAgentConfigFromJson(j, base);
             base.id = id;
 
-            AgentConfigStore::Instance().Upsert(base);
+            // Persist exactly what the Web UI submitted (editable fields only),
+            // not the fully-merged effective config with all code defaults.
+            AgentConfigStore::Instance().UpsertOverride(id, j);
 
             // Hot-reload only if this id matches the live agent.
             std::string liveId = GetSessionManager().GetConfig().id;
@@ -856,14 +918,49 @@ void HttpServer::Start(const HttpServerConfig& config)
             LOG(INFO) << "[HttpServer] SyncMcpTools delta=" << delta;
         }
 
-        // Cascade: remove this id from all agents' mcpServerIds
+        // Cascade: remove this id from all agents' mcpServerIds. Persist only
+        // Web-editable fields to avoid expanding agents.json with code defaults.
         auto allCfgs = AgentConfigStore::Instance().List();
         for (auto& agentCfg : allCfgs) {
             auto& ids = agentCfg.mcpServerIds;
             auto newEnd = std::remove(ids.begin(), ids.end(), id);
             if (newEnd != ids.end()) {
                 ids.erase(newEnd, ids.end());
-                AgentConfigStore::Instance().Upsert(agentCfg);
+                nlohmann::json overrideJson;
+                overrideJson["id"] = agentCfg.id;
+                overrideJson["modelConfig"]["baseUrl"] = agentCfg.modelConfig.baseUrl;
+                overrideJson["modelConfig"]["apiKey"] = agentCfg.modelConfig.apiKey;
+                overrideJson["modelConfig"]["modelName"] = agentCfg.modelConfig.modelName;
+                overrideJson["modelConfig"]["formatType"] = "openai";
+                if (agentCfg.modelConfig.formatType == ModelFormatType::ANTHROPIC) {
+                    overrideJson["modelConfig"]["formatType"] = "anthropic";
+                }
+                overrideJson["modelConfig"]["provider"] = agentCfg.modelConfig.provider;
+                std::function<nlohmann::json(const ConfigValue&)> configValueToJson;
+                configValueToJson = [&configValueToJson](const ConfigValue& v) -> nlohmann::json {
+                    if (auto p = std::get_if<int>(&v)) return *p;
+                    if (auto p = std::get_if<float>(&v)) return *p;
+                    if (auto p = std::get_if<bool>(&v)) return *p;
+                    if (auto p = std::get_if<std::string>(&v)) return *p;
+                    if (auto p = std::get_if<std::vector<std::string>>(&v)) return *p;
+                    if (auto p = std::get_if<std::shared_ptr<ConfigNode>>(&v)) {
+                        nlohmann::json obj = nlohmann::json::object();
+                        if (*p) {
+                            for (const auto& child : (*p)->fields_) {
+                                obj[child.first] = configValueToJson(child.second);
+                            }
+                        }
+                        return obj;
+                    }
+                    return nullptr;
+                };
+                nlohmann::json ep = nlohmann::json::object();
+                for (const auto& kv : agentCfg.modelConfig.extraParams.fields_) {
+                    ep[kv.first] = configValueToJson(kv.second);
+                }
+                overrideJson["modelConfig"]["extraParams"] = ep;
+                overrideJson["mcpServerIds"] = ids;
+                AgentConfigStore::Instance().UpsertOverride(agentCfg.id, overrideJson);
             }
         }
 
@@ -885,6 +982,41 @@ void HttpServer::Start(const HttpServerConfig& config)
         nlohmann::json result;
         result["reloaded"] = true;
         res.set_content(result.dump(2), "application/json");
+    });
+
+    // POST /api/answer - resolve a pending ask_user request emitted via the
+    // [ASK_USER] SSE tag. Body: { "request_id": "...", "answer": "..." }.
+    impl_->server->Post("/api/answer", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            std::string requestId = j.value("request_id", std::string{});
+            std::string answer = j.value("answer", std::string{});
+            if (requestId.empty()) {
+                nlohmann::json err;
+                err["ok"] = false;
+                err["error"] = "request_id required";
+                res.status = 400;
+                res.set_content(err.dump(2), "application/json");
+                return;
+            }
+            bool ok = false;
+            if (auto liveAgent = GetSessionManager().GetAgent()) {
+                ok = liveAgent->ProvideUserResponse(requestId, answer);
+            }
+            nlohmann::json result;
+            result["ok"] = ok;
+            if (!ok) {
+                result["error"] = "request_id not pending (already answered or expired)";
+                res.status = 404;
+            }
+            res.set_content(result.dump(2), "application/json");
+        } catch (const std::exception& e) {
+            nlohmann::json err;
+            err["ok"] = false;
+            err["error"] = e.what();
+            res.status = 400;
+            res.set_content(err.dump(2), "application/json");
+        }
     });
 
     // Serve static frontend files if configured

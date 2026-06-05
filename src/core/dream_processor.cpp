@@ -178,8 +178,11 @@ std::vector<DreamFinding> DreamProcessor::Phase1Analysis(
 
     std::string systemPrompt = LoadDreamPhase1Prompt();
 
-    std::string response = model->Format(systemPrompt, {{"user", prompt}});
-    response = model->Invoke(response, nullptr);
+    Message userMsg;
+    userMsg.role = "user";
+    userMsg.content = prompt;
+    std::string formatted = model->Format(systemPrompt, {userMsg}, {});
+    std::string response = model->Invoke(formatted, nullptr).content;
 
     std::vector<DreamFinding> findings;
     std::istringstream stream(response);
@@ -288,14 +291,17 @@ bool DreamProcessor::Phase2Execution(
 
     for (int iteration = 0; iteration < config_.maxIterations; ++iteration) {
         std::string prompt = BuildPhase2Prompt(findings, scratchpad, memoryContent, soulContent, userContent);
-        std::string formatted = model->Format(systemPrompt, {{"user", prompt}});
-        std::string response = model->Invoke(formatted, nullptr);
+        Message userMsg;
+        userMsg.role = "user";
+        userMsg.content = prompt;
+        std::string formatted = model->Format(systemPrompt, {userMsg}, {});
+        std::string response = model->Invoke(formatted, nullptr).content;
 
         if (response.find("DONE") != std::string::npos) {
             return true;
         }
 
-        std::vector<ToolCall> toolCalls = ExtractAllToolCalls(response);
+        std::vector<ParsedToolCall> toolCalls = ExtractAllToolCalls(response);
         if (toolCalls.empty()) {
             return true;
         }

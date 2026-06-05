@@ -118,6 +118,8 @@ add_library(agent_framework SHARED
 
     src/core/agent.cpp
     src/core/agent_worker.cpp
+    src/core/ask_user_dispatcher.cpp
+    src/core/session_todo_list.cpp
     src/core/history_store.cpp
     src/core/dream_processor.cpp
     src/skills/skill_engine.cpp
@@ -127,8 +129,6 @@ add_library(agent_framework SHARED
     src/context_engine/db_storage.cpp
     src/workers/agent_worker_factory.cpp
     src/workers/react_worker.cpp
-    src/workers/plan_execute_worker.cpp
-    src/workers/workflow_worker.cpp
     src/resource_manager/resource_manager.cpp
     src/tools/tool.cpp
     src/tools/tool_selector.cpp
@@ -148,6 +148,8 @@ add_library(agent_framework SHARED
     src/tools/builtin_tools/exec_tool.cpp
     src/tools/builtin_tools/skill_search_tool.cpp
     src/tools/builtin_tools/file_state_tool.cpp
+    src/tools/builtin_tools/todo_tool.cpp
+    src/tools/builtin_tools/ask_user_tool.cpp
     src/models/model.cpp
     src/models/openai_model.cpp
     src/models/anthropic_model.cpp
@@ -258,7 +260,6 @@ add_executable(jiuwenClaw
     examples/jiuwenClaw/main.cpp
     examples/jiuwenClaw/heartbeat_manager.cpp
     examples/jiuwenClaw/cron_watcher.cpp
-    examples/jiuwenClaw/models/ark_code_model.cpp
     examples/jiuwenClaw/tools/notebook_edit_tool.cpp
     examples/jiuwenClaw/tools/cron_tool.cpp
     examples/jiuwenClaw/tools/notify_tool.cpp

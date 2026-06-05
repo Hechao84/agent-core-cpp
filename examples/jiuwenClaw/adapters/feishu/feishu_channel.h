@@ -8,6 +8,8 @@
 #include <string>
 #include <thread>
 
+#include "third_party/include/nlohmann/json.hpp"
+
 namespace jiuwenClaw {
 
 // Feishu long connection (WebSocket persistent) configuration.
@@ -38,8 +40,7 @@ public:
 
     void SetEventCallback(EventCallback callback);
 
-    bool SendTextMessage(const std::string& chatId, const std::string& text);
-    bool UpdateTextMessage(const std::string& messageId, const std::string& text);
+    bool SendCardMessage(const std::string& chatId, const nlohmann::json& card);
 
 private:
     struct Impl;

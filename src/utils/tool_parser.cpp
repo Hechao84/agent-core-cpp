@@ -27,9 +27,9 @@ std::string ExtractJson(const std::string& text, size_t startPos)
     return "";
 }
 
-std::vector<ToolCall> ExtractAllToolCalls(const std::string& response)
+std::vector<ParsedToolCall> ExtractAllToolCalls(const std::string& response)
 {
-    std::vector<ToolCall> calls;
+    std::vector<ParsedToolCall> calls;
     size_t searchPos = 0;
 
     while (searchPos < response.length()) {
@@ -45,7 +45,7 @@ std::vector<ToolCall> ExtractAllToolCalls(const std::string& response)
         size_t nameKey = jsonStr.find("\"name\"");
         size_t argsKey = jsonStr.find("\"arguments\"");
         if (nameKey != std::string::npos && argsKey != std::string::npos) {
-            ToolCall call;
+            ParsedToolCall call;
             call.arguments = "{}";
 
             // Extract name value

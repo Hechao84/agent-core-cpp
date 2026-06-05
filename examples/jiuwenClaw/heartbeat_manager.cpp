@@ -70,9 +70,12 @@ bool HeartbeatManager::DecideAction(const std::string& content, std::string& tas
 
     try {
         auto model = ResourceManager::GetInstance().CreateModel(modelConfig_);
-        std::string formatted = model->Format(systemPrompt, {{"user", userPrompt}});
+        Message userMsg;
+        userMsg.role = "user";
+        userMsg.content = userPrompt;
+        std::string formatted = model->Format(systemPrompt, {userMsg}, {});
         LOG(INFO) << "[HB-CHECK] Decision prompt send to model " << formatted;
-        std::string response = model->Invoke(formatted, nullptr);
+        std::string response = model->Invoke(formatted, nullptr).content;
         LOG(INFO) << "[HB-CHECK] Model response is: " << response;
 
         std::size_t start = response.find("{");

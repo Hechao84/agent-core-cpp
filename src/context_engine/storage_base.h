@@ -15,11 +15,11 @@ public:
     virtual bool LoadHistory(std::vector<Message>& outMessages) = 0;
     virtual void Clear() = 0;
 
-protected:
-    std::string sessionId_;
-
     static bool IsValidMessage(const Message& msg);
     static std::string CleanMessageContent(const std::string& input);
+
+protected:
+    std::string sessionId_;
 };
 
 } // namespace jiuwen

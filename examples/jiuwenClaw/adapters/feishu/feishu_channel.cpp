@@ -248,11 +248,8 @@ struct FeishuChannel::Impl
     void SendEventAck(const pb::Frame& eventFrame);
     void DispatchEvent(const std::string& eventPayload);
     bool SendFrame(const pb::Frame& frame);
-    bool SendTextMessageToFeishu(const std::string& chatId,
-                                 const std::string& text,
-                                 std::string* outMsgId = nullptr);
-    bool UpdateTextMessage(const std::string& messageId,
-                           const std::string& text);
+    bool SendCardMessageToFeishu(const std::string& chatId,
+                                 const nlohmann::json& card);
 };
 
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
@@ -623,19 +620,16 @@ void FeishuChannel::Impl::RunReadLoop()
     LOG(INFO) << "[FeishuChannel] Read loop exited";
 }
 
-bool FeishuChannel::Impl::SendTextMessageToFeishu(const std::string& chatId,
-                                                  const std::string& text,
-                                                  std::string* outMsgId)
+bool FeishuChannel::Impl::SendCardMessageToFeishu(const std::string& chatId,
+                                                   const nlohmann::json& card)
 {
     if (!EnsureToken())
         return false;
 
     nlohmann::json req;
     req["receive_id"] = chatId;
-    req["msg_type"] = "text";
-    nlohmann::json content;
-    content["text"] = text;
-    req["content"] = content.dump();
+    req["msg_type"] = "interactive";
+    req["content"] = card.dump();
 
     std::string url =
         "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id";
@@ -666,7 +660,7 @@ bool FeishuChannel::Impl::SendTextMessageToFeishu(const std::string& chatId,
     curl_slist_free_all(headers);
 
     if (res != CURLE_OK) {
-        LOG(ERR) << "[FeishuChannel] Send message failed: "
+        LOG(ERR) << "[FeishuChannel] Send card failed: "
                  << curl_easy_strerror(res);
         return false;
     }
@@ -675,77 +669,15 @@ bool FeishuChannel::Impl::SendTextMessageToFeishu(const std::string& chatId,
         auto j = nlohmann::json::parse(response);
         int code = j.value("code", -1);
         if (code != 0) {
-            LOG(ERR) << "[FeishuChannel] Send failed: code=" << code
-                     << ", msg=" << j.value("msg", "");
+            LOG(ERR) << "[FeishuChannel] Send card failed: code=" << code
+                     << ", msg=" << j.value("msg", "")
+                     << ", response=" << response;
             return false;
-        }
-        if (outMsgId) {
-            auto data = j.value("data", nlohmann::json::object());
-            *outMsgId = data.value("message_id", "");
         }
         return true;
     } catch (const std::exception& e) {
-        LOG(ERR) << "[FeishuChannel] Parse send response: " << e.what();
-        return false;
-    }
-}
-
-bool FeishuChannel::Impl::UpdateTextMessage(const std::string& messageId,
-                                            const std::string& text)
-{
-    if (messageId.empty() || !EnsureToken())
-        return false;
-
-    nlohmann::json req;
-    req["msg_type"] = "text";
-    nlohmann::json content;
-    content["text"] = text;
-    req["content"] = content.dump();
-
-    std::string url =
-        "https://open.feishu.cn/open-apis/im/v1/messages/" + messageId;
-
-    CURL* curl = curl_easy_init();
-    if (!curl)
-        return false;
-
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    std::string auth = "Authorization: Bearer " + cachedToken_;
-    headers = curl_slist_append(headers, auth.c_str());
-    headers = curl_slist_append(headers, "X-HTTP-Method-Override: PUT");
-
-    std::string body = req.dump();
-    std::string response;
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,
-                     static_cast<long>(body.size()));
-
-    CURLcode res = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
-    curl_slist_free_all(headers);
-
-    if (res != CURLE_OK) {
-        LOG(ERR) << "[FeishuChannel] Update message failed: "
-                 << curl_easy_strerror(res);
-        return false;
-    }
-
-    try {
-        auto j = nlohmann::json::parse(response);
-        int code = j.value("code", -1);
-        if (code != 0) {
-            LOG(DBG) << "[FeishuChannel] Update failed: code=" << code
-                     << ", msg=" << j.value("msg", "");
-            return false;
-        }
-        return true;
-    } catch (...) {
+        LOG(ERR) << "[FeishuChannel] Parse send card response: " << e.what()
+                 << ", response=" << response;
         return false;
     }
 }
@@ -819,12 +751,14 @@ void FeishuChannel::SetEventCallback(EventCallback callback)
     eventCallback_ = std::move(callback);
 }
 
-bool FeishuChannel::SendTextMessage(const std::string& chatId,
-                                    const std::string& text)
+bool FeishuChannel::SendCardMessage(const std::string& chatId,
+                                    const nlohmann::json& card)
 {
-    if (!impl_)
+    if (!impl_) {
+        LOG(ERR) << "[FeishuChannel] SendCardMessage failed: channel not initialized";
         return false;
-    return impl_->SendTextMessageToFeishu(chatId, text);
+    }
+    return impl_->SendCardMessageToFeishu(chatId, card);
 }
 
 } // namespace jiuwenClaw

@@ -109,6 +109,12 @@ struct ModelConfig
     // - Any OpenAI-compatible service can use ModelFormatType::OPENAI
     ModelFormatType formatType{ModelFormatType::OPENAI};
 
+    // Use native function-calling protocol (tools[] + tool_calls + tool_call_id)
+    // when supported by the provider. Set to false to fall back to prompt-only
+    // ReAct (the model is asked to print a JSON tool-call which the framework
+    // parses out of plain text). Default: true.
+    bool useNativeFunctionCalling{true};
+
     // Extended parameters supporting hierarchy (e.g., "model.temperature")
     // Uses std::variant instead of std::any for type safety.
     ConfigNode extraParams;

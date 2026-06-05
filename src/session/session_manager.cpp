@@ -461,6 +461,14 @@ bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* erro
         if (!effective.defaultTools.empty()) {
             newAgent->AddTools(effective.defaultTools);
         }
+        // Wire up MCP tools that were loaded into ResourceManager: without
+        // this, a hot-reloaded Agent starts with an empty MCP tool set even
+        // though the mcp_servers.json connections are live.
+        int mcpDelta = newAgent->SyncMcpTools();
+        if (mcpDelta != 0) {
+            LOG(INFO) << "[SessionManager] ReloadAgent: synced " << mcpDelta
+                      << " MCP tool(s) into reloaded agent";
+        }
     } catch (const std::exception& e) {
         {
             std::lock_guard<std::mutex> lock(concurrencyMutex_);

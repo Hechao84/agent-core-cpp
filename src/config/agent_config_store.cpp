@@ -138,6 +138,29 @@ void AgentConfigStore::Upsert(const AgentConfig& cfg)
     SaveLocked();
 }
 
+void AgentConfigStore::UpsertOverride(const std::string& id, const nlohmann::json& overrideJson)
+{
+    if (id.empty()) {
+        LOG(WARN) << "[AgentConfigStore] UpsertOverride ignored: empty id";
+        return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    nlohmann::json clean = overrideJson.is_object() ? overrideJson : nlohmann::json::object();
+    clean["id"] = id;
+    overrides_[id] = clean;
+
+    AgentConfig merged{};
+    auto dIt = defaults_.find(id);
+    if (dIt != defaults_.end()) {
+        merged = dIt->second;
+    } else {
+        merged.id = id;
+    }
+    MergeAgentConfigFromJson(overrides_[id], merged);
+    current_[id] = merged;
+    SaveLocked();
+}
+
 void AgentConfigStore::Remove(const std::string& id)
 {
     std::lock_guard<std::mutex> lock(mutex_);

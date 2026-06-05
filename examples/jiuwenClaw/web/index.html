@@ -399,6 +399,18 @@ body{
 .kv-row input:focus{ outline:none; border-color:var(--accent); }
 .kv-empty{ font-size:11px; color:var(--muted); padding:6px 0; }
 
+/* Ask-user interactive bubble */
+.ask-user{ background:var(--bg-elevated); border:1px solid var(--accent); border-radius:10px; padding:12px 16px; }
+.ask-user .role{ font-size:12px; font-weight:600; color:var(--accent); margin-bottom:6px; }
+.ask-question{ font-size:14px; color:var(--text); margin-bottom:10px; }
+.ask-options{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.ask-options .btn{ border-color:var(--accent); color:var(--accent); }
+.ask-options .btn:hover{ background:var(--accent); color:#fff; }
+.ask-free{ display:flex; gap:6px; align-items:center; }
+.ask-free input{ flex:1; font-size:12px; padding:6px 8px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-family:inherit; }
+.ask-free input:focus{ outline:none; border-color:var(--accent); }
+.ask-answered{ font-size:12px; color:var(--muted); font-style:italic; }
+
 /* Two-pane layout for editors */
 .two-pane{
   flex:1; min-height:0;
@@ -1004,90 +1016,63 @@ async function loadSessionHistory(id){
     if (!r.ok) return;
     const j = await r.json();
     const raw = j.messages || [];
-    // Rebuild the timeline so that tool-call assistant rows (whose content
-    // is JSON `{"name":..., "arguments":...}`) and tool/tool_response rows
-    // become collapsible tool bubbles with name + args + result — matching
-    // the live streaming UI.
+
+    // The backend persists messages using the OpenAI / Anthropic native
+    // function-calling shape:
+    //   * assistant.tool_calls = [{id, name, arguments}]
+    //   * tool.tool_call_id    = "<id>", .tool_name, .content
+    // We project this into the front-end's flat bubble list, routing
+    // tool results to their bubble by id.
+    const pending = {};   // call_id -> tool bubble
     const out = [];
     for (const msg of raw){
       const role = msg.role || '';
-      const content = msg.content || '';
-
       if (role === 'system') continue;
 
       if (role === 'user'){
-        out.push({ type:'user', content });
+        out.push({ type:'user', content: msg.content || '' });
         continue;
       }
 
-      if (role === 'tool' || role === 'tool_response'){
-        // Strip a leading [TOOL_RESPONSE] marker if present (legacy data).
-        let result = content;
-        if (result.startsWith('[TOOL_RESPONSE]')){
-          result = result.slice('[TOOL_RESPONSE]'.length).trimStart();
-        }
-        // The history occasionally serialises tool results as
-        // "<result>\nInput was: {...}" — fold "Input was" back into args
-        // if the matching tool bubble has none.
-        let inputHint = null;
-        const inputIdx = result.lastIndexOf('\nInput was: ');
-        if (inputIdx >= 0){
-          inputHint = result.slice(inputIdx + '\nInput was: '.length).trim();
-          result = result.slice(0, inputIdx);
-        }
-        // Find the most recent unresolved tool bubble.
-        let matched = false;
-        for (let i = out.length - 1; i >= 0; i--){
-          if (out[i].type === 'tool' && out[i].result == null){
-            out[i].result = result;
-            if (inputHint && !out[i].args) out[i].args = inputHint;
-            matched = true;
-            break;
-          }
-        }
-        if (!matched){
-          // Inherit the last tool name we saw so the bubble isn't anonymous.
-          let fallbackName = 'tool';
-          for (let i = out.length - 1; i >= 0; i--){
-            if (out[i].type === 'tool' && out[i].name && out[i].name !== 'tool'){
-              fallbackName = out[i].name;
-              break;
-            }
-          }
+      if (role === 'tool'){
+        const callId = msg.tool_call_id || '';
+        const bubble = callId ? pending[callId] : null;
+        if (bubble){
+          bubble.result = msg.content || '';
+        } else {
           out.push({
             type:'tool',
-            name: fallbackName,
-            args: inputHint || '',
-            result,
-            expanded:false,
+            callId,
+            name: msg.tool_name || 'tool',
+            args: '',
+            result: msg.content || '',
+            expanded: false,
           });
         }
         continue;
       }
 
-      // role === 'assistant' (or unknown -> treat as assistant)
-      const trimmed = content.trim();
-      let asTool = null;
-      if (trimmed.startsWith('{')){
-        try{
-          const parsed = JSON.parse(trimmed);
-          if (parsed && typeof parsed === 'object' && parsed.name
-              && (parsed.arguments !== undefined || parsed.input !== undefined)){
-            const a = parsed.arguments !== undefined ? parsed.arguments : parsed.input;
-            asTool = {
+      // assistant: may carry tool_calls, content text, or both.
+      if (role === 'assistant'){
+        const calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+        if (calls.length){
+          for (const tc of calls){
+            const bubble = {
               type:'tool',
-              name: parsed.name,
-              args: typeof a === 'string' ? a : JSON.stringify(a),
+              callId: tc.id || '',
+              name: tc.name || 'tool',
+              args: tc.arguments || '',
               result: null,
-              expanded:false,
+              expanded: false,
             };
+            out.push(bubble);
+            if (bubble.callId) pending[bubble.callId] = bubble;
           }
-        } catch(e){ /* not a tool-call JSON */ }
-      }
-      if (asTool){
-        out.push(asTool);
-      } else if (content){
-        out.push({ type:'assistant', content });
+        }
+        if (msg.content){
+          out.push({ type:'assistant', content: msg.content });
+        }
+        continue;
       }
     }
     messages[id] = out;
@@ -1265,6 +1250,28 @@ function renderMessages(scrollBottom){
     } else if (m.type === 'status'){
       el.className = 'chat-bubble status' + (m.severity ? ' ' + m.severity : '') + (m.kind ? ' k-' + m.kind : '');
       el.textContent = m.content;
+    } else if (m.type === 'ask_user'){
+      el.className = 'chat-bubble ask-user';
+      const rid = m.requestId || '';
+      const answered = m.answered;
+      let body = '';
+      if (answered){
+        body = `<div class="ask-question">${escapeHtml(m.question)}</div>
+          <div class="ask-answered">已答复: ${escapeHtml(JSON.stringify(m.answer || ''))}</div>`;
+      } else if (m.options && m.options.length){
+        const btns = m.options.map((o, oi) =>
+          `<button class="btn xs" onclick="submitAskUser('${rid}',{answers:['${escapeHtml(o)}']},this)">${escapeHtml(o)}</button>`
+        ).join(' ');
+        body = `<div class="ask-question">${escapeHtml(m.question)}</div>
+          <div class="ask-options">${btns}</div>
+          <div class="ask-free"><input type="text" id="ask_txt_${rid}" placeholder="或输入自定义文本">
+          <button class="btn xs primary" onclick="const v=document.getElementById('ask_txt_${rid}').value;submitAskUser('${rid}',{text:v||''},this)">提交</button></div>`;
+      } else {
+        body = `<div class="ask-question">${escapeHtml(m.question)}</div>
+          <div class="ask-free"><input type="text" id="ask_txt_${rid}" placeholder="输入答复 (60s 超时)">
+          <button class="btn xs primary" onclick="const v=document.getElementById('ask_txt_${rid}').value;submitAskUser('${rid}',{text:v||''},this)">提交</button></div>`;
+      }
+      el.innerHTML = `<div class="role">Agent 询问</div><div class="ask-body">${body}</div>`;
     }
     c.appendChild(el);
   });
@@ -1280,7 +1287,7 @@ function toggleTool(idx){
 
 function formatContent(text){
   if (text == null) return '';
-  let s = escapeHtml(text);
+  let s = escapeHtml(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   // Fenced code blocks ``` ... ```
   s = s.replace(/```([\s\S]*?)```/g, (_, code) => `<pre>${code}</pre>`);
   // Inline code `...`
@@ -1368,11 +1375,12 @@ async function streamChat(message, sessionId){
         while ((dn = buf.indexOf('\n\n')) >= 0){
           const ev = buf.slice(0, dn); buf = buf.slice(dn + 2);
           const lines = ev.split('\n');
-          let evt = 'message', data = '';
+          let evt = 'message', dataLines = [];
           for (const l of lines){
             if (l.startsWith('event:')) evt = l.slice(6).trim();
-            else if (l.startsWith('data:')) data += (data ? '\n' : '') + l.slice(5).replace(/^ /, '');
+            else if (l.startsWith('data:')) dataLines.push(l.slice(5).replace(/^ /, ''));
           }
+          const data = dataLines.join('\n');
           handleSseEvent(sessionId, evt, data);
           if (evt === 'done') receivedDone = true;
         }
@@ -1408,7 +1416,7 @@ function appendAssistantChunk(sessionId, chunk){
   if (currentSessionId === sessionId) renderMessages(true);
 }
 
-function appendToolCall(sessionId, name, args){
+function appendToolCall(sessionId, name, args, callId){
   const list = messages[sessionId] || (messages[sessionId] = []);
 
   // The backend emits the model's raw tokens via `stream` events AND a
@@ -1421,6 +1429,7 @@ function appendToolCall(sessionId, name, args){
 
   list.push({
     type:'tool',
+    callId: callId || '',
     name: name || 'tool',
     args: args,
     result: null,
@@ -1504,8 +1513,19 @@ function takeBalancedJson(s, start){
   return null;
 }
 
-function setLastToolResult(sessionId, result){
+function setLastToolResult(sessionId, result, callId){
   const list = messages[sessionId] || [];
+  // Prefer matching by call_id (native function-calling); fall back to
+  // "the most recent unfinished tool bubble" for legacy/fallback paths.
+  if (callId){
+    for (let i = list.length - 1; i >= 0; i--){
+      if (list[i].type === 'tool' && list[i].callId === callId){
+        list[i].result = result;
+        if (currentSessionId === sessionId) renderMessages(true);
+        return;
+      }
+    }
+  }
   for (let i = list.length - 1; i >= 0; i--){
     if (list[i].type === 'tool' && list[i].result == null){
       list[i].result = result;
@@ -1527,11 +1547,59 @@ function pushStatus(sessionId, content, severity){
   if (currentSessionId === sessionId) renderMessages(true);
 }
 
+function renderAskUser(sessionId, data){
+  let payload = {};
+  try{ payload = JSON.parse(data) || {}; } catch(e){ payload = {}; }
+  const list = messages[sessionId] || (messages[sessionId] = []);
+  list.push({
+    type: 'ask_user',
+    requestId: payload.request_id || '',
+    question: payload.question || '',
+    options: Array.isArray(payload.options) ? payload.options : [],
+    multiple: !!payload.multiple,
+    header: payload.header || '',
+    timeoutSec: payload.timeout_seconds || 60,
+    answered: false,
+  });
+  if (currentSessionId === sessionId) renderMessages(true);
+}
+
+async function submitAskUser(requestId, answerObj, btnEl){
+  if (btnEl) btnEl.disabled = true;
+  try{
+    const resp = await fetch(`${API_BASE}/api/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ request_id: requestId, answer: JSON.stringify(answerObj) }),
+    });
+    const j = await resp.json().catch(()=>null);
+    // Mark the matching ask_user bubble as answered so it is locked.
+    Object.values(messages).forEach(list => {
+      list.forEach(m => {
+        if (m.type === 'ask_user' && m.requestId === requestId){
+          m.answered = true;
+          m.answer = answerObj;
+        }
+      });
+    });
+    if (currentSessionId) renderMessages(false);
+    if (!j || j.ok === false){
+      flashStatus('提交答复失败' + (j && j.error ? (': ' + j.error) : ''));
+    }
+  } catch(e){
+    if (btnEl) btnEl.disabled = false;
+    alert('提交失败: ' + e);
+  }
+}
+window.submitAskUser = submitAskUser;
+
 function handleSseEvent(sessionId, evt, data){
   if (!messages[sessionId]) messages[sessionId] = [];
 
   if (evt === 'stream'){
-    if (!data) return;
+    try{
+      data = JSON.parse(data);
+    } catch(e) {}
     // Heuristic: if the chunk looks like a complete tool-call JSON object,
     // promote it to a tool card so legacy backends still work. Modern
     // backends will also emit a separate 'tool_call' event; our list_row
@@ -1561,21 +1629,36 @@ function handleSseEvent(sessionId, evt, data){
     return;
   }
   if (evt === 'tool_call'){
-    let name = 'tool', args = data;
+    let name = 'tool', args = data, callId = '';
     try{
       const parsed = JSON.parse(data);
       if (parsed){
         name = parsed.name || name;
+        callId = parsed.id || '';
         args = typeof parsed.arguments === 'string'
           ? parsed.arguments
           : (parsed.arguments !== undefined ? JSON.stringify(parsed.arguments) : data);
       }
     } catch(e) {}
-    appendToolCall(sessionId, name, args);
+    appendToolCall(sessionId, name, args, callId);
     return;
   }
   if (evt === 'tool_response'){
-    setLastToolResult(sessionId, data);
+    // Native function-calling backend prefixes the response with the call
+    // id ("call_<sid>_<n>: <result>") so we can route it to the right
+    // bubble. If no prefix is present we fall back to "last unfinished".
+    let callId = '';
+    let payload = data;
+    const m = data.match(/^([A-Za-z0-9_\-]+):\s*([\s\S]*)$/);
+    if (m){
+      callId = m[1];
+      payload = m[2];
+    }
+    setLastToolResult(sessionId, payload, callId);
+    return;
+  }
+  if (evt === 'ask_user'){
+    renderAskUser(sessionId, data);
     return;
   }
   if (evt === 'done'){
@@ -1700,15 +1783,11 @@ function buildAgentFromForm(){
   const ep={};
   epRows().forEach(r=>{if(!r.key)return;if(r.type==='bool')ep[r.key]=!!r.value;else if(r.type==='int')ep[r.key]=parseInt(r.value)||0;else if(r.type==='float')ep[r.key]=Number(r.value)||0;else ep[r.key]=String(r.value==null?'':r.value);});
   const cur=currentAgentDraft||{};
-  // Only the Model section is editable; other fields fall through from the
-  // current draft (= last loaded effective config) so we don't accidentally
-  // wipe them out on the server.
+  // Persist only fields editable in this Web UI. Everything else (tools,
+  // prompts, context, dream, data paths, concurrency, etc.) comes from the
+  // code default and is merged server-side by AgentConfigStore.
   return {
     id: cur.id,
-    name: cur.name,
-    description: cur.description,
-    version: cur.version,
-    mode: cur.mode,
     modelConfig:{
       baseUrl: vstr('ag_m_baseUrl'),
       apiKey: vstr('ag_m_apiKey'),
@@ -1717,14 +1796,6 @@ function buildAgentFromForm(){
       formatType: vstr('ag_m_formatType'),
       extraParams: ep
     },
-    promptTemplates: cur.promptTemplates || {},
-    contextConfig: cur.contextConfig || {},
-    dreamConfig: cur.dreamConfig || {},
-    skillDirectory: cur.skillDirectory,
-    maxIterations: cur.maxIterations,
-    dataBasePath: cur.dataBasePath,
-    maxConcurrentSessions: cur.maxConcurrentSessions,
-    defaultTools: cur.defaultTools || [],
     mcpServerIds: [...(selMcp() || [])]
   };
 }

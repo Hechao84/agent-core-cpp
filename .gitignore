@@ -38,8 +38,9 @@ opencode.json
 AGENTS.md
 !examples/jiuwenClaw/templates/AGENTS.md
 CLANG.md
+TODO.md
 
-# Conversation Logs
+# Agent Runtime Datas
 data/
 
 # Customer Skills

@@ -1,8 +1,11 @@
 #include <csignal>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <atomic>
+#include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 #ifdef _WIN32
 #include <windows.h>
@@ -23,7 +26,6 @@
 #include "examples/jiuwenClaw/cron_watcher.h"
 #include "examples/jiuwenClaw/heartbeat_manager.h"
 // Demo-specific tools
-#include "examples/jiuwenClaw/models/ark_code_model.h"
 #include "examples/jiuwenClaw/tools/cron_tool.h"
 #include "examples/jiuwenClaw/tools/notebook_edit_tool.h"
 #include "examples/jiuwenClaw/tools/notify_tool.h"
@@ -110,15 +112,6 @@ AgentConfig BuildAgentConfig()
     config.defaultTools = allTools;
 
     return config;
-}
-
-void RegisterArkCodeModel()
-{
-    // ArkCode is OpenAI-compatible but has special handling for tool role messages
-    // Register custom implementation to handle these differences
-    // If fully compatible with OpenAI, no custom Model needed - just set formatType=OPENAI
-    auto& rm = ResourceManager::GetInstance();
-    rm.RegisterModel("ark_code", [](const ModelConfig& cfg) { return std::make_unique<ArkCodeModel>(cfg); });
 }
 
 void RegisterDemoTools()
@@ -232,8 +225,10 @@ void RunCliMode()
         const std::string TAG_STREAM = "[STREAM]";
         const std::string TAG_STATUS = "[STATUS]";
         const std::string TAG_TOOL_CALLS = "[TOOL_CALLS]";
-        const std::string TAG_TOOL_RESPONSE = "[TOOL_RESPONSE]";
+        const std::string TAG_TOOL_RESPONSE = "[TOOL_RESPONSE";  // closing ']' may include call id
         const std::string TAG_FINAL = "[FINAL]";
+        const std::string TAG_ASK_USER = "[ASK_USER]";
+        const std::string TAG_ASK_USER_END = "[/ASK_USER]";
 
         // Invoke via SessionManager with per-session lock and concurrency gate
         SessionInvokeResult result = GetSessionManager().Invoke(
@@ -245,21 +240,134 @@ void RunCliMode()
                 }
 
                 std::string s = resp;
-                // 1. Tool calls, content overlaps with streaming, no echo
-                if (s.find(TAG_TOOL_CALLS) != std::string::npos) {
+                // 0. Ask-user prompt: spawn a detached helper that reads
+                // stdin and calls Agent::ProvideUserResponse so the worker
+                // thread (currently blocked in AskUserTool::Invoke) can wake
+                // up. The callback itself must return immediately, otherwise
+                // streaming would be stalled.
+                if (s.find(TAG_ASK_USER) != std::string::npos) {
+                    size_t start = s.find(TAG_ASK_USER);
+                    size_t end = s.find(TAG_ASK_USER_END, start);
+                    if (end != std::string::npos) {
+                        std::string payload = s.substr(start + TAG_ASK_USER.length(),
+                                                       end - start - TAG_ASK_USER.length());
+                        try {
+                            auto j = nlohmann::json::parse(payload);
+                            std::string requestId = j.value("request_id", std::string{});
+                            std::string question = j.value("question", std::string{});
+                            bool multiple = j.value("multiple", false);
+                            std::vector<std::string> options;
+                            if (j.contains("options") && j["options"].is_array()) {
+                                for (const auto& v : j["options"]) {
+                                    if (v.is_string()) {
+                                        options.push_back(v.get<std::string>());
+                                    }
+                                }
+                            }
+                            if (!requestId.empty()) {
+                                std::thread([requestId, question, options, multiple]() {
+                                    std::cout << "\n\n[Agent 询问] " << question << "\n";
+                                    if (!options.empty()) {
+                                        for (size_t i = 0; i < options.size(); ++i) {
+                                            std::cout << "  [" << (i + 1) << "] " << options[i] << "\n";
+                                        }
+                                        std::cout << (multiple ? "请输入编号（多选用逗号分隔，留空跳过，60s 超时）: "
+                                                                : "请输入编号（留空跳过，60s 超时）: ");
+                                    } else {
+                                        std::cout << "请输入答复（留空跳过，60s 超时）: ";
+                                    }
+                                    std::cout.flush();
+                                    std::string line;
+                                    if (!std::getline(std::cin, line)) {
+                                        line.clear();
+                                    }
+                                    std::string answer;
+                                    if (!options.empty() && !line.empty()) {
+                                        // Map 1-based indexes to option labels
+                                        std::vector<std::string> picks;
+                                        std::stringstream ss(line);
+                                        std::string item;
+                                        while (std::getline(ss, item, ',')) {
+                                            try {
+                                                int idx = std::stoi(TrimStr(item));
+                                                if (idx >= 1 && static_cast<size_t>(idx) <= options.size()) {
+                                                    picks.push_back(options[idx - 1]);
+                                                }
+                                            } catch (...) {
+                                                // Treat as free text if it is not a number
+                                                picks.push_back(TrimStr(item));
+                                            }
+                                            if (!multiple && !picks.empty()) {
+                                                break;
+                                            }
+                                        }
+                                        nlohmann::json ans;
+                                        ans["answers"] = picks;
+                                        answer = ans.dump();
+                                    } else {
+                                        nlohmann::json ans;
+                                        ans["text"] = line;
+                                        answer = ans.dump();
+                                    }
+                                    if (auto agent = GetSessionManager().GetAgent()) {
+                                        agent->ProvideUserResponse(requestId, answer);
+                                    }
+                                }).detach();
+                            }
+                        } catch (const std::exception& e) {
+                            LOG(WARN) << "[CLI] Failed to parse ASK_USER payload: " << e.what();
+                        }
+                    }
                     return;
                 }
 
-                // 2. Tool response
+                // 1. Tool calls, content overlaps with streaming, print call metadata
+                if (s.find(TAG_TOOL_CALLS) != std::string::npos) {
+                    size_t start_pos = s.find(TAG_TOOL_CALLS);
+                    start_pos += TAG_TOOL_CALLS.length();
+                    while (start_pos < s.length() && (s[start_pos] == ' ' || s[start_pos] == '\n')) {
+                        ++start_pos;
+                    }
+                    std::string payload = TrimStr(s.substr(start_pos));
+                    try {
+                        auto j = nlohmann::json::parse(payload);
+                        std::string callId = j.value("id", std::string{});
+                        std::string name = j.value("name", std::string{"tool"});
+                        std::string argsText;
+                        if (j.contains("arguments")) {
+                            if (j["arguments"].is_string()) {
+                                argsText = j["arguments"].get<std::string>();
+                            } else {
+                                argsText = j["arguments"].dump(2);
+                            }
+                        }
+                        std::cout << "\n\n**Tool Call**:\n";
+                        if (!callId.empty()) {
+                            std::cout << "ID: " << UTF8ToLocal(callId) << "\n";
+                        }
+                        std::cout << "Name: " << UTF8ToLocal(name) << "\n";
+                        if (!argsText.empty()) {
+                            std::cout << "Arguments:\n" << UTF8ToLocal(argsText) << "\n";
+                        }
+                    } catch (const std::exception&) {
+                        std::cout << "\n\n**Tool Call**:\n" << UTF8ToLocal(payload) << "\n";
+                    }
+                    return;
+                }
+
+                // 2. Tool response (supports [TOOL_RESPONSE] and [TOOL_RESPONSE <call_id>])
                 if (s.find(TAG_TOOL_RESPONSE) != std::string::npos) {
                     size_t start_pos = s.find(TAG_TOOL_RESPONSE);
                     if (start_pos != std::string::npos) {
-                        start_pos += TAG_TOOL_RESPONSE.length();
-                        while (start_pos < s.length() && s[start_pos] == ' ') {
-                            ++start_pos;
+                        size_t close = s.find(']', start_pos);
+                        if (close != std::string::npos) {
+                            start_pos = close + 1;
+                            while (start_pos < s.length() && s[start_pos] == ' ') {
+                                ++start_pos;
+                            }
+                            std::string toolRespText = s.substr(start_pos);
+                            std::cout << "\n\n**Tool Response**: \n" << UTF8ToLocal(toolRespText) << std::endl;
                         }
-                        std::string toolRespText = s.substr(start_pos);
-                        std::cout << "\n\n**Tool Response**: \n" << UTF8ToLocal(toolRespText) << std::endl;
                     }
                     return;
                 }
@@ -269,9 +377,6 @@ void RunCliMode()
                     size_t start_pos = s.find(TAG_STREAM);
                     if (start_pos != std::string::npos) {
                         start_pos += TAG_STREAM.length();
-                        while (start_pos < s.length() && s[start_pos] == ' ') {
-                            ++start_pos;
-                        }
                         std::string cleanText = s.substr(start_pos);
 
                         if (!cleanText.empty()) {
@@ -422,10 +527,6 @@ int main(int argc, char* argv[])
             return 0;
         }
     }
-
-    // Register custom ArkCode model provider
-    RegisterArkCodeModel();
-    std::cout << "[Boot] ArkCode model provider registered\n" << std::flush;
 
     // Register additional tools
     RegisterDemoTools();

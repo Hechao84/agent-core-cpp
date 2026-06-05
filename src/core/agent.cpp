@@ -18,8 +18,11 @@
 #include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
 #include "src/core/agent_worker.h"
+#include "src/core/ask_user_dispatcher.h"
 #include "src/core/dream_processor.h"
 #include "src/core/history_store.h"
+#include "src/core/session_todo_list.h"
+#include "src/core/worker_env.h"
 #include "src/skills/skill_engine.h"
 #include "src/tools/builtin_tools/skill_search_tool.h"
 #include "src/utils/data_dir.h"
@@ -28,6 +31,25 @@
 namespace fs = std::filesystem;
 
 namespace jiuwen {
+
+// Private adapter that exposes the per-session resources Agent owns to the
+// AgentWorker without leaking the full Agent type into the worker layer.
+class WorkerEnvImpl : public WorkerEnv {
+public:
+    explicit WorkerEnvImpl(Agent* agent) : agent_(agent) {}
+
+    SessionTodoList* GetOrCreateSessionTodoList(const std::string& sessionId) override
+    {
+        return agent_->GetOrCreateSessionTodoList(sessionId);
+    }
+
+    AskUserDispatcher* GetAskUserDispatcher() override
+    {
+        return agent_->GetAskUserDispatcher();
+    }
+private:
+    Agent* agent_;
+};
 
 Agent::Agent(AgentConfig config) : config_(std::move(config))
 {
@@ -42,7 +64,13 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
         SkillSearchTool::SetEngine(skillEngine_.get());
     }
 
+    askUserDispatcher_ = std::make_unique<AskUserDispatcher>();
+    workerEnv_ = std::make_unique<WorkerEnvImpl>(this);
+
     worker_ = CreateAgentWorker(this->config_);
+    if (worker_) {
+        worker_->SetWorkerEnv(workerEnv_.get());
+    }
     if (skillEngine_) {
         worker_->SetSkillEngine(skillEngine_);
     }
@@ -101,63 +129,33 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
     // 1. Mark session as active
     NotifySessionActive(sessionId);
 
-    // 2. Save User Query to Context BEFORE invoking
-    contextEngine->AddMessage({"user", query});
-
-    // 2b. Record to Dream history store
+    // 2. Save user query to context (worker will see it via GetContextWindow).
+    {
+        Message userMsg;
+        userMsg.role = "user";
+        userMsg.content = query;
+        contextEngine->AddMessage(userMsg);
+    }
     if (historyStore_) {
         historyStore_->AppendEntry("user", query, sessionId);
     }
 
-    // 3. Call worker and get the final answer (pass contextEngine directly to avoid race conditions)
-    // We wrap the callback to intercept and save tool calls/responses to context
+    // 3. Run the worker. The worker is now responsible for persisting any
+    // assistant tool_calls and tool result messages into the ContextEngine
+    // directly; this Agent layer only handles user/final-assistant turns.
     std::string finalAnswer = worker_->Invoke(
         query, contextEngine.get(),
-        [callback, contextEngine, sessionId](const std::string& response) {
-        if (!response.empty() && callback) {
-            callback(response);
-        }
-
-        // Intercept tool calls and responses to save them to context using standard roles
-        if (response.find("[TOOL_CALLS]") != std::string::npos) {
-            std::string content = response;
-            size_t start = content.find("[TOOL_CALLS]");
-            if (start != std::string::npos) {
-                size_t end = content.find("[/TOOL_CALLS]");
-                // If end tag is missing, take the whole thing
-                std::string payload = (end != std::string::npos)
-                    ? content.substr(start + 12, end - start - 12)
-                    : content.substr(start + 12);
-                
-                // Try to find the first '{' to extract pure JSON if tags are messy
-                size_t jsonStart = payload.find('{');
-                if (jsonStart != std::string::npos) {
-                    payload = payload.substr(jsonStart);
-                }
-                
-                // Save with "assistant" role containing the tool call JSON
-                contextEngine->AddMessage({"assistant", payload});
+        [callback](const std::string& response) {
+            if (!response.empty() && callback) {
+                callback(response);
             }
-        } else if (response.find("[TOOL_RESPONSE]") != std::string::npos) {
-            std::string content = response;
-            size_t start = content.find("[TOOL_RESPONSE]");
-            if (start != std::string::npos) {
-                size_t end = content.find("[/TOOL_RESPONSE]");
-                std::string payload = (end != std::string::npos)
-                    ? content.substr(start + 15, end - start - 15)
-                    : content.substr(start + 15);
-                
-                // Save with "tool" role
-                contextEngine->AddMessage({"tool", payload});
-            }
-        }
-    });
+        });
 
-    // 5. Save Assistant Response to Context AFTER invoking
+    // 5. Save final assistant text into Dream's history store. The
+    // ContextEngine already received the structured assistant message from
+    // the worker (or a tool_calls-only assistant; either way we don't
+    // double-write here).
     if (!finalAnswer.empty()) {
-        contextEngine->AddMessage({"assistant", finalAnswer});
-
-        // 5b. Record to Dream history store
         if (historyStore_) {
             historyStore_->AppendEntry("assistant", finalAnswer, sessionId);
         }
@@ -337,6 +335,32 @@ std::string Agent::GetSkillRootDir() const
         return {};
     }
     return skillEngine_->GetRootDir();
+}
+
+SessionTodoList* Agent::GetOrCreateSessionTodoList(const std::string& sessionId)
+{
+    std::lock_guard<std::mutex> lock(sessionTodosMutex_);
+    auto it = sessionTodos_.find(sessionId);
+    if (it == sessionTodos_.end()) {
+        auto list = std::make_unique<SessionTodoList>();
+        auto* raw = list.get();
+        sessionTodos_[sessionId] = std::move(list);
+        return raw;
+    }
+    return it->second.get();
+}
+
+AskUserDispatcher* Agent::GetAskUserDispatcher()
+{
+    return askUserDispatcher_.get();
+}
+
+bool Agent::ProvideUserResponse(const std::string& requestId, const std::string& answer)
+{
+    if (!askUserDispatcher_) {
+        return false;
+    }
+    return askUserDispatcher_->ProvideResponse(requestId, answer);
 }
 
 } // namespace jiuwen

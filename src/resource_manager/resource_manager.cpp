@@ -10,6 +10,7 @@
 #include "src/models/anthropic_model.h"
 #include "src/models/openai_model.h"
 // Builtin Tools
+#include "src/tools/builtin_tools/ask_user_tool.h"
 #include "src/tools/builtin_tools/edit_file_tool.h"
 #include "src/tools/builtin_tools/exec_tool.h"
 #include "src/tools/builtin_tools/file_state_tool.h"
@@ -19,6 +20,7 @@
 #include "src/tools/builtin_tools/read_file_tool.h"
 #include "src/tools/builtin_tools/skill_search_tool.h"
 #include "src/tools/builtin_tools/time_info_tool.h"
+#include "src/tools/builtin_tools/todo_tool.h"
 #include "src/tools/builtin_tools/web_fetch_tool.h"
 #include "src/tools/builtin_tools/web_search_tool.h"
 #include "src/tools/builtin_tools/write_file_tool.h"
@@ -55,6 +57,27 @@ void ResourceManager::RegisterBuiltinTools()
     RegisterTool("grep", []() { return std::make_unique<GrepTool>(); });
     RegisterTool("exec", []() { return std::make_unique<ExecTool>(); });
     RegisterTool("skill_search", []() { return std::make_unique<SkillSearchTool>(); });
+
+    // Session-scoped builtin tools: Todo + AskUser. These need per-session
+    // resources, so they are constructed via the SessionToolFactory path.
+    RegisterSessionTool("todo_create", [](const ToolBuildContext& ctx) {
+        return std::make_unique<TodoCreateTool>(ctx.todoList);
+    });
+    RegisterSessionTool("todo_complete", [](const ToolBuildContext& ctx) {
+        return std::make_unique<TodoCompleteTool>(ctx.todoList);
+    });
+    RegisterSessionTool("todo_insert", [](const ToolBuildContext& ctx) {
+        return std::make_unique<TodoInsertTool>(ctx.todoList);
+    });
+    RegisterSessionTool("todo_remove", [](const ToolBuildContext& ctx) {
+        return std::make_unique<TodoRemoveTool>(ctx.todoList);
+    });
+    RegisterSessionTool("todo_list", [](const ToolBuildContext& ctx) {
+        return std::make_unique<TodoListTool>(ctx.todoList);
+    });
+    RegisterSessionTool("ask_user", [](const ToolBuildContext& ctx) {
+        return std::make_unique<AskUserTool>(ctx.askUser, ctx.streamCallback);
+    });
 }
 
 void ResourceManager::RegisterBuiltinModels()
@@ -70,6 +93,115 @@ void ResourceManager::RegisterTool(const std::string& name, std::function<std::u
     std::lock_guard<std::mutex> lock(mutex_);
     toolFactories_[name] = std::move(factory);
     toolSchemas_.erase(name);
+    toolSchemaCache_.erase(name);   // structured schema cache invalidated
+}
+
+void ResourceManager::RegisterSessionTool(const std::string& name, SessionToolFactory factory)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    sessionToolFactories_[name] = std::move(factory);
+    sessionToolSchemas_.erase(name);
+    toolSchemaCache_.erase(name);   // structured schema cache invalidated
+}
+
+std::unique_ptr<Tool> ResourceManager::CreateSessionTool(const std::string& name, const ToolBuildContext& ctx)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = sessionToolFactories_.find(name);
+    if (it == sessionToolFactories_.end()) {
+        throw std::runtime_error("Session tool not found: " + name);
+    }
+    return it->second(ctx);
+}
+
+bool ResourceManager::HasSessionTool(const std::string& name) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return sessionToolFactories_.count(name) > 0;
+}
+
+std::vector<std::string> ResourceManager::GetAvailableSessionToolNames() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> out;
+    out.reserve(sessionToolFactories_.size());
+    for (const auto& p : sessionToolFactories_) {
+        out.push_back(p.first);
+    }
+    return out;
+}
+
+std::string ResourceManager::GetSessionToolSchema(const std::string& name)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = sessionToolSchemas_.find(name);
+        if (it != sessionToolSchemas_.end()) {
+            return it->second;
+        }
+    }
+    // Build a probe instance with an empty context to query the schema. Tool
+    // schemas must not depend on ToolBuildContext values.
+    ToolBuildContext probeCtx;
+    std::unique_ptr<Tool> probe;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = sessionToolFactories_.find(name);
+        if (it == sessionToolFactories_.end()) {
+            throw std::runtime_error("Session tool not found: " + name);
+        }
+        probe = it->second(probeCtx);
+    }
+    std::string schema = probe->GetSchema();
+    std::lock_guard<std::mutex> lock(mutex_);
+    sessionToolSchemas_[name] = schema;
+    return schema;
+}
+
+std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std::string>& toolNames,
+                                                           const ToolBuildContext& ctx)
+{
+    std::vector<ToolSchema> schemas;
+    schemas.reserve(toolNames.size());
+    // Session tool schemas are independent of ToolBuildContext fields (see
+    // GetSessionToolSchema invariant), so a single cache keyed by tool name
+    // is sufficient. We still need a probe instance the first time a tool
+    // is encountered; afterwards every iteration reuses the cached schema.
+    for (const auto& name : toolNames) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto cached = toolSchemaCache_.find(name);
+            if (cached != toolSchemaCache_.end()) {
+                schemas.push_back(cached->second);
+                continue;
+            }
+        }
+
+        std::unique_ptr<Tool> probe;
+        try {
+            if (HasSessionTool(name)) {
+                probe = CreateSessionTool(name, ctx);
+            } else if (HasTool(name)) {
+                probe = CreateTool(name);
+            } else {
+                continue;
+            }
+        } catch (const std::exception&) {
+            continue;
+        }
+        if (!probe) continue;
+
+        ToolSchema s;
+        s.name = probe->GetName();
+        s.description = probe->GetDescription();
+        s.parameters = probe->GetJsonSchema();
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            toolSchemaCache_[name] = s;
+        }
+        schemas.push_back(std::move(s));
+    }
+    return schemas;
 }
 
 void ResourceManager::RegisterModel(
@@ -167,6 +299,7 @@ void ResourceManager::UnregisterMcpTool(const std::string& name)
     mcpToolNames_.erase(name);
     toolFactories_.erase(name);
     toolSchemas_.erase(name);
+    toolSchemaCache_.erase(name);   // structured schema cache invalidated
 }
 
 std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
@@ -208,6 +341,9 @@ std::unique_ptr<Model> ResourceManager::CreateModel(const ModelConfig& config)
         if (it != providerModelFactories_.end()) {
             return it->second(config);
         }
+        LOG(WARN) << "[ResourceManager] Provider '" << config.provider
+                  << "' not registered; falling back to standard format type "
+                  << static_cast<int>(config.formatType);
     }
     
     // 2. Fall back to standard format implementation
@@ -232,7 +368,11 @@ std::vector<std::string> ResourceManager::GetAvailableTools() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> names;
+    names.reserve(toolFactories_.size() + sessionToolFactories_.size());
     for (const auto& p : toolFactories_) {
+        names.push_back(p.first);
+    }
+    for (const auto& p : sessionToolFactories_) {
         names.push_back(p.first);
     }
     return names;

@@ -9,6 +9,15 @@ ContextStorageBase::ContextStorageBase(const std::string& sessionId)
 
 bool ContextStorageBase::IsValidMessage(const Message& msg)
 {
+    if (msg.role.empty()) return false;
+    // assistant may carry tool_calls instead of content
+    if (msg.role == "assistant") {
+        return !msg.content.empty() || !msg.toolCalls.empty();
+    }
+    // tool must carry a tool_call_id and non-empty observation content
+    if (msg.role == "tool") {
+        return !msg.toolCallId.empty() && !msg.content.empty();
+    }
     return !msg.content.empty();
 }
 

@@ -14,6 +14,9 @@
 #include "include/model.h"
 #include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
+#include "src/core/ask_user_dispatcher.h"
+#include "src/core/session_todo_list.h"
+#include "src/core/worker_env.h"
 #include "src/skills/skill_engine.h"
 #include "src/tools/tool_selector.h"
 #include "src/utils/logger.h"
@@ -38,7 +41,7 @@ void AgentWorker::AddTools(const std::vector<std::string>& toolNames)
     std::lock_guard<std::mutex> lock(toolMutex_);
     auto& rm = ResourceManager::GetInstance();
     for (const auto& name : toolNames) {
-        if (!rm.HasTool(name)) {
+        if (!rm.HasTool(name) && !rm.HasSessionTool(name)) {
             std::cerr << "Warning: Tool '" << name << "' not found" << std::endl;
             continue;
         }
@@ -66,41 +69,56 @@ void AgentWorker::SetSkillEngine(std::shared_ptr<SkillEngine> engine)
     skillEngine_ = engine;
 }
 
-void AgentWorker::CallModelStream(const std::string& prompt,
-                                  const std::vector<std::pair<std::string, std::string>>& messages,
-                                  std::function<void(const std::string&)> onChunk,
-                                  std::function<void(const std::string&)> onComplete,
-                                  uint64_t generation)
+void AgentWorker::SetWorkerEnv(WorkerEnv* env)
 {
+    workerEnv_ = env;
+}
+
+std::vector<ToolSchema> AgentWorker::BuildToolSchemas() const
+{
+    std::vector<std::string> names;
+    {
+        std::lock_guard<std::mutex> lock(toolMutex_);
+        names = toolNames_;
+    }
+    ToolBuildContext ctx;
+    ctx.sessionId = config_.contextConfig.sessionId;
+    if (workerEnv_ != nullptr) {
+        ctx.todoList = workerEnv_->GetOrCreateSessionTodoList(ctx.sessionId);
+        ctx.askUser = workerEnv_->GetAskUserDispatcher();
+    }
+    return ResourceManager::GetInstance().BuildToolSchemas(names, ctx);
+}
+
+ModelResponse AgentWorker::CallModelStream(const std::string& systemPrompt,
+                                            const std::vector<Message>& messages,
+                                            std::function<void(const std::string&)> onChunk,
+                                            uint64_t generation)
+{
+    ModelResponse out;
     if (!IsCancelled(generation)) {
-        onComplete("");
-        return;
+        out.finishReason = "cancelled";
+        out.isFinished = true;
+        return out;
     }
     try {
         auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
-        std::vector<Message> msgHistory;
-        for (const auto& m : messages) msgHistory.push_back({m.first, m.second});
-        std::string formatted = model->Format(prompt, msgHistory);
-        
+        auto tools = BuildToolSchemas();
+        std::string formatted = model->Format(systemPrompt, messages, tools);
         LOG(INFO) << "Request Model Prompt:\n" << formatted;
-        
-        std::string fullResponse = model->Invoke(formatted, onChunk);
-        
-        LOG(INFO) << "Model returned " << fullResponse.length() << " chars. Content preview: \n"
-                  << fullResponse;
-        
-        if (onComplete) {
-            onComplete(fullResponse);
-        }
+        out = model->Invoke(formatted, onChunk);
+        LOG(INFO) << "Model returned " << out.content.length() << " content chars; "
+                  << out.toolCalls.size() << " tool_calls; finish_reason=" << out.finishReason
+                  << "; content=[" << out.content << "]";
     } catch (const std::exception& e) {
-        std::string err = "Model Error: " + std::string(e.what());
+        out.content = std::string("Model Error: ") + e.what();
+        out.finishReason = "error";
+        out.isFinished = true;
         if (onChunk) {
-            onChunk(err);
-        }
-        if (onComplete) {
-            onComplete(err);
+            onChunk(out.content);
         }
     }
+    return out;
 }
 
 std::string AgentWorker::BuildPrompt(const std::string& templateName, const std::string& query,
@@ -173,15 +191,64 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
     }
 
     // 8. Render the prompt with all variables
-    return RenderPrompt(promptTemplate, vars);
+    std::string rendered = RenderPrompt(promptTemplate, vars);
+
+    // 9. Append the per-session todo snippet (if any) so the model is aware
+    // of its plan without requiring the template author to add a placeholder.
+    std::string todoSnippet = GetTodoSnippet();
+    if (!todoSnippet.empty()) {
+        rendered += "\n\n" + todoSnippet;
+    }
+    return rendered;
 }
 
-std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::string& input)
+std::string AgentWorker::GetTodoSnippet() const
+{
+    if (workerEnv_ == nullptr) {
+        return "";
+    }
+    // Only emit when this worker has a todo_* tool registered, so todos do
+    // not leak into agents that did not opt in.
+    {
+        std::lock_guard<std::mutex> lock(toolMutex_);
+        bool hasTodoTool = false;
+        for (const auto& n : toolNames_) {
+            if (n.rfind("todo_", 0) == 0) {
+                hasTodoTool = true;
+                break;
+            }
+        }
+        if (!hasTodoTool) {
+            return "";
+        }
+    }
+    auto* list = workerEnv_->GetOrCreateSessionTodoList(config_.contextConfig.sessionId);
+    if (list == nullptr || list->Empty()) {
+        return "";
+    }
+    return list->Render();
+}
+
+std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::string& input,
+                                     const std::function<void(const std::string&)>& streamCallback)
 {
     LOG(INFO) << "[Tool Execute] Tool: " << toolName << ", Input: " << input;
 
     try {
-        auto tool = ResourceManager::GetInstance().CreateTool(toolName);
+        auto& rm = ResourceManager::GetInstance();
+        std::unique_ptr<Tool> tool;
+        if (rm.HasSessionTool(toolName)) {
+            ToolBuildContext ctx;
+            ctx.sessionId = config_.contextConfig.sessionId;
+            ctx.streamCallback = streamCallback;
+            if (workerEnv_ != nullptr) {
+                ctx.todoList = workerEnv_->GetOrCreateSessionTodoList(ctx.sessionId);
+                ctx.askUser = workerEnv_->GetAskUserDispatcher();
+            }
+            tool = rm.CreateSessionTool(toolName, ctx);
+        } else {
+            tool = rm.CreateTool(toolName);
+        }
         std::string result = tool->Invoke(input);
 
         LOG(INFO) << "[Tool Result] Tool: " << toolName << ", Output length: " << result.length();
@@ -203,11 +270,12 @@ std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
     auto& rm = ResourceManager::GetInstance();
     std::string schema;
     for (const auto& name : toolNames_) {
-        if (!rm.HasTool(name)) {
-            continue;
-        }
         try {
-            schema += rm.GetToolSchema(name) + "\n\n";
+            if (rm.HasSessionTool(name)) {
+                schema += rm.GetSessionToolSchema(name) + "\n\n";
+            } else if (rm.HasTool(name)) {
+                schema += rm.GetToolSchema(name) + "\n\n";
+            }
         } catch (const std::exception& e) {
             LOG(ERR) << "Failed to get schema for tool: " << name;
         }
