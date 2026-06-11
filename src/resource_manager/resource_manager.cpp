@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "include/memory_runtime.h"
 #include "include/model.h"
 #include "src/models/anthropic_model.h"
 #include "src/models/openai_model.h"
@@ -17,6 +18,7 @@
 #include "src/tools/builtin_tools/glob_tool.h"
 #include "src/tools/builtin_tools/grep_tool.h"
 #include "src/tools/builtin_tools/list_dir_tool.h"
+#include "src/tools/builtin_tools/memory_read_payload_tool.h"
 #include "src/tools/builtin_tools/read_file_tool.h"
 #include "src/tools/builtin_tools/skill_search_tool.h"
 #include "src/tools/builtin_tools/time_info_tool.h"
@@ -24,6 +26,8 @@
 #include "src/tools/builtin_tools/web_fetch_tool.h"
 #include "src/tools/builtin_tools/web_search_tool.h"
 #include "src/tools/builtin_tools/write_file_tool.h"
+#include "src/memory/builtin_memory_runtime.h"
+#include "src/memory/http_memory_runtime.h"
 #include "src/mcp/mcp_config_manager.h"
 #include "src/mcp/mcp_connection.h"
 #include "src/utils/logger.h"
@@ -41,6 +45,12 @@ ResourceManager::ResourceManager()
 {
     RegisterBuiltinTools();
     RegisterBuiltinModels();
+    RegisterMemoryRuntime("builtin.compat", [](const MemoryConfig& cfg) {
+        return std::make_unique<BuiltinMemoryRuntime>(cfg);
+    });
+    RegisterMemoryRuntime("http.server", [](const MemoryConfig& cfg) {
+        return std::make_unique<HttpMemoryRuntime>(cfg);
+    });
 }
 
 void ResourceManager::RegisterBuiltinTools()
@@ -77,6 +87,9 @@ void ResourceManager::RegisterBuiltinTools()
     });
     RegisterSessionTool("ask_user", [](const ToolBuildContext& ctx) {
         return std::make_unique<AskUserTool>(ctx.askUser, ctx.streamCallback);
+    });
+    RegisterSessionTool("memory_read_payload", [](const ToolBuildContext& ctx) {
+        return std::make_unique<MemoryReadPayloadTool>(ctx.memoryRuntime);
     });
 }
 
@@ -218,6 +231,13 @@ void ResourceManager::RegisterModel(
     providerModelFactories_[provider] = std::move(factory);
 }
 
+void ResourceManager::RegisterMemoryRuntime(
+    const std::string& provider, std::function<std::unique_ptr<MemoryRuntime>(const MemoryConfig&)> factory)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    memoryFactories_[provider] = std::move(factory);
+}
+
 void ResourceManager::RegisterMCPServer(const McpServerConfig& config)
 {
     std::shared_ptr<MCPConnection> oldServer;
@@ -354,6 +374,16 @@ std::unique_ptr<Model> ResourceManager::CreateModel(const ModelConfig& config)
     throw std::runtime_error("Model format not registered: use ModelFormatType or register custom provider");
 }
 
+std::unique_ptr<MemoryRuntime> ResourceManager::CreateMemoryRuntime(const MemoryConfig& config)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = memoryFactories_.find(config.provider);
+    if (it != memoryFactories_.end()) {
+        return it->second(config);
+    }
+    throw std::runtime_error("Memory runtime provider not registered: " + config.provider);
+}
+
 std::shared_ptr<MCPConnection> ResourceManager::GetMCPServer(const std::string& name)
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -397,6 +427,17 @@ std::vector<std::string> ResourceManager::GetAvailableModels() const
     return names;
 }
 
+std::vector<std::string> ResourceManager::GetAvailableMemoryRuntimes() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> names;
+    names.reserve(memoryFactories_.size());
+    for (const auto& p : memoryFactories_) {
+        names.push_back(p.first);
+    }
+    return names;
+}
+
 std::vector<std::string> ResourceManager::GetAvailableMCPServers() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -423,6 +464,12 @@ bool ResourceManager::HasModel(const std::string& provider) const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return providerModelFactories_.count(provider) > 0;
+}
+
+bool ResourceManager::HasMemoryRuntime(const std::string& provider) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return memoryFactories_.count(provider) > 0;
 }
 
 bool ResourceManager::HasMCPServer(const std::string& name) const

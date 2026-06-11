@@ -20,6 +20,12 @@ public:
         bool passed;
     };
 
+    struct RegisteredTest {
+        std::string suite;
+        std::string name;
+        std::function<void()> test_fn;
+    };
+
     static TestRunner& Instance()
     {
         static TestRunner instance;
@@ -29,11 +35,19 @@ public:
     void AddTest(const std::string& suite, const std::string& name,
                  std::function<void()> test_fn)
     {
-        try {
-            test_fn();
-            results_.push_back({suite, name, "", "", "", true});
-        } catch (const std::exception& e) {
-            results_.push_back({suite, name, "", "", e.what(), false});
+        registered_.push_back({suite, name, std::move(test_fn)});
+    }
+
+    void RunRegisteredTests()
+    {
+        results_.clear();
+        for (const auto& test : registered_) {
+            try {
+                test.test_fn();
+                results_.push_back({test.suite, test.name, "", "", "", true});
+            } catch (const std::exception& e) {
+                results_.push_back({test.suite, test.name, "", "", e.what(), false});
+            }
         }
     }
 
@@ -135,6 +149,7 @@ public:
     }
 
 private:
+    std::vector<RegisteredTest> registered_;
     std::vector<TestCase> results_;
 };
 
@@ -151,6 +166,7 @@ private:
 // Run all registered tests and return exit code
 inline int RunAllTests()
 {
+    TestRunner::Instance().RunRegisteredTests();
     TestRunner::Instance().PrintReport();
     return TestRunner::Instance().GetFailed() > 0 ? 1 : 0;
 }

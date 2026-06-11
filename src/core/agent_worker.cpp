@@ -244,6 +244,7 @@ std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::str
             if (workerEnv_ != nullptr) {
                 ctx.todoList = workerEnv_->GetOrCreateSessionTodoList(ctx.sessionId);
                 ctx.askUser = workerEnv_->GetAskUserDispatcher();
+                ctx.memoryRuntime = workerEnv_->GetMemoryRuntime();
             }
             tool = rm.CreateSessionTool(toolName, ctx);
         } else {

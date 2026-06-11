@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "<your agent id>",
+      "mcpServerIds": [],
+      "modelConfig": {
+        "formatType": "openai",
+        "provider": "",
+        "baseUrl": "<your model api base url>",
+        "apiKey": "<your api key>",
+        "modelName": "<your model name>",
+        "extraParams": {
+          "max_tokens": 4096,
+          "temperature": 0,
+          "tool_choice": "auto",
+          "top_p": 0
+        }
+      },
+      "memoryConfig": {
+        "enabled": true,
+        "mode": "server",
+        "serverUrl": "http://127.0.0.1:8090",
+        "serverApiKey": "<optional memory server api key>",
+        "serverTimeoutSeconds": 10,
+        "tokenBudget": 4096,
+        "hotMessages": 30,
+        "offloadToolResultChars": 8000,
+        "enablePayloadOffload": true,
+        "enableHierarchicalSummary": true,
+        "enableEntityGraph": true
+      }
+    }
+  ]
+}

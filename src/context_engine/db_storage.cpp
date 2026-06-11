@@ -42,7 +42,7 @@ bool DbStorage::CreateTable()
     bool needRecreate = false;
     {
         sqlite3_stmt* stmt = nullptr;
-        const char* probe = "SELECT tool_calls, tool_call_id, tool_name FROM messages LIMIT 1;";
+        const char* probe = "SELECT tool_calls, tool_call_id, tool_name, payload_ref FROM messages LIMIT 1;";
         if (sqlite3_prepare_v2(db_, probe, -1, &stmt, nullptr) != SQLITE_OK) {
             // Table exists with stale schema, or does not exist. Either way,
             // a DROP-if-exists + CREATE rebuilds it cleanly.
@@ -72,6 +72,7 @@ bool DbStorage::CreateTable()
                       "tool_calls TEXT, "        // JSON array, NULL when not assistant tool-calls
                       "tool_call_id TEXT, "
                       "tool_name TEXT, "
+                      "payload_ref TEXT, "
                       "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
                       ");";
     char* errMsg = nullptr;
@@ -126,8 +127,8 @@ bool DbStorage::SaveMessage(const Message& msg)
     if (!IsValidMessage(msg)) return true;
     if (!db_) return false;
 
-    const char* sql = "INSERT INTO messages (session_id, role, content, tool_calls, tool_call_id, tool_name) "
-                      "VALUES (?, ?, ?, ?, ?, ?);";
+    const char* sql = "INSERT INTO messages (session_id, role, content, tool_calls, tool_call_id, tool_name, payload_ref) "
+                      "VALUES (?, ?, ?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         LogError("Failed to prepare INSERT");
@@ -155,6 +156,11 @@ bool DbStorage::SaveMessage(const Message& msg)
     } else {
         sqlite3_bind_text(stmt, 6, msg.toolName.c_str(), -1, SQLITE_TRANSIENT);
     }
+    if (msg.payloadRef.empty()) {
+        sqlite3_bind_null(stmt, 7);
+    } else {
+        sqlite3_bind_text(stmt, 7, msg.payloadRef.c_str(), -1, SQLITE_TRANSIENT);
+    }
 
     bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
@@ -168,7 +174,7 @@ bool DbStorage::LoadHistory(std::vector<Message>& outMessages)
 {
     if (!db_) return false;
 
-    const char* sql = "SELECT role, content, tool_calls, tool_call_id, tool_name "
+    const char* sql = "SELECT role, content, tool_calls, tool_call_id, tool_name, payload_ref "
                       "FROM messages WHERE session_id = ? ORDER BY id;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -184,11 +190,13 @@ bool DbStorage::LoadHistory(std::vector<Message>& outMessages)
         const unsigned char* toolCalls = sqlite3_column_text(stmt, 2);
         const unsigned char* toolCallId = sqlite3_column_text(stmt, 3);
         const unsigned char* toolName = sqlite3_column_text(stmt, 4);
+        const unsigned char* payloadRef = sqlite3_column_text(stmt, 5);
         if (role) msg.role = reinterpret_cast<const char*>(role);
         if (content) msg.content = reinterpret_cast<const char*>(content);
         if (toolCalls) msg.toolCalls = DecodeToolCalls(reinterpret_cast<const char*>(toolCalls));
         if (toolCallId) msg.toolCallId = reinterpret_cast<const char*>(toolCallId);
         if (toolName) msg.toolName = reinterpret_cast<const char*>(toolName);
+        if (payloadRef) msg.payloadRef = reinterpret_cast<const char*>(payloadRef);
         if (msg.role.empty()) continue;
         if (msg.role == "tool" && msg.toolCallId.empty()) continue;
         if (msg.role == "assistant" && msg.content.empty() && msg.toolCalls.empty()) continue;

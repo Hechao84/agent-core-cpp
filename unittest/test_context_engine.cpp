@@ -124,6 +124,29 @@ TEST(json_storage, SaveAndLoad)
     fs::remove_all(testDir);
 }
 
+TEST(json_storage, PayloadRef)
+{
+    std::string testDir = "test_tmp_json_payload_ref";
+    if (fs::exists(testDir)) fs::remove_all(testDir);
+    fs::create_directories(testDir);
+
+    JsonStorage storage(testDir, "session_payload");
+    Message message;
+    message.role = "tool";
+    message.content = "[memory-ref: file://payload]";
+    message.toolCallId = "call_1";
+    message.toolName = "grep";
+    message.payloadRef = "file://payload";
+    storage.SaveMessage(message);
+
+    std::vector<Message> loaded;
+    storage.LoadHistory(loaded);
+    TestRunner::AssertEq(loaded.size(), size_t(1));
+    TestRunner::AssertEq(loaded[0].payloadRef, std::string("file://payload"));
+
+    fs::remove_all(testDir);
+}
+
 TEST(json_storage, MultiLineContent)
 {
     std::string testDir = "test_tmp_json_multiline";
@@ -331,4 +354,50 @@ TEST(context_engine, GetConsolidationPayload)
     TestRunner::AssertContains(payload, "Message 3");
     TestRunner::AssertContains(payload, "Message 4");
     TestRunner::AssertFalse(payload.find("Message 0") != std::string::npos);
+}
+
+TEST(context_engine, MemoryContextProviderOverridesLegacyMemory)
+{
+    ContextConfig config;
+    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
+    ContextEngine engine(config);
+    engine.Initialize();
+    engine.SetMemoryContextProvider([]() {
+        return std::string("runtime memory");
+    });
+
+    TestRunner::AssertEq(engine.GetMemoryContent(), std::string("runtime memory"));
+}
+
+TEST(context_engine, AddMessageEmitsMemoryEvent)
+{
+    ContextConfig config;
+    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
+    config.sessionId = "event_session";
+    ContextEngine engine(config);
+    engine.Initialize();
+
+    MemoryEvent captured;
+    bool called = false;
+    engine.SetMemoryEventSink([&](const MemoryEvent& event) {
+        captured = event;
+        called = true;
+    });
+
+    Message message;
+    message.role = "tool";
+    message.content = "tool output";
+    message.toolCallId = "call_1";
+    message.toolName = "grep";
+    message.payloadRef = "file://payload";
+    engine.AddMessage(message);
+
+    TestRunner::AssertTrue(called);
+    TestRunner::AssertTrue(captured.type == MemoryEventType::MESSAGE_APPENDED);
+    TestRunner::AssertEq(captured.sessionId, std::string("event_session"));
+    TestRunner::AssertEq(captured.role, std::string("tool"));
+    TestRunner::AssertEq(captured.content, std::string("tool output"));
+    TestRunner::AssertEq(captured.toolCallId, std::string("call_1"));
+    TestRunner::AssertEq(captured.toolName, std::string("grep"));
+    TestRunner::AssertEq(captured.payloadRef, std::string("file://payload"));
 }

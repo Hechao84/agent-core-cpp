@@ -193,6 +193,26 @@ struct DreamConfig
     int memoryFileMaxChars{32000};
 };
 
+struct MemoryConfig
+{
+    bool enabled{false};
+    std::string mode{"sdk"};
+    std::string provider{"builtin.compat"};
+    std::string dataPath;
+    std::string serverUrl;
+    std::string serverApiKey;
+    int serverTimeoutSeconds{10};
+    int tokenBudget{4096};
+    int hotMessages{30};
+    int compressAfterTokens{12000};
+    int offloadToolResultChars{8000};
+    bool enablePayloadOffload{false};
+    bool enableShortTermCompression{false};
+    bool enableHierarchicalSummary{false};
+    bool enableEntityGraph{false};
+    ConfigNode extraParams;
+};
+
 struct McpServerConfig
 {
     std::string id;
@@ -220,6 +240,7 @@ struct AgentConfig
     std::unordered_map<std::string, PromptResource> promptTemplates;
     ContextConfig contextConfig;
     DreamConfig dreamConfig;
+    MemoryConfig memoryConfig;
     std::string skillDirectory;
     int maxIterations{10};
 

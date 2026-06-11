@@ -1,0 +1,7 @@
+{
+  "formatType": "openai",
+  "provider": "",
+  "baseUrl": "<your model api base url>",
+  "apiKey": "<your api key>",
+  "modelName": "<your model name>"
+}

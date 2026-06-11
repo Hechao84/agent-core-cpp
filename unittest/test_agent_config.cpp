@@ -28,6 +28,14 @@ TEST(agent_config_json, RoundTripBasic)
     cfg.modelConfig.extraParams.Set("temperature", 0.3f);
     cfg.modelConfig.extraParams.Set("max_tokens", 1024);
     cfg.contextConfig.maxMessages = 99;
+    cfg.memoryConfig.enabled = true;
+    cfg.memoryConfig.mode = "server";
+    cfg.memoryConfig.provider = "http.server";
+    cfg.memoryConfig.serverUrl = "http://127.0.0.1:8090";
+    cfg.memoryConfig.serverApiKey = "test-key";
+    cfg.memoryConfig.serverTimeoutSeconds = 3;
+    cfg.memoryConfig.hotMessages = 12;
+    cfg.memoryConfig.enablePayloadOffload = true;
     cfg.promptTemplates["sys"] = PromptResource{PromptResourceType::TEXT, "hi"};
     cfg.defaultTools = {"a", "b"};
 
@@ -42,6 +50,14 @@ TEST(agent_config_json, RoundTripBasic)
     TestRunner::AssertEq(parsed.modelConfig.baseUrl, std::string("http://localhost/v1"));
     TestRunner::AssertEq(parsed.modelConfig.modelName, std::string("gpt-x"));
     TestRunner::AssertEq(parsed.contextConfig.maxMessages, 99);
+    TestRunner::AssertTrue(parsed.memoryConfig.enabled);
+    TestRunner::AssertEq(parsed.memoryConfig.mode, std::string("server"));
+    TestRunner::AssertEq(parsed.memoryConfig.provider, std::string("http.server"));
+    TestRunner::AssertEq(parsed.memoryConfig.serverUrl, std::string("http://127.0.0.1:8090"));
+    TestRunner::AssertEq(parsed.memoryConfig.serverApiKey, std::string("test-key"));
+    TestRunner::AssertEq(parsed.memoryConfig.serverTimeoutSeconds, 3);
+    TestRunner::AssertEq(parsed.memoryConfig.hotMessages, 12);
+    TestRunner::AssertTrue(parsed.memoryConfig.enablePayloadOffload);
     TestRunner::AssertEq(parsed.defaultTools.size(), (size_t)2);
     TestRunner::AssertEq(parsed.promptTemplates["sys"].value, std::string("hi"));
     const int* mt = parsed.modelConfig.extraParams.GetPtr<int>("max_tokens");

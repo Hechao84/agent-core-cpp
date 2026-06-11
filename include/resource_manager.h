@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "include/memory_runtime.h"
 #include "include/model.h"
 #include "include/tool.h"
 #include "include/types.h"
@@ -21,6 +22,7 @@ class AskUserDispatcher;
 struct ToolBuildContext {
     SessionTodoList* todoList{nullptr};
     AskUserDispatcher* askUser{nullptr};
+    MemoryRuntime* memoryRuntime{nullptr};
     std::function<void(const std::string&)> streamCallback;
     std::string sessionId;
 };
@@ -31,6 +33,8 @@ public:
 
     void RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory);
     void RegisterModel(const std::string& provider, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory);
+    void RegisterMemoryRuntime(const std::string& provider,
+                               std::function<std::unique_ptr<MemoryRuntime>(const MemoryConfig&)> factory);
 
     // Session-scoped tool registry (X-3): factory receives a ToolBuildContext
     // carrying the per-session dependencies the tool needs. Stateless tools
@@ -45,6 +49,7 @@ public:
     std::unique_ptr<Tool> CreateTool(const std::string& name);
     std::string GetToolSchema(const std::string& name);
     std::unique_ptr<Model> CreateModel(const ModelConfig& config);
+    std::unique_ptr<MemoryRuntime> CreateMemoryRuntime(const MemoryConfig& config);
     std::shared_ptr<MCPConnection> GetMCPServer(const std::string& name);
 
     // Build native function-calling tool schemas for the requested tools.
@@ -57,11 +62,13 @@ public:
 
     std::vector<std::string> GetAvailableTools() const;
     std::vector<std::string> GetAvailableModels() const;
+    std::vector<std::string> GetAvailableMemoryRuntimes() const;
     std::vector<std::string> GetAvailableMCPServers() const;
 
     bool HasTool(const std::string& name) const;
     bool HasModel(ModelFormatType type) const;
     bool HasModel(const std::string& provider) const;
+    bool HasMemoryRuntime(const std::string& provider) const;
     bool HasMCPServer(const std::string& name) const;
 
     void LoadMCPServers(const std::vector<McpServerConfig>& configs);
@@ -92,6 +99,7 @@ private:
     std::unordered_set<std::string> mcpToolNames_;
     std::unordered_map<ModelFormatType, std::function<std::unique_ptr<Model>(const ModelConfig&)>> modelFactories_;
     std::unordered_map<std::string, std::function<std::unique_ptr<Model>(const ModelConfig&)>> providerModelFactories_;
+    std::unordered_map<std::string, std::function<std::unique_ptr<MemoryRuntime>(const MemoryConfig&)>> memoryFactories_;
     std::unordered_map<std::string, std::shared_ptr<MCPConnection>> mcpServers_;
 };
 

@@ -57,6 +57,7 @@ echo "--- Packaging output..."
 mkdir -p "$SCRIPT_DIR/dist/linux"
 cp jiuwenClaw "$SCRIPT_DIR/dist/linux/"
 cp libagent_framework.so "$SCRIPT_DIR/dist/linux/"
+cp agent-memory-cpp/libagent_memory.so "$SCRIPT_DIR/dist/linux/"
 
 # Copy skills directory if they exist
 if [ -d "$SCRIPT_DIR/my_skills" ]; then
@@ -70,6 +71,8 @@ echo " Build Complete!"
 echo "=========================================="
 echo "Library: dist/linux/libagent_framework.so"
 ls -lh "$SCRIPT_DIR/dist/linux/libagent_framework.so"
+echo "Library: dist/linux/libagent_memory.so"
+ls -lh "$SCRIPT_DIR/dist/linux/libagent_memory.so"
 echo "Binary:  dist/linux/jiuwenClaw"
 ls -lh "$SCRIPT_DIR/dist/linux/jiuwenClaw"
 echo ""

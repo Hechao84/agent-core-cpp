@@ -231,6 +231,58 @@ static nlohmann::json DreamConfigToJson(const DreamConfig& cfg)
     return j;
 }
 
+static void MergeMemoryConfig(const nlohmann::json& j, MemoryConfig& out)
+{
+    if (!j.is_object()) return;
+    if (j.contains("enabled"))                out.enabled                = j["enabled"].get<bool>();
+    if (j.contains("mode"))                   out.mode                   = j["mode"].get<std::string>();
+    if (j.contains("provider"))               out.provider               = j["provider"].get<std::string>();
+    if (j.contains("dataPath"))               out.dataPath               = j["dataPath"].get<std::string>();
+    if (j.contains("serverUrl"))              out.serverUrl              = j["serverUrl"].get<std::string>();
+    if (j.contains("serverApiKey"))           out.serverApiKey           = j["serverApiKey"].get<std::string>();
+    if (j.contains("serverTimeoutSeconds"))   out.serverTimeoutSeconds   = j["serverTimeoutSeconds"].get<int>();
+    if (j.contains("tokenBudget"))            out.tokenBudget            = j["tokenBudget"].get<int>();
+    if (j.contains("hotMessages"))            out.hotMessages            = j["hotMessages"].get<int>();
+    if (j.contains("compressAfterTokens"))    out.compressAfterTokens    = j["compressAfterTokens"].get<int>();
+    if (j.contains("offloadToolResultChars")) out.offloadToolResultChars = j["offloadToolResultChars"].get<int>();
+    if (j.contains("enablePayloadOffload"))   out.enablePayloadOffload   = j["enablePayloadOffload"].get<bool>();
+    if (j.contains("enableShortTermCompression")) {
+        out.enableShortTermCompression = j["enableShortTermCompression"].get<bool>();
+    }
+    if (j.contains("enableHierarchicalSummary")) {
+        out.enableHierarchicalSummary = j["enableHierarchicalSummary"].get<bool>();
+    }
+    if (j.contains("enableEntityGraph")) {
+        out.enableEntityGraph = j["enableEntityGraph"].get<bool>();
+    }
+    if (j.contains("extraParams") && j["extraParams"].is_object()) {
+        out.extraParams = ConfigNode{};
+        ConfigNodeFromJson(j["extraParams"], out.extraParams);
+    }
+}
+
+static nlohmann::json MemoryConfigToJson(const MemoryConfig& cfg)
+{
+    nlohmann::json j;
+    j["enabled"]                    = cfg.enabled;
+    j["mode"]                       = cfg.mode;
+    j["provider"]                   = cfg.provider;
+    j["dataPath"]                   = cfg.dataPath;
+    j["serverUrl"]                  = cfg.serverUrl;
+    j["serverApiKey"]               = cfg.serverApiKey;
+    j["serverTimeoutSeconds"]       = cfg.serverTimeoutSeconds;
+    j["tokenBudget"]                = cfg.tokenBudget;
+    j["hotMessages"]                = cfg.hotMessages;
+    j["compressAfterTokens"]        = cfg.compressAfterTokens;
+    j["offloadToolResultChars"]     = cfg.offloadToolResultChars;
+    j["enablePayloadOffload"]       = cfg.enablePayloadOffload;
+    j["enableShortTermCompression"] = cfg.enableShortTermCompression;
+    j["enableHierarchicalSummary"]  = cfg.enableHierarchicalSummary;
+    j["enableEntityGraph"]          = cfg.enableEntityGraph;
+    j["extraParams"]                = ConfigNodeToJson(cfg.extraParams);
+    return j;
+}
+
 static void MergePromptTemplates(const nlohmann::json& j,
     std::unordered_map<std::string, PromptResource>& out)
 {
@@ -288,9 +340,10 @@ void MergeAgentConfigFromJson(const nlohmann::json& j, AgentConfig& out)
             out.mode = m;
         }
     }
-    if (j.contains("modelConfig"))    MergeModelConfig(j["modelConfig"], out.modelConfig);
-    if (j.contains("contextConfig"))  MergeContextConfig(j["contextConfig"], out.contextConfig);
-    if (j.contains("dreamConfig"))    MergeDreamConfig(j["dreamConfig"], out.dreamConfig);
+    if (j.contains("modelConfig"))     MergeModelConfig(j["modelConfig"], out.modelConfig);
+    if (j.contains("contextConfig"))   MergeContextConfig(j["contextConfig"], out.contextConfig);
+    if (j.contains("dreamConfig"))     MergeDreamConfig(j["dreamConfig"], out.dreamConfig);
+    if (j.contains("memoryConfig"))    MergeMemoryConfig(j["memoryConfig"], out.memoryConfig);
     if (j.contains("promptTemplates")) MergePromptTemplates(j["promptTemplates"], out.promptTemplates);
     if (j.contains("skillDirectory"))         out.skillDirectory        = j["skillDirectory"].get<std::string>();
     if (j.contains("maxIterations"))          out.maxIterations         = j["maxIterations"].get<int>();
@@ -323,6 +376,7 @@ nlohmann::json AgentConfigToJson(const AgentConfig& cfg)
     j["modelConfig"]           = ModelConfigToJson(cfg.modelConfig);
     j["contextConfig"]         = ContextConfigToJson(cfg.contextConfig);
     j["dreamConfig"]           = DreamConfigToJson(cfg.dreamConfig);
+    j["memoryConfig"]          = MemoryConfigToJson(cfg.memoryConfig);
     j["promptTemplates"]       = PromptTemplatesToJson(cfg.promptTemplates);
     j["skillDirectory"]        = cfg.skillDirectory;
     j["maxIterations"]         = cfg.maxIterations;

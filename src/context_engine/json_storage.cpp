@@ -46,6 +46,9 @@ json EncodeMessage(const Message& msg)
     if (!msg.toolName.empty()) {
         entry["tool_name"] = msg.toolName;
     }
+    if (!msg.payloadRef.empty()) {
+        entry["payload_ref"] = msg.payloadRef;
+    }
     return entry;
 }
 
@@ -70,6 +73,9 @@ bool DecodeMessage(const json& entry, Message& out)
     }
     if (entry.contains("tool_name") && entry["tool_name"].is_string()) {
         out.toolName = entry["tool_name"].get<std::string>();
+    }
+    if (entry.contains("payload_ref") && entry["payload_ref"].is_string()) {
+        out.payloadRef = entry["payload_ref"].get<std::string>();
     }
     // Discard rows that have no usable payload.
     if (out.role.empty()) return false;

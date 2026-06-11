@@ -7,7 +7,9 @@
 #include <string>
 #include <vector>
 
+#include "include/memory_runtime.h"
 #include "src/context_engine/context_engine.h"
+#include "src/core/worker_env.h"
 #include "src/utils/logger.h"
 #include "src/utils/tool_parser.h"
 #include "third_party/include/nlohmann/json.hpp"
@@ -150,6 +152,23 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
             tool.toolCallId = tc.id;
             tool.toolName = tc.name;
             tool.content = observation;
+            if (workerEnv_ && contextEngine) {
+                MemoryRuntime* memoryRuntime = workerEnv_->GetMemoryRuntime();
+                if (memoryRuntime) {
+                    MemoryPayloadWriteRequest request;
+                    request.agentId = config_.id;
+                    request.sessionId = contextEngine->GetSessionId();
+                    request.content = observation;
+                    request.contentType = "tool_result";
+                    request.toolCallId = tc.id;
+                    request.toolName = tc.name;
+                    MemoryPayloadWriteResult payloadResult = memoryRuntime->WritePayload(request);
+                    if (payloadResult.offloaded) {
+                        tool.content = payloadResult.replacementContent;
+                        tool.payloadRef = payloadResult.payload.ref;
+                    }
+                }
+            }
             msgHistory.push_back(tool);
             if (contextEngine) contextEngine->AddMessage(tool);
         }

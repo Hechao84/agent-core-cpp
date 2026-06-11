@@ -218,6 +218,21 @@ SessionEntry* SessionManager::FindOrCreateEntry(const std::string& sessionId)
     entry->contextEngine = std::make_shared<ContextEngine>(ctxConfig);
     entry->contextEngine->Initialize();
 
+    MemoryRuntime* memoryRuntime = agent_ ? agent_->GetMemoryRuntime() : nullptr;
+    if (memoryRuntime) {
+        entry->contextEngine->SetMemoryContextProvider([memoryRuntime, sessionId, agentId = config_.id]() {
+            MemoryContextRequest request;
+            request.agentId = agentId;
+            request.sessionId = sessionId;
+            return memoryRuntime->BuildContext(request).memoryText;
+        });
+        entry->contextEngine->SetMemoryEventSink([memoryRuntime, agentId = config_.id](const MemoryEvent& event) {
+            MemoryEvent copied = event;
+            copied.agentId = agentId;
+            memoryRuntime->AppendEvent(copied);
+        });
+    }
+
     sessions_[sessionId] = std::move(entry);
     return sessions_[sessionId].get();
 }

@@ -1,10 +1,12 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
+#include "include/memory_types.h"
 #include "include/model.h"
 #include "include/types.h"
 
@@ -33,12 +35,16 @@ public:
                                                const Message& currentMessage) const;
 
     std::string GetMemoryContent() const;
+    void SetMemoryContextProvider(std::function<std::string()> provider);
+    void SetMemoryEventSink(std::function<void(const MemoryEvent&)> sink);
     std::string GetConsolidationPayload(int maxMessages = 100) const;
 
 private:
     ContextConfig config_;
     std::vector<Message> memoryBuffer_;
     std::unique_ptr<ContextStorageBase> storage_;
+    std::function<std::string()> memoryContextProvider_;
+    std::function<void(const MemoryEvent&)> memoryEventSink_;
     mutable std::mutex memoryMutex_;
 
     static int EstimateTokens(const std::string& text);

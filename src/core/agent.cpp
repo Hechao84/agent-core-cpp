@@ -19,8 +19,8 @@
 #include "src/context_engine/context_engine.h"
 #include "src/core/agent_worker.h"
 #include "src/core/ask_user_dispatcher.h"
-#include "src/core/dream_processor.h"
 #include "src/core/history_store.h"
+#include "src/memory/long_term_consolidator.h"
 #include "src/core/session_todo_list.h"
 #include "src/core/worker_env.h"
 #include "src/skills/skill_engine.h"
@@ -46,6 +46,11 @@ public:
     AskUserDispatcher* GetAskUserDispatcher() override
     {
         return agent_->GetAskUserDispatcher();
+    }
+
+    MemoryRuntime* GetMemoryRuntime() override
+    {
+        return agent_->GetMemoryRuntime();
     }
 private:
     Agent* agent_;
@@ -78,7 +83,18 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
     historyStore_ = std::make_unique<HistoryStore>(dataPath);
 
     config_.dreamConfig.dataBasePath = dataPath;
-    dreamProcessor_ = std::make_unique<DreamProcessor>(config_.dreamConfig);
+    longTermConsolidator_ = std::make_unique<LegacyDreamConsolidator>(config_.dreamConfig);
+
+    if (config_.memoryConfig.enabled) {
+        MemoryConfig memoryConfig = config_.memoryConfig;
+        if (memoryConfig.dataPath.empty()) {
+            memoryConfig.dataPath = dataPath;
+        }
+        if (memoryConfig.mode == "server") {
+            memoryConfig.provider = "http.server";
+        }
+        memoryRuntime_ = ResourceManager::GetInstance().CreateMemoryRuntime(memoryConfig);
+    }
 
     consolidationThread_ = std::thread(&Agent::ConsolidationLoop, this);
 
@@ -106,6 +122,11 @@ void Agent::SetContextEngineGetter(
     std::function<std::shared_ptr<ContextEngine>(const std::string&)> getter)
 {
     contextEngineGetter_ = getter;
+}
+
+MemoryRuntime* Agent::GetMemoryRuntime()
+{
+    return memoryRuntime_.get();
 }
 
 std::string Agent::Invoke(const std::string& sessionId, const std::string& query,
@@ -136,7 +157,7 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
         userMsg.content = query;
         contextEngine->AddMessage(userMsg);
     }
-    if (historyStore_) {
+    if (historyStore_ && !memoryRuntime_) {
         historyStore_->AppendEntry("user", query, sessionId);
     }
 
@@ -151,12 +172,11 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
             }
         });
 
-    // 5. Save final assistant text into Dream's history store. The
-    // ContextEngine already received the structured assistant message from
-    // the worker (or a tool_calls-only assistant; either way we don't
-    // double-write here).
+    // 5. Save final assistant text into Dream's history store when memory runtime is disabled. The
+    // ContextEngine already received the structured assistant message from the worker, and memory runtime
+    // persists message events when enabled.
     if (!finalAnswer.empty()) {
-        if (historyStore_) {
+        if (historyStore_ && !memoryRuntime_) {
             historyStore_->AppendEntry("assistant", finalAnswer, sessionId);
         }
     }
@@ -301,14 +321,27 @@ void Agent::ConsolidationLoop()
         }
 
         try {
-            auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
-            bool didWork = dreamProcessor_->Run(model.get(), historyStore_.get());
+            bool handledByMemoryRuntime = false;
+            if (memoryRuntime_) {
+                MemoryConsolidationRequest request;
+                request.agentId = config_.id;
+                request.force = false;
+                auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
+                handledByMemoryRuntime = memoryRuntime_->Consolidate(request, model.get());
+                if (handledByMemoryRuntime) {
+                    LOG(INFO) << "[MemoryRuntime] Memory consolidation completed";
+                }
+            }
 
-            if (didWork) {
-                LOG(INFO) << "[Dream] Memory consolidation completed";
+            if (!handledByMemoryRuntime) {
+                auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
+                bool didWork = longTermConsolidator_->Run(model.get(), historyStore_.get());
+                if (didWork) {
+                    LOG(INFO) << "[Dream] Memory consolidation completed";
+                }
             }
         } catch (const std::exception& e) {
-            LOG(WARN) << "[Dream] Consolidation failed: " << e.what();
+            LOG(WARN) << "[Memory] Consolidation failed: " << e.what();
         }
     }
 }

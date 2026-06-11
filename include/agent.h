@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "include/agent_export.h"
+#include "include/memory_runtime.h"
 #include "include/skill.h"
 #include "include/types.h"
 
@@ -20,7 +21,7 @@ class AgentWorker;
 class ContextEngine;
 class SkillEngine;
 class HistoryStore;
-class DreamProcessor;
+class LongTermConsolidator;
 class SessionTodoList;
 class AskUserDispatcher;
 class WorkerEnvImpl;
@@ -69,6 +70,7 @@ private:
     std::function<std::shared_ptr<ContextEngine>(const std::string&)> contextEngineGetter_;
 
     void SetContextEngineGetter(std::function<std::shared_ptr<ContextEngine>(const std::string&)> getter);
+    MemoryRuntime* GetMemoryRuntime();
     friend class SessionManager;
 
     std::thread consolidationThread_;
@@ -77,7 +79,8 @@ private:
     std::atomic<bool> running_{true};
 
     std::unique_ptr<HistoryStore> historyStore_;
-    std::unique_ptr<DreamProcessor> dreamProcessor_;
+    std::unique_ptr<LongTermConsolidator> longTermConsolidator_;
+    std::unique_ptr<MemoryRuntime> memoryRuntime_;
 
     // Session-scoped resources owned by Agent and accessed by AgentWorker
     // through the private WorkerEnv adapter.

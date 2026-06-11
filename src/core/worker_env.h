@@ -6,6 +6,7 @@ namespace jiuwen {
 
 class SessionTodoList;
 class AskUserDispatcher;
+class MemoryRuntime;
 
 // WorkerEnv decouples AgentWorker from Agent. Agent implements this interface
 // privately so the worker can obtain session-scoped resources without
@@ -16,6 +17,7 @@ public:
 
     virtual SessionTodoList* GetOrCreateSessionTodoList(const std::string& sessionId) = 0;
     virtual AskUserDispatcher* GetAskUserDispatcher() = 0;
+    virtual MemoryRuntime* GetMemoryRuntime() = 0;
 };
 
 } // namespace jiuwen

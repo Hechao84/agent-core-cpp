@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <exception>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -67,6 +68,17 @@ void ContextEngine::AddMessage(const Message& message)
     if (storage_) {
         storage_->SaveMessage(message);
     }
+    if (memoryEventSink_) {
+        MemoryEvent event;
+        event.type = MemoryEventType::MESSAGE_APPENDED;
+        event.sessionId = config_.sessionId;
+        event.role = message.role;
+        event.content = message.content;
+        event.toolCallId = message.toolCallId;
+        event.toolName = message.toolName;
+        event.payloadRef = message.payloadRef;
+        memoryEventSink_(event);
+    }
 }
 
 std::vector<Message> ContextEngine::GetContextWindow() const
@@ -81,7 +93,7 @@ int ContextEngine::CalculateMessageTokens(const Message& msg) const
     for (const auto& tc : msg.toolCalls) {
         total += EstimateTokens(tc.name) + EstimateTokens(tc.argumentsJson);
     }
-    total += EstimateTokens(msg.toolCallId) + EstimateTokens(msg.toolName);
+    total += EstimateTokens(msg.toolCallId) + EstimateTokens(msg.toolName) + EstimateTokens(msg.payloadRef);
     return total;
 }
 
@@ -166,6 +178,9 @@ std::string ContextEngine::GetContextAsString() const
         }
         if (!msg.toolCallId.empty()) {
             oss << " (tool_call_id=" << msg.toolCallId << ")";
+        }
+        if (!msg.payloadRef.empty()) {
+            oss << " (payload_ref=" << msg.payloadRef << ")";
         }
         oss << ": " << msg.content << "\n";
     }
@@ -262,7 +277,29 @@ std::vector<Message> ContextEngine::BuildMessagesForLLM(
 
 std::string ContextEngine::GetMemoryContent() const
 {
+    if (memoryContextProvider_) {
+        try {
+            std::string content = memoryContextProvider_();
+            if (!content.empty()) {
+                return content;
+            }
+        } catch (const std::exception& e) {
+            LOG(WARN) << "[ContextEngine] Memory context provider failed: " << e.what();
+        } catch (...) {
+            LOG(WARN) << "[ContextEngine] Memory context provider failed";
+        }
+    }
     return LoadMemoryContext();
+}
+
+void ContextEngine::SetMemoryContextProvider(std::function<std::string()> provider)
+{
+    memoryContextProvider_ = std::move(provider);
+}
+
+void ContextEngine::SetMemoryEventSink(std::function<void(const MemoryEvent&)> sink)
+{
+    memoryEventSink_ = std::move(sink);
 }
 
 std::string ContextEngine::GetConsolidationPayload(int maxMessages) const

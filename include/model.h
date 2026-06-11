@@ -40,6 +40,7 @@ struct Message {
     std::vector<ToolCall> toolCalls;  // assistant only
     std::string toolCallId;           // tool only
     std::string toolName;             // tool only (informational)
+    std::string payloadRef;           // optional offloaded payload reference
 };
 
 struct ModelResponse {
