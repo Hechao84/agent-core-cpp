@@ -114,7 +114,7 @@ endif()
 # ============================================================
 # 5. Standalone agent memory runtime
 # ============================================================
-set(AGENT_MEMORY_CPP_DIR "/mnt/d/code/agent-memory-cpp" CACHE PATH "Path to agent-memory-cpp repository")
+set(AGENT_MEMORY_CPP_DIR "${TRIRD_PARTY_SRC_DIR}/agent-memory-cpp-src" CACHE PATH "Path to agent-memory-cpp repository")
 if(EXISTS "${AGENT_MEMORY_CPP_DIR}/CMakeLists.txt")
     set(AGENT_MEMORY_BUILD_TOOLS OFF CACHE BOOL "Build agent-memory-cpp tools" FORCE)
     set(AGENT_MEMORY_BUILD_TESTS OFF CACHE BOOL "Build agent-memory-cpp tests" FORCE)

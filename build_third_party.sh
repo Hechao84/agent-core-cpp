@@ -38,23 +38,34 @@ clone() {
 echo "=== Building Third-Party Base Libraries ==="
 
 # ============================================================
+# 0. agent-memory-cpp (standalone memory runtime)
+# ============================================================
+if [ ! -f "$SRC_DIR/agent-memory-cpp-src/CMakeLists.txt" ]; then
+    echo "[0/3] Fetching agent-memory-cpp..."
+    clone "https://github.com/Hechao84/agent-memory-cpp.git" "main" "$SRC_DIR/agent-memory-cpp-src"
+    echo "  agent-memory-cpp ready."
+else
+    echo "[0/3] agent-memory-cpp already fetched, ready."
+fi
+
+# ============================================================
 # 1. nlohmann/json (header-only)
 # ============================================================
 if [ ! -f "$INCLUDE_DIR/nlohmann/json.hpp" ]; then
-    echo "[1/2] Building nlohmann/json..."
+    echo "[1/3] Building nlohmann/json..."
     clone "https://github.com/nlohmann/json.git" "v3.11.3" "$SRC_DIR/nlohmann_json-src"
     mkdir -p "$INCLUDE_DIR/nlohmann"
     cp -f "$SRC_DIR/nlohmann_json-src/single_include/nlohmann/json.hpp" "$INCLUDE_DIR/nlohmann/"
     echo "  nlohmann/json ready."
 else
-    echo "[1/2] nlohmann/json already built, ready."
+    echo "[1/3] nlohmann/json already built, ready."
 fi
 
 # ============================================================
 # 2. sqlite3 (shared)
 # ============================================================
 if [ ! -f "$LIBS_DIR/libsqlite3.so" ]; then
-    echo "[2/2] Building sqlite3..."
+    echo "[2/3] Building sqlite3..."
     local_zip="$BUILD_DIR/sqlite3.zip"
     
     # Download
@@ -93,7 +104,7 @@ if [ ! -f "$LIBS_DIR/libsqlite3.so" ]; then
         echo "  WARNING: sqlite3 source not found."
     fi
 else
-    echo "[2/2] sqlite3 already built, ready."
+    echo "[2/3] sqlite3 already built, ready."
 fi
 
 # ============================================================
