@@ -5,9 +5,11 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "src/utils/encoding.h"
+#include "src/utils/logger.h"
 #include "third_party/include/curl/curl.h"
 #include "third_party/include/nlohmann/json.hpp"
 
@@ -137,6 +139,51 @@ std::string ToolsAsTextSchema(const std::vector<ToolSchema>& tools)
     return oss.str();
 }
 
+struct ToolPairingStats
+{
+    int assistantToolCalls{0};
+    int toolResults{0};
+    int missingIds{0};
+    int orphanToolResults{0};
+    int orphanToolCalls{0};
+};
+
+ToolPairingStats ValidateToolPairing(const json& msgs)
+{
+    ToolPairingStats stats;
+    std::unordered_set<std::string> callIds;
+    std::unordered_set<std::string> resultIds;
+    for (const auto& msg : msgs) {
+        std::string role = msg.value("role", "");
+        if (role == "assistant" && msg.contains("tool_calls") && msg["tool_calls"].is_array()) {
+            for (const auto& tc : msg["tool_calls"]) {
+                ++stats.assistantToolCalls;
+                std::string id = tc.value("id", "");
+                if (id.empty()) {
+                    ++stats.missingIds;
+                } else {
+                    callIds.insert(id);
+                }
+            }
+        } else if (role == "tool") {
+            ++stats.toolResults;
+            std::string id = msg.value("tool_call_id", "");
+            if (id.empty()) {
+                ++stats.missingIds;
+            } else {
+                resultIds.insert(id);
+            }
+        }
+    }
+    for (const auto& id : callIds) {
+        if (resultIds.find(id) == resultIds.end()) ++stats.orphanToolCalls;
+    }
+    for (const auto& id : resultIds) {
+        if (callIds.find(id) == callIds.end()) ++stats.orphanToolResults;
+    }
+    return stats;
+}
+
 } // namespace
 
 std::string OpenAIModel::Format(const std::string& systemPrompt,
@@ -167,11 +214,7 @@ std::string OpenAIModel::Format(const std::string& systemPrompt,
             if (useNative && !m.toolCalls.empty()) {
                 json entry;
                 entry["role"] = "assistant";
-                if (contentFixed.empty()) {
-                    entry["content"] = nullptr;
-                } else {
-                    entry["content"] = contentFixed;
-                }
+                entry["content"] = contentFixed;
                 json arr = json::array();
                 for (const auto& tc : m.toolCalls) {
                     json j;
@@ -230,6 +273,18 @@ std::string OpenAIModel::Format(const std::string& systemPrompt,
     }
     payload["messages"] = msgs;
 
+    if (useNative) {
+        ToolPairingStats stats = ValidateToolPairing(msgs);
+        LOG(INFO) << "[OpenAIModel] Tool pairing assistantToolCalls=" << stats.assistantToolCalls
+                  << " toolResults=" << stats.toolResults
+                  << " missingIds=" << stats.missingIds
+                  << " orphanToolCalls=" << stats.orphanToolCalls
+                  << " orphanToolResults=" << stats.orphanToolResults;
+        if (stats.missingIds > 0 || stats.orphanToolCalls > 0 || stats.orphanToolResults > 0) {
+            LOG(WARN) << "[OpenAIModel] Tool pairing validation found incompatible message structure";
+        }
+    }
+
     if (useNative && !tools.empty()) {
         payload["tools"] = ToolsArrayJson(tools);
     }
@@ -239,6 +294,9 @@ std::string OpenAIModel::Format(const std::string& systemPrompt,
     // across all OpenAI-compatible vendors (vLLM / ollama / DeepSeek / ARK /
     // Together / ...).
     const auto& ep = config_.extraParams;
+    if (useNative && ep.GetPtr<bool>("parallel_tool_calls")) {
+        payload["parallel_tool_calls"] = ep.GetValue<bool>("parallel_tool_calls", true);
+    }
     if (ep.GetPtr<int>("max_tokens")) {
         payload["max_tokens"] = ep.GetValue<int>("max_tokens", 0);
     }

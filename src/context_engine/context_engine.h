@@ -47,9 +47,14 @@ private:
     std::function<void(const MemoryEvent&)> memoryEventSink_;
     mutable std::mutex memoryMutex_;
 
+    struct MessageSegment;
+
     static int EstimateTokens(const std::string& text);
     int CalculateMessageTokens(const Message& msg) const;
+    int CalculateMessagesTokens(const std::vector<Message>& messages) const;
     std::vector<Message> ApplyContextLimits(const std::vector<Message>& messages) const;
+    std::vector<MessageSegment> BuildMessageSegments(const std::vector<Message>& messages) const;
+    std::vector<Message> CompressSegment(const std::vector<Message>& messages, const MessageSegment& segment, int tokenBudget) const;
 
     std::string LoadMemoryContext() const;
 
@@ -60,10 +65,8 @@ private:
     static bool CanMerge(const Message& prev, const Message& cur);
     static std::string MergeMessageContent(const std::string& left, const std::string& right);
 
-    // Strip a trailing assistant(tool_calls) that has no matching tool
-    // response. Such "orphan tool_calls" would be rejected by OpenAI / cause
-    // models to refuse to generate, and arise when a previous run was killed
-    // mid-tool-execution.
+    static int DropUnpairedToolMessages(std::vector<Message>& msgs);
+    static int DropOrphanToolCalls(std::vector<Message>& msgs);
     static void TrimOrphanTrailingToolCalls(std::vector<Message>& msgs);
 };
 

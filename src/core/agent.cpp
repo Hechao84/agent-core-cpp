@@ -94,6 +94,15 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
             memoryConfig.provider = "http.server";
         }
         memoryRuntime_ = ResourceManager::GetInstance().CreateMemoryRuntime(memoryConfig);
+        if (memoryRuntime_) {
+            LOG(INFO) << "[MemoryRuntime] Initialized mode=" << memoryConfig.mode
+                      << " provider=" << memoryConfig.provider
+                      << " dataPath=" << memoryConfig.dataPath;
+        } else {
+            LOG(WARN) << "[MemoryRuntime] Initialization failed provider=" << memoryConfig.provider;
+        }
+    } else {
+        LOG(INFO) << "[MemoryRuntime] Disabled";
     }
 
     consolidationThread_ = std::thread(&Agent::ConsolidationLoop, this);

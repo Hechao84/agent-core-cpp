@@ -1697,9 +1697,14 @@ function renderEpTable(){
   const rows=epRows(), root=$('ag_ep_table'); if(!root)return;
   let h='<table class="kv-table"><thead><tr><th>键</th><th style="width:90px">类型</th><th>值</th><th class="col-action"></th></tr></thead><tbody>';
   rows.forEach((r,i)=>{
-    const vt=r.type==='bool'?`<input data-ev="${i}" type="checkbox" ${r.value?'checked':''} style="width:auto">`
+    const isParallelToolCalls=r.key==='parallel_tool_calls';
+    if(isParallelToolCalls)r.type='bool';
+    const vt=isParallelToolCalls?`<select data-ev="${i}"><option value="true"${r.value?' selected':''}>true</option><option value="false"${!r.value?' selected':''}>false</option></select>`
+      :r.type==='bool'?`<input data-ev="${i}" type="checkbox" ${r.value?'checked':''} style="width:auto">`
       :`<input data-ev="${i}" type="${r.type==='int'||r.type==='float'?'number':'text'}" value="${escapeHtml(String(r.value==null?'':r.value))}" step="${r.type==='float'?'any':'1'}">`;
-    h+=`<tr><td><input data-ek="${i}" type="text" value="${escapeHtml(r.key||'')}"></td><td><select data-et="${i}">${PARAM_TYPES.map(t=>`<option value="${t}"${r.type===t?' selected':''}>${t}</option>`).join('')}</select></td><td>${vt}</td><td><button type="button" class="icon-btn" data-ed="${i}">&times;</button></td></tr>`;
+    const typeSelect=isParallelToolCalls?'<select data-et="'+i+'"><option value="bool" selected>bool</option></select>'
+      :`<select data-et="${i}">${PARAM_TYPES.map(t=>`<option value="${t}"${r.type===t?' selected':''}>${t}</option>`).join('')}</select>`;
+    h+=`<tr><td><input data-ek="${i}" type="text" value="${escapeHtml(r.key||'')}"></td><td>${typeSelect}</td><td>${vt}</td><td><button type="button" class="icon-btn" data-ed="${i}">&times;</button></td></tr>`;
   });
   if(!rows.length)h+='<tr class="empty-row"><td colspan="4">暂无额外参数</td></tr>';
   h+='</tbody></table>'; root.innerHTML=h;

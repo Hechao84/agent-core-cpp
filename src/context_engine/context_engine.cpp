@@ -10,6 +10,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "src/context_engine/db_storage.h"
@@ -21,6 +22,14 @@
 namespace fs = std::filesystem;
 
 namespace jiuwen {
+
+struct ContextEngine::MessageSegment
+{
+    size_t start{0};
+    size_t end{0};
+    bool startsWithUser{false};
+    int tokens{0};
+};
 
 ContextEngine::ContextEngine(const ContextConfig& config)
     : config_(config)
@@ -110,14 +119,114 @@ bool ContextEngine::CanMerge(const Message& prev, const Message& cur)
     return true;
 }
 
+int ContextEngine::CalculateMessagesTokens(const std::vector<Message>& messages) const
+{
+    int total = 0;
+    for (const auto& message : messages) {
+        total += CalculateMessageTokens(message);
+    }
+    return total;
+}
+
+std::vector<ContextEngine::MessageSegment> ContextEngine::BuildMessageSegments(const std::vector<Message>& messages) const
+{
+    std::vector<MessageSegment> segments;
+    if (messages.empty()) return segments;
+
+    size_t start = 0;
+    for (size_t i = 1; i < messages.size(); ++i) {
+        if (messages[i].role == "user") {
+            MessageSegment segment;
+            segment.start = start;
+            segment.end = i;
+            segment.startsWithUser = messages[start].role == "user";
+            segment.tokens = CalculateMessagesTokens(std::vector<Message>(messages.begin() + start, messages.begin() + i));
+            segments.push_back(segment);
+            start = i;
+        }
+    }
+
+    MessageSegment segment;
+    segment.start = start;
+    segment.end = messages.size();
+    segment.startsWithUser = messages[start].role == "user";
+    segment.tokens = CalculateMessagesTokens(std::vector<Message>(messages.begin() + start, messages.end()));
+    segments.push_back(segment);
+    return segments;
+}
+
+std::vector<Message> ContextEngine::CompressSegment(
+    const std::vector<Message>& messages,
+    const MessageSegment& segment,
+    int tokenBudget) const
+{
+    if (segment.start >= segment.end || segment.end > messages.size() || tokenBudget <= 0) return {};
+
+    std::vector<Message> segmentMessages(messages.begin() + segment.start, messages.begin() + segment.end);
+    if (CalculateMessagesTokens(segmentMessages) <= tokenBudget &&
+        static_cast<int>(segmentMessages.size()) <= config_.maxMessages) {
+        return segmentMessages;
+    }
+
+    std::vector<Message> compressed;
+    const Message& first = segmentMessages.front();
+    if (first.role == "user") {
+        compressed.push_back(first);
+    }
+
+    std::vector<std::string> toolSummaries;
+    std::string lastAssistantText;
+    for (const auto& message : segmentMessages) {
+        if (message.role == "tool") {
+            std::string summary = "- " + (message.toolName.empty() ? "tool" : message.toolName);
+            if (!message.payloadRef.empty()) {
+                summary += " payload_ref=" + message.payloadRef;
+            }
+            if (!message.content.empty()) {
+                std::string preview = message.content.substr(0, 240);
+                if (message.content.size() > preview.size()) preview += "...";
+                summary += ": " + preview;
+            }
+            toolSummaries.push_back(summary);
+        } else if (message.role == "assistant" && message.toolCalls.empty() && !message.content.empty()) {
+            lastAssistantText = message.content;
+        }
+    }
+
+    if (!toolSummaries.empty() || !lastAssistantText.empty()) {
+        Message summary;
+        summary.role = "assistant";
+        summary.content = "Context segment compressed due to context window limits.";
+        if (!toolSummaries.empty()) {
+            summary.content += "\n\nTool results summary:";
+            int kept = 0;
+            for (const auto& item : toolSummaries) {
+                if (kept >= 8) break;
+                summary.content += "\n" + item;
+                ++kept;
+            }
+            if (static_cast<int>(toolSummaries.size()) > kept) {
+                summary.content += "\n- ...";
+            }
+        }
+        if (!lastAssistantText.empty()) {
+            std::string preview = lastAssistantText.substr(0, 800);
+            if (lastAssistantText.size() > preview.size()) preview += "...";
+            summary.content += "\n\nLatest assistant state:\n" + preview;
+        }
+        compressed.push_back(summary);
+    }
+
+    while (CalculateMessagesTokens(compressed) > tokenBudget && compressed.size() > 1) {
+        compressed.pop_back();
+    }
+    return compressed;
+}
+
 std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message>& messages) const
 {
     if (messages.empty()) return {};
 
-    // 1. Safety sanitisation: merge consecutive same-role messages where
-    // structural fields permit. This guards against duplicated user turns
-    // (e.g. a previous empty-response interrupt) without breaking the
-    // assistant(tool_calls) -> tool(result) pairing required by the API.
     std::vector<Message> sanitized;
     sanitized.reserve(messages.size());
     for (const auto& msg : messages) {
@@ -128,41 +237,78 @@ std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message
         }
     }
 
-    const std::vector<Message>& workingMessages = sanitized;
+    auto segments = BuildMessageSegments(sanitized);
+    if (segments.empty()) return {};
+
+    std::vector<std::vector<Message>> selectedReversed;
+    int totalTokens = 0;
+    int selectedSegments = 0;
+    bool compressedCurrentSegment = false;
+
+    for (int i = static_cast<int>(segments.size()) - 1; i >= 0; --i) {
+        const auto& segment = segments[i];
+        std::vector<Message> segmentMessages(sanitized.begin() + segment.start, sanitized.begin() + segment.end);
+        int segmentTokens = CalculateMessagesTokens(segmentMessages);
+        bool isLatest = i == static_cast<int>(segments.size()) - 1;
+        bool fitsMessages = static_cast<int>(segmentMessages.size()) <= config_.maxMessages;
+        bool fitsTokens = totalTokens + segmentTokens <= config_.maxContextTokens;
+        bool fits = fitsMessages && fitsTokens;
+
+        if (fits) {
+            selectedReversed.push_back(segmentMessages);
+            totalTokens += segmentTokens;
+            ++selectedSegments;
+            continue;
+        }
+
+        if (isLatest) {
+            int budget = std::max(config_.maxContextTokens - totalTokens, 1);
+            auto compressed = CompressSegment(sanitized, segment, budget);
+            if (!compressed.empty()) {
+                selectedReversed.push_back(compressed);
+                totalTokens += CalculateMessagesTokens(compressed);
+                ++selectedSegments;
+                compressedCurrentSegment = true;
+            }
+        }
+        break;
+    }
 
     std::vector<Message> result;
-    int totalTokens = 0;
+    for (auto it = selectedReversed.rbegin(); it != selectedReversed.rend(); ++it) {
+        result.insert(result.end(), it->begin(), it->end());
+    }
 
-    // 2. Trim by message count first (keep first + most recent).
-    if (static_cast<int>(workingMessages.size()) > config_.maxMessages) {
-        int messagesToKeep = config_.maxMessages;
-        result.reserve(messagesToKeep + 1);
-        result.push_back(workingMessages[0]);
-        totalTokens += CalculateMessageTokens(workingMessages[0]);
+    while (static_cast<int>(result.size()) > config_.maxMessages && result.size() > 1) {
+        result.erase(result.begin());
+    }
 
-        int startIndex = static_cast<int>(workingMessages.size()) - 1;
-        int keptCount = 0;
-        for (int i = startIndex; i > 0 && keptCount < messagesToKeep - 1; --i) {
-            int msgTokens = CalculateMessageTokens(workingMessages[i]);
-            if (totalTokens + msgTokens > config_.maxContextTokens) break;
-            result.push_back(workingMessages[i]);
-            totalTokens += msgTokens;
-            ++keptCount;
-        }
-        if (result.size() > 1) {
-            std::vector<Message> recent(result.begin() + 1, result.end());
-            std::reverse(recent.begin(), recent.end());
-            result.erase(result.begin() + 1, result.end());
-            result.insert(result.end(), recent.begin(), recent.end());
-        }
-    } else {
-        for (auto it = workingMessages.rbegin(); it != workingMessages.rend(); ++it) {
-            int msgTokens = CalculateMessageTokens(*it);
-            if (!result.empty() && (totalTokens + msgTokens > config_.maxContextTokens)) break;
-            result.insert(result.begin(), *it);
-            totalTokens += msgTokens;
+    int droppedUnpairedToolMessages = DropUnpairedToolMessages(result);
+    int assistantToolCallCount = 0;
+    int toolResultCount = 0;
+    for (const auto& msg : result) {
+        if (msg.role == "assistant") {
+            assistantToolCallCount += static_cast<int>(msg.toolCalls.size());
+        } else if (msg.role == "tool") {
+            ++toolResultCount;
         }
     }
+
+    LOG(INFO) << "[ContextWindow] sessionId=" << config_.sessionId
+              << " totalMessages=" << messages.size()
+              << " sanitizedMessages=" << sanitized.size()
+              << " totalSegments=" << segments.size()
+              << " selectedSegments=" << selectedSegments
+              << " droppedSegments=" << (segments.size() - selectedSegments)
+              << " compressedCurrentSegment=" << (compressedCurrentSegment ? "true" : "false")
+              << " droppedUnpairedToolMessages=" << droppedUnpairedToolMessages
+              << " assistantToolCalls=" << assistantToolCallCount
+              << " toolResults=" << toolResultCount
+              << " finalMessages=" << result.size()
+              << " finalTokens=" << CalculateMessagesTokens(result)
+              << " maxMessages=" << config_.maxMessages
+              << " maxContextTokens=" << config_.maxContextTokens;
+
     return result;
 }
 
@@ -239,6 +385,67 @@ std::string ContextEngine::MergeMessageContent(const std::string& left, const st
     if (left.empty()) return right;
     if (right.empty()) return left;
     return left + "\n\n" + right;
+}
+
+int ContextEngine::DropUnpairedToolMessages(std::vector<Message>& msgs)
+{
+    int dropped = 0;
+    dropped += DropOrphanToolCalls(msgs);
+
+    std::unordered_set<std::string> assistantCallIds;
+    for (const auto& msg : msgs) {
+        if (msg.role == "assistant") {
+            for (const auto& tc : msg.toolCalls) {
+                if (!tc.id.empty()) assistantCallIds.insert(tc.id);
+            }
+        }
+    }
+
+    std::vector<Message> cleaned;
+    cleaned.reserve(msgs.size());
+    for (auto msg : msgs) {
+        if (msg.role == "tool" && assistantCallIds.find(msg.toolCallId) == assistantCallIds.end()) {
+            ++dropped;
+            continue;
+        }
+        cleaned.push_back(std::move(msg));
+    }
+    msgs.swap(cleaned);
+    return dropped;
+}
+
+int ContextEngine::DropOrphanToolCalls(std::vector<Message>& msgs)
+{
+    std::unordered_set<std::string> toolResultIds;
+    for (const auto& msg : msgs) {
+        if (msg.role == "tool" && !msg.toolCallId.empty()) {
+            toolResultIds.insert(msg.toolCallId);
+        }
+    }
+
+    int dropped = 0;
+    std::vector<Message> cleaned;
+    cleaned.reserve(msgs.size());
+    for (auto msg : msgs) {
+        if (msg.role == "assistant" && !msg.toolCalls.empty()) {
+            std::vector<ToolCall> kept;
+            kept.reserve(msg.toolCalls.size());
+            for (const auto& tc : msg.toolCalls) {
+                if (!tc.id.empty() && toolResultIds.find(tc.id) != toolResultIds.end()) {
+                    kept.push_back(tc);
+                } else {
+                    ++dropped;
+                }
+            }
+            msg.toolCalls = std::move(kept);
+            if (msg.toolCalls.empty() && msg.content.empty()) {
+                continue;
+            }
+        }
+        cleaned.push_back(std::move(msg));
+    }
+    msgs.swap(cleaned);
+    return dropped;
 }
 
 void ContextEngine::TrimOrphanTrailingToolCalls(std::vector<Message>& msgs)

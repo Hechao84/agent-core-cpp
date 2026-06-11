@@ -78,6 +78,61 @@ via `ToolBuildContext`.
 - Automatic token estimation and context window management
 - Native persistence of assistant tool calls and tool response metadata
 
+### Memory Runtime
+
+`jiuwen-lite` can optionally enable a long-term memory runtime for each agent. The context engine keeps the raw
+per-session conversation history, while the memory runtime stores cross-session events, summaries, entities,
+relations, and offloaded tool payloads.
+
+When enabled, the runtime is connected automatically by `SessionManager`:
+
+```text
+ContextEngine::AddMessage
+  -> MemoryRuntime::AppendEvent
+
+AgentWorker builds prompt
+  -> ContextEngine::GetMemoryContent
+  -> MemoryRuntime::BuildContext
+  -> rendered into {$memory}
+```
+
+Supported modes:
+
+- `sdk` + `builtin.compat`: in-process runtime backed by `agent-memory-cpp` and SQLite.
+- `server` + `http.server`: HTTP sidecar runtime, configured by `serverUrl`.
+
+Default storage layout:
+
+```text
+data/memory_runtime/memory.db          # events, summaries, entities, relations, payload metadata
+data/memory_runtime/payloads/*.txt     # large offloaded tool results
+data/memory/history.jsonl              # legacy compatibility event log
+data/sessions/<session>/context/       # raw short-term context managed by ContextEngine
+```
+
+Enable it in `./data/agents.json`:
+
+```json
+{
+  "agents": [
+    {
+      "id": "demo-agent",
+      "memoryConfig": {
+        "enabled": true,
+        "mode": "sdk",
+        "provider": "builtin.compat",
+        "dataPath": "./data",
+        "enablePayloadOffload": true,
+        "offloadToolResultChars": 8000
+      }
+    }
+  ],
+  "version": 1
+}
+```
+
+For C++ integrations, set the same fields on `AgentConfig::memoryConfig` before calling `InitSessionManager()`.
+
 ### Session Manager
 
 - **Single Shared Agent** — `SessionManager` owns one live `Agent` and routes each session to its own
@@ -214,6 +269,13 @@ config.modelConfig.extraParams.Set("temperature", 0.2f);
 config.contextConfig.sessionId = kDefaultSessionId;
 config.contextConfig.storageType = ContextConfig::StorageType::JSON_FILE;
 config.contextConfig.idleConsolidationSeconds = 60;
+
+config.memoryConfig.enabled = true;
+config.memoryConfig.mode = "sdk";
+config.memoryConfig.provider = "builtin.compat";
+config.memoryConfig.dataPath = "./data";
+config.memoryConfig.enablePayloadOffload = true;
+config.memoryConfig.offloadToolResultChars = 8000;
 
 InitSessionManager(config);
 

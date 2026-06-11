@@ -18,11 +18,9 @@ constexpr int kAskUserTimeoutSec = 60;
 std::string GenerateRequestId()
 {
     static std::atomic<uint64_t> counter{0};
-    static thread_local std::mt19937_64 rng{
-        std::random_device{}() ^ static_cast<uint64_t>(
-            std::chrono::high_resolution_clock::now().time_since_epoch().count())};
     uint64_t seq = counter.fetch_add(1, std::memory_order_relaxed);
-    uint64_t rand = rng();
+    uint64_t rand = std::random_device{}() ^ static_cast<uint64_t>(
+        std::chrono::high_resolution_clock::now().time_since_epoch().count());
     std::ostringstream oss;
     oss << "ask-" << std::hex << seq << "-" << rand;
     return oss.str();

@@ -106,6 +106,13 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
             }
         }
 
+        for (auto& tc : resp.toolCalls) {
+            if (tc.id.empty()) {
+                tc.id = MakeFallbackCallId(contextEngine ? contextEngine->GetSessionId() : config_.contextConfig.sessionId);
+                LOG(WARN) << "[React] Generated missing tool_call id=" << tc.id << " tool=" << tc.name;
+            }
+        }
+
         // Terminal case: model produced no tool calls -> treat content as
         // the final answer.
         if (resp.toolCalls.empty()) {

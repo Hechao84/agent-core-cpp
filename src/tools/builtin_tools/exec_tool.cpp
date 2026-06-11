@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "src/utils/logger.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -201,12 +203,16 @@ std::string ExecTool::ExecutePosix(const std::string& command, const std::string
         fullCmd = "cd " + workingDir + " && " + command;
     }
 
-    // Add timeout wrapper
     fullCmd = "timeout " + std::to_string(timeoutSec) + "s " + fullCmd + " 2>&1";
+    LOG(INFO) << "[ExecTool] ExecutePosix begin timeout=" << timeoutSec
+              << " workingDir=" << (workingDir.empty() ? "<empty>" : workingDir)
+              << " command=" << command
+              << " fullCmd=" << fullCmd;
 
     std::string result;
     FILE* pipe = popen(fullCmd.c_str(), "r");
     if (!pipe) {
+        LOG(ERR) << "[ExecTool] popen failed fullCmd=" << fullCmd;
         return "Error: Failed to execute command";
     }
 
@@ -216,6 +222,9 @@ std::string ExecTool::ExecutePosix(const std::string& command, const std::string
     }
 
     int exitCode = pclose(pipe);
+    LOG(INFO) << "[ExecTool] ExecutePosix end exitCode=" << exitCode
+              << " outputChars=" << result.size()
+              << " output=" << result;
     if (exitCode == 124) {
         return "Error: Command timed out after " + std::to_string(timeoutSec) + " seconds";
     }

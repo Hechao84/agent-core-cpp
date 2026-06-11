@@ -224,7 +224,19 @@ SessionEntry* SessionManager::FindOrCreateEntry(const std::string& sessionId)
             MemoryContextRequest request;
             request.agentId = agentId;
             request.sessionId = sessionId;
-            return memoryRuntime->BuildContext(request).memoryText;
+            LOG(INFO) << "[MemoryRuntime] BuildContext begin agentId=" << agentId << " sessionId=" << sessionId;
+            MemoryContextPackage context = memoryRuntime->BuildContext(request);
+            LOG(INFO) << "[MemoryRuntime] BuildContext end agentId=" << agentId << " sessionId=" << sessionId
+                      << " memoryTextChars=" << context.memoryText.size()
+                      << " payloadRefs=" << context.payloadRefs.size();
+            if (!context.memoryText.empty()) {
+                LOG(INFO) << "[MemoryRuntime] BuildContext memoryText begin\n"
+                          << context.memoryText
+                          << "\n[MemoryRuntime] BuildContext memoryText end";
+            } else {
+                LOG(INFO) << "[MemoryRuntime] BuildContext memoryText empty";
+            }
+            return context.memoryText;
         });
         entry->contextEngine->SetMemoryEventSink([memoryRuntime, agentId = config_.id](const MemoryEvent& event) {
             MemoryEvent copied = event;
@@ -242,7 +254,9 @@ SessionInvokeResult SessionManager::Invoke(
     const std::string& message,
     std::function<void(const std::string&)> callback)
 {
-    LOG(INFO) << "[SessionManager] [" << sessionId << "] Invoke requested, message length: " << message.length();
+    LOG(INFO) << "[SessionManager] [" << sessionId << "] User query begin, chars=" << message.length()
+              << "\n" << message
+              << "\n[SessionManager] [" << sessionId << "] User query end";
 
     if (!initialized_) {
         return SessionInvokeResult{"[ERROR] SessionManager not initialized", false, "Not initialized", sessionId};

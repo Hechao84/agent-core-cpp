@@ -212,9 +212,8 @@ TEST(context_engine, MaxMessagesLimit)
     }
     
     auto window = engine.GetContextWindow();
-    // Should keep first message + 4 recent messages = 5 total
     TestRunner::AssertTrue(window.size() <= static_cast<size_t>(5));
-    TestRunner::AssertEq(window[0].content, std::string("Message 0")); // First message preserved
+    TestRunner::AssertEq(window.back().content, std::string("Message 9"));
 }
 
 TEST(context_engine, TokenLimitWithMessageLimit)
@@ -236,12 +235,12 @@ TEST(context_engine, TokenLimitWithMessageLimit)
     TestRunner::AssertTrue(engine.GetTokenCount() > config.maxContextTokens); // Total stored exceeds limit
 }
 
-TEST(context_engine, FirstMessageAlwaysPreserved)
+TEST(context_engine, RecentUserSegmentPreserved)
 {
     ContextConfig config;
     config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
     config.maxMessages = 3;
-    config.maxContextTokens = 50; // Very low token limit
+    config.maxContextTokens = 50;
     ContextEngine engine(config);
     engine.Initialize();
     
@@ -253,7 +252,7 @@ TEST(context_engine, FirstMessageAlwaysPreserved)
     
     auto window = engine.GetContextWindow();
     TestRunner::AssertTrue(!window.empty());
-    TestRunner::AssertEq(window[0].content, std::string("Important first message"));
+    TestRunner::AssertEq(window.back().content, std::string("Message 3"));
 }
 
 TEST(context_engine, BuildMessagesForLLM)
@@ -335,6 +334,77 @@ TEST(context_engine, BuildMessagesCorrectRoleOrder)
     TestRunner::AssertEq(messages[1].role, std::string("assistant"));
     TestRunner::AssertEq(messages[2].role, std::string("user"));
     TestRunner::AssertContains(messages[2].content, "Query");
+}
+
+TEST(context_engine, DropsOrphanToolCallsFromWindow)
+{
+    ContextConfig config;
+    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
+    config.sessionId = "test_orphan_tools";
+    config.maxContextTokens = 10000;
+    ContextEngine engine(config);
+    engine.Initialize();
+
+    Message user;
+    user.role = "user";
+    user.content = "Need data";
+    engine.AddMessage(user);
+
+    ToolCall tc;
+    tc.id = "";
+    tc.name = "web_search";
+    tc.argumentsJson = "{}";
+    Message assistant;
+    assistant.role = "assistant";
+    assistant.toolCalls.push_back(tc);
+    engine.AddMessage(assistant);
+
+    auto window = engine.GetContextWindow();
+    for (const auto& msg : window) {
+        TestRunner::AssertTrue(msg.toolCalls.empty());
+        TestRunner::AssertTrue(msg.role != "tool");
+    }
+}
+
+TEST(context_engine, KeepsPairedToolMessagesInWindow)
+{
+    ContextConfig config;
+    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
+    config.sessionId = "test_paired_tools";
+    config.maxContextTokens = 10000;
+    ContextEngine engine(config);
+    engine.Initialize();
+
+    Message user;
+    user.role = "user";
+    user.content = "Need data";
+    engine.AddMessage(user);
+
+    ToolCall tc;
+    tc.id = "call_1";
+    tc.name = "web_search";
+    tc.argumentsJson = "{}";
+    Message assistant;
+    assistant.role = "assistant";
+    assistant.toolCalls.push_back(tc);
+    engine.AddMessage(assistant);
+
+    Message tool;
+    tool.role = "tool";
+    tool.toolCallId = "call_1";
+    tool.toolName = "web_search";
+    tool.content = "result";
+    engine.AddMessage(tool);
+
+    auto window = engine.GetContextWindow();
+    bool hasToolCall = false;
+    bool hasToolResult = false;
+    for (const auto& msg : window) {
+        if (msg.role == "assistant" && !msg.toolCalls.empty()) hasToolCall = true;
+        if (msg.role == "tool" && msg.toolCallId == "call_1") hasToolResult = true;
+    }
+    TestRunner::AssertTrue(hasToolCall);
+    TestRunner::AssertTrue(hasToolResult);
 }
 
 TEST(context_engine, GetConsolidationPayload)
