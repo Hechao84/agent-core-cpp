@@ -42,7 +42,7 @@ echo "=== Building Third-Party Base Libraries ==="
 # ============================================================
 if [ ! -f "$SRC_DIR/agent-memory-cpp-src/CMakeLists.txt" ]; then
     echo "[0/3] Fetching agent-memory-cpp..."
-    clone "https://github.com/Hechao84/agent-memory-cpp.git" "main" "$SRC_DIR/agent-memory-cpp-src"
+    clone "https://github.com/Hechao84/agent-memory-cpp.git" "dev_20260611" "$SRC_DIR/agent-memory-cpp-src"
     echo "  agent-memory-cpp ready."
 else
     echo "[0/3] agent-memory-cpp already fetched, ready."
