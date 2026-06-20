@@ -172,7 +172,7 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
                     MemoryPayloadWriteResult payloadResult = memoryRuntime->WritePayload(request);
                     if (payloadResult.offloaded) {
                         tool.content = payloadResult.replacementContent;
-                        tool.payloadRef = payloadResult.payload.ref;
+                        tool.payloadRef = payloadResult.payload.uri;
                     }
                 }
             }

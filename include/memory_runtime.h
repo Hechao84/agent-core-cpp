@@ -21,14 +21,14 @@ public:
     virtual bool AppendEvent(const MemoryEvent& event) = 0;
     virtual MemoryContextPackage BuildContext(const MemoryContextRequest& request) = 0;
     virtual MemoryPayloadWriteResult WritePayload(const MemoryPayloadWriteRequest& request) = 0;
-    virtual std::string ReadPayload(const std::string& ref) = 0;
+    virtual std::string ReadPayload(const std::string& uri) = 0;
     virtual bool Consolidate(const MemoryConsolidationRequest& request) = 0;
     virtual bool Consolidate(const MemoryConsolidationRequest& request, Model* model)
     {
         (void)model;
         return Consolidate(request);
     }
-    virtual std::vector<MemorySearchResult> SearchMemory(const MemorySearchRequest& request) = 0;
+    virtual std::vector<MemorySearchHit> SearchMemory(const MemorySearchRequest& request) = 0;
     virtual MemoryStats GetStats() const = 0;
 
     MemoryConfig GetConfig() const { return config_; }

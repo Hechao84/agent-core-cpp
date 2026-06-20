@@ -30,13 +30,15 @@ vcpkg_installed/
 *.exe
 
 # Sensitive Data & Local Config
-opencode.json
 model_config.local.json
 *.db
 
 # Log Files & AI Assistant Docs
 *.log
+CLAUDE.md
 AGENTS.md
+.claude
+.opencode
 !examples/jiuwenClaw/templates/AGENTS.md
 CLANG.md
 TODO.md

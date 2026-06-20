@@ -142,7 +142,6 @@ add_library(agent_framework SHARED
     src/memory/builtin_memory_runtime.cpp
     src/memory/http_memory_runtime.cpp
     src/memory/long_term_consolidator.cpp
-    src/memory/memory_sqlite_store.cpp
     src/tools/builtin_tools/memory_read_payload_tool.cpp
     src/workers/agent_worker_factory.cpp
     src/workers/react_worker.cpp
@@ -304,43 +303,6 @@ target_link_libraries(jiuwenClaw PRIVATE
     jiuwenClaw_feishu_adapter
     nlohmann_json::nlohmann_json
 )
-
-add_executable(memory-server
-    src/memory_server/main.cpp
-)
-add_executable(memory-mcp-server
-    src/memory_server/mcp_main.cpp
-)
-target_include_directories(memory-server PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${AGENT_MEMORY_CPP_DIR}/include
-    ${TRIRD_PARTY_INCLUDE_DIR}
-)
-target_include_directories(memory-mcp-server PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${AGENT_MEMORY_CPP_DIR}/include
-    ${TRIRD_PARTY_INCLUDE_DIR}
-)
-target_link_libraries(memory-server PRIVATE
-    agent_framework
-    httplib
-    nlohmann_json::nlohmann_json
-)
-target_link_libraries(memory-mcp-server PRIVATE
-    agent_framework
-    nlohmann_json::nlohmann_json
-)
-if(WIN32)
-    target_link_libraries(memory-server PRIVATE ws2_32 crypt32)
-    target_link_libraries(memory-mcp-server PRIVATE ws2_32 crypt32)
-endif()
-if(OpenSSL_FOUND)
-    target_link_libraries(memory-server PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-endif()
 
 # ============================================================
 # Test Targets

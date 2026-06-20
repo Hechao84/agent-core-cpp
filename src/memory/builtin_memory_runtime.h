@@ -21,10 +21,10 @@ public:
     bool AppendEvent(const MemoryEvent& event) override;
     MemoryContextPackage BuildContext(const MemoryContextRequest& request) override;
     MemoryPayloadWriteResult WritePayload(const MemoryPayloadWriteRequest& request) override;
-    std::string ReadPayload(const std::string& ref) override;
+    std::string ReadPayload(const std::string& uri) override;
     bool Consolidate(const MemoryConsolidationRequest& request) override;
     bool Consolidate(const MemoryConsolidationRequest& request, Model* model) override;
-    std::vector<MemorySearchResult> SearchMemory(const MemorySearchRequest& request) override;
+    std::vector<MemorySearchHit> SearchMemory(const MemorySearchRequest& request) override;
     MemoryStats GetStats() const override;
 
 private:

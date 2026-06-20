@@ -96,7 +96,7 @@ if [ ! -f "$LIBS_DIR/libsqlite3.so" ]; then
     # Compile as shared library
     if [ -f "$SRC_DIR/sqlite3-src/sqlite3.c" ]; then
         echo "  Compiling libsqlite3.so with $NPROC threads..."
-        gcc -shared -fPIC -O2 -o "$LIBS_DIR/libsqlite3.so" \
+        gcc -shared -fPIC -O2 -DSQLITE_ENABLE_FTS5 -o "$LIBS_DIR/libsqlite3.so" \
             "$SRC_DIR/sqlite3-src/sqlite3.c" -I"$SRC_DIR/sqlite3-src" -ldl -lpthread
         cp -f "$SRC_DIR/sqlite3-src/sqlite3.h" "$INCLUDE_DIR/"
         echo "  sqlite3 ready."

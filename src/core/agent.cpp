@@ -334,7 +334,7 @@ void Agent::ConsolidationLoop()
             if (memoryRuntime_) {
                 MemoryConsolidationRequest request;
                 request.agentId = config_.id;
-                request.force = false;
+                request.forceReprocess = false;
                 auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
                 handledByMemoryRuntime = memoryRuntime_->Consolidate(request, model.get());
                 if (handledByMemoryRuntime) {

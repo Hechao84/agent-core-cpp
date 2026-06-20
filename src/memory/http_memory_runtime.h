@@ -1,14 +1,9 @@
 #pragma once
 
-#include <memory>
 #include <string>
 #include <vector>
 
 #include "include/memory_runtime.h"
-
-namespace agent_memory {
-class HttpMemoryRuntime;
-}
 
 namespace jiuwen {
 
@@ -21,13 +16,30 @@ public:
     bool AppendEvent(const MemoryEvent& event) override;
     MemoryContextPackage BuildContext(const MemoryContextRequest& request) override;
     MemoryPayloadWriteResult WritePayload(const MemoryPayloadWriteRequest& request) override;
-    std::string ReadPayload(const std::string& ref) override;
+    std::string ReadPayload(const std::string& uri) override;
     bool Consolidate(const MemoryConsolidationRequest& request) override;
-    std::vector<MemorySearchResult> SearchMemory(const MemorySearchRequest& request) override;
+    bool Consolidate(const MemoryConsolidationRequest& request, Model* model) override;
+    std::vector<MemorySearchHit> SearchMemory(const MemorySearchRequest& request) override;
     MemoryStats GetStats() const override;
 
 private:
-    std::unique_ptr<agent_memory::HttpMemoryRuntime> impl_;
+    std::string serverUrl_;
+    std::string apiKey_;
+    int timeoutSeconds_;
+
+    struct HttpResponse { long status; std::string body; };
+    HttpResponse HttpPost(const std::string& path, const std::string& jsonBody) const;
+    HttpResponse HttpGet(const std::string& path) const;
+
+    nlohmann::json SerializeEvent(const MemoryEvent& event) const;
+    nlohmann::json SerializeContextRequest(const MemoryContextRequest& request) const;
+    nlohmann::json SerializePayloadWriteRequest(const MemoryPayloadWriteRequest& request) const;
+    nlohmann::json SerializeConsolidationRequest(const MemoryConsolidationRequest& request) const;
+    nlohmann::json SerializeSearchRequest(const MemorySearchRequest& request) const;
+    MemoryContextPackage DeserializeContextPackage(const nlohmann::json& j) const;
+    MemoryPayloadWriteResult DeserializePayloadWriteResult(const nlohmann::json& j) const;
+    std::vector<MemorySearchHit> DeserializeSearchHits(const nlohmann::json& j) const;
+    MemoryStats DeserializeStats(const nlohmann::json& j) const;
 };
 
 } // namespace jiuwen

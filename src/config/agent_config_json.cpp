@@ -242,19 +242,18 @@ static void MergeMemoryConfig(const nlohmann::json& j, MemoryConfig& out)
     if (j.contains("serverApiKey"))           out.serverApiKey           = j["serverApiKey"].get<std::string>();
     if (j.contains("serverTimeoutSeconds"))   out.serverTimeoutSeconds   = j["serverTimeoutSeconds"].get<int>();
     if (j.contains("tokenBudget"))            out.tokenBudget            = j["tokenBudget"].get<int>();
-    if (j.contains("hotMessages"))            out.hotMessages            = j["hotMessages"].get<int>();
-    if (j.contains("compressAfterTokens"))    out.compressAfterTokens    = j["compressAfterTokens"].get<int>();
     if (j.contains("offloadToolResultChars")) out.offloadToolResultChars = j["offloadToolResultChars"].get<int>();
     if (j.contains("enablePayloadOffload"))   out.enablePayloadOffload   = j["enablePayloadOffload"].get<bool>();
-    if (j.contains("enableShortTermCompression")) {
-        out.enableShortTermCompression = j["enableShortTermCompression"].get<bool>();
-    }
-    if (j.contains("enableHierarchicalSummary")) {
-        out.enableHierarchicalSummary = j["enableHierarchicalSummary"].get<bool>();
-    }
-    if (j.contains("enableEntityGraph")) {
-        out.enableEntityGraph = j["enableEntityGraph"].get<bool>();
-    }
+    if (j.contains("modelEnabled"))           out.modelEnabled           = j["modelEnabled"].get<bool>();
+    if (j.contains("modelFormatType"))        out.modelFormatType        = j["modelFormatType"].get<std::string>();
+    if (j.contains("modelBaseUrl"))           out.modelBaseUrl           = j["modelBaseUrl"].get<std::string>();
+    if (j.contains("modelApiKey"))            out.modelApiKey            = j["modelApiKey"].get<std::string>();
+    if (j.contains("modelName"))              out.modelName              = j["modelName"].get<std::string>();
+    if (j.contains("modelOrganization"))      out.modelOrganization      = j["modelOrganization"].get<std::string>();
+    if (j.contains("modelAnthropicVersion"))  out.modelAnthropicVersion  = j["modelAnthropicVersion"].get<std::string>();
+    if (j.contains("modelTimeoutSeconds"))    out.modelTimeoutSeconds    = j["modelTimeoutSeconds"].get<int>();
+    if (j.contains("modelTemperature"))       out.modelTemperature       = j["modelTemperature"].get<double>();
+    if (j.contains("modelMaxTokens"))         out.modelMaxTokens         = j["modelMaxTokens"].get<int>();
     if (j.contains("extraParams") && j["extraParams"].is_object()) {
         out.extraParams = ConfigNode{};
         ConfigNodeFromJson(j["extraParams"], out.extraParams);
@@ -272,13 +271,18 @@ static nlohmann::json MemoryConfigToJson(const MemoryConfig& cfg)
     j["serverApiKey"]               = cfg.serverApiKey;
     j["serverTimeoutSeconds"]       = cfg.serverTimeoutSeconds;
     j["tokenBudget"]                = cfg.tokenBudget;
-    j["hotMessages"]                = cfg.hotMessages;
-    j["compressAfterTokens"]        = cfg.compressAfterTokens;
     j["offloadToolResultChars"]     = cfg.offloadToolResultChars;
     j["enablePayloadOffload"]       = cfg.enablePayloadOffload;
-    j["enableShortTermCompression"] = cfg.enableShortTermCompression;
-    j["enableHierarchicalSummary"]  = cfg.enableHierarchicalSummary;
-    j["enableEntityGraph"]          = cfg.enableEntityGraph;
+    j["modelEnabled"]               = cfg.modelEnabled;
+    j["modelFormatType"]            = cfg.modelFormatType;
+    j["modelBaseUrl"]               = cfg.modelBaseUrl;
+    j["modelApiKey"]                = cfg.modelApiKey;
+    j["modelName"]                  = cfg.modelName;
+    j["modelOrganization"]          = cfg.modelOrganization;
+    j["modelAnthropicVersion"]      = cfg.modelAnthropicVersion;
+    j["modelTimeoutSeconds"]        = cfg.modelTimeoutSeconds;
+    j["modelTemperature"]           = cfg.modelTemperature;
+    j["modelMaxTokens"]             = cfg.modelMaxTokens;
     j["extraParams"]                = ConfigNodeToJson(cfg.extraParams);
     return j;
 }
