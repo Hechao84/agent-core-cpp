@@ -19,16 +19,26 @@ TEST(agent_worker_factory, CreatesPlanExecuteWorker)
 {
     AgentConfig config;
     config.mode = AgentWorkMode::PLAN_AND_EXECUTE;
-    auto worker = CreateAgentWorker(config);
-    TestRunner::AssertTrue(worker != nullptr);
+    bool threw = false;
+    try {
+        auto worker = CreateAgentWorker(config);
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    TestRunner::AssertTrue(threw, "PLAN_AND_EXECUTE not implemented, should throw");
 }
 
 TEST(agent_worker_factory, CreatesWorkflowWorker)
 {
     AgentConfig config;
     config.mode = AgentWorkMode::WORKFLOW;
-    auto worker = CreateAgentWorker(config);
-    TestRunner::AssertTrue(worker != nullptr);
+    bool threw = false;
+    try {
+        auto worker = CreateAgentWorker(config);
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    TestRunner::AssertTrue(threw, "WORKFLOW not implemented, should throw");
 }
 
 TEST(agent_worker_factory, UnknownModeThrows)

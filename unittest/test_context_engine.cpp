@@ -471,3 +471,91 @@ TEST(context_engine, AddMessageEmitsMemoryEvent)
     TestRunner::AssertEq(captured.toolName, std::string("grep"));
     TestRunner::AssertEq(captured.payloadRef, std::string("file://payload"));
 }
+
+TEST(context_engine, JsonFileRoundTripWithToolCalls)
+{
+    std::string testDir = "test_tmp_ctx_persist";
+    if (fs::exists(testDir)) fs::remove_all(testDir);
+    fs::create_directories(testDir);
+
+    ContextConfig cfg;
+    cfg.sessionId = "sess-x";
+    cfg.storagePath = testDir;
+    cfg.storageType = ContextConfig::StorageType::JSON_FILE;
+    cfg.maxContextTokens = 1024 * 10;
+    cfg.maxMessages = 100;
+
+    {
+        ContextEngine ce(cfg);
+        TestRunner::AssertTrue(ce.Initialize(), "init");
+
+        Message u; u.role = "user"; u.content = "hi";
+        ce.AddMessage(u);
+
+        Message a; a.role = "assistant"; a.content = "thinking...";
+        ToolCall tc; tc.id = "call_1"; tc.name = "echo"; tc.argumentsJson = "{\"x\":1}";
+        a.toolCalls.push_back(tc);
+        ce.AddMessage(a);
+
+        Message t; t.role = "tool"; t.toolCallId = "call_1"; t.toolName = "echo"; t.content = "the result";
+        ce.AddMessage(t);
+
+        Message a2; a2.role = "assistant"; a2.content = "final answer";
+        ce.AddMessage(a2);
+    }
+
+    {
+        ContextEngine ce(cfg);
+        TestRunner::AssertTrue(ce.Initialize(), "reload init");
+        auto msgs = ce.GetAllMessages();
+        TestRunner::AssertEq(msgs.size(), size_t(4), "reload yields 4 messages");
+        TestRunner::AssertEq(msgs[0].role, std::string("user"));
+        TestRunner::AssertEq(msgs[0].content, std::string("hi"));
+        TestRunner::AssertEq(msgs[1].role, std::string("assistant"));
+        TestRunner::AssertEq(msgs[1].toolCalls.size(), size_t(1), "assistant tool_calls preserved");
+        TestRunner::AssertEq(msgs[1].toolCalls[0].id, std::string("call_1"));
+        TestRunner::AssertEq(msgs[1].toolCalls[0].name, std::string("echo"));
+        TestRunner::AssertContains(msgs[1].toolCalls[0].argumentsJson, "\"x\":1");
+        TestRunner::AssertEq(msgs[1].content, std::string("thinking..."));
+        TestRunner::AssertEq(msgs[2].role, std::string("tool"));
+        TestRunner::AssertEq(msgs[2].toolCallId, std::string("call_1"));
+        TestRunner::AssertEq(msgs[2].content, std::string("the result"));
+        TestRunner::AssertEq(msgs[3].role, std::string("assistant"));
+        TestRunner::AssertEq(msgs[3].content, std::string("final answer"));
+    }
+
+    fs::remove_all(testDir);
+}
+
+TEST(context_engine, OrphanTrailingAssistantTrimmedOnReload)
+{
+    std::string testDir = "test_tmp_ctx_orphan";
+    if (fs::exists(testDir)) fs::remove_all(testDir);
+    fs::create_directories(testDir);
+
+    ContextConfig cfg;
+    cfg.sessionId = "sess-orphan";
+    cfg.storagePath = testDir;
+    cfg.storageType = ContextConfig::StorageType::JSON_FILE;
+    cfg.maxContextTokens = 1024 * 10;
+    cfg.maxMessages = 100;
+
+    {
+        ContextEngine ce(cfg);
+        TestRunner::AssertTrue(ce.Initialize(), "orphan init");
+        Message u; u.role = "user"; u.content = "do it";
+        ce.AddMessage(u);
+        Message a; a.role = "assistant"; a.content = "";
+        ToolCall tc; tc.id = "call_orphan"; tc.name = "noop"; tc.argumentsJson = "{}";
+        a.toolCalls.push_back(tc);
+        ce.AddMessage(a);
+    }
+
+    ContextEngine ce(cfg);
+    TestRunner::AssertTrue(ce.Initialize(), "orphan reload");
+    auto msgs = ce.GetAllMessages();
+    TestRunner::AssertEq(msgs.size(), size_t(1), "orphan trailing assistant trimmed -> 1 message");
+    TestRunner::AssertEq(msgs[0].role, std::string("user"), "only user remains");
+
+    fs::remove_all(testDir);
+}

@@ -23,18 +23,22 @@ class TestTool : public Tool {public:
 // Dummy model for ResourceManager tests
 class TestModel : public Model {
 public:
-    TestModel(ModelConfig config) : Model(std::move(config)){} std::string Format(const std::string& systemPrompt, const std::vector<Message>& messages) override
+    TestModel(ModelConfig config) : Model(std::move(config)){}
+    std::string Format(const std::string& systemPrompt,
+                       const std::vector<Message>& messages,
+                       const std::vector<ToolSchema>&) override
     {
         return "formatted:" + systemPrompt;
     }
-    std::string Invoke(const std::string& formattedInput, std::function<void(const std::string&)> onChunk) override
+    ModelResponse Invoke(const std::string& formattedInput,
+                         std::function<void(const std::string&)> onChunk) override
     {
         if (onChunk) onChunk("chunk");
-        return "model_response";
-    }
-    ModelResponse ParseResponse(const std::string& rawResponse) override
-    {
-        return {rawResponse, true, "stop"};
+        ModelResponse resp;
+        resp.content = "model_response";
+        resp.isFinished = true;
+        resp.finishReason = "stop";
+        return resp;
     }
 };
 
@@ -75,13 +79,11 @@ TEST(resource_manager, CreateToolMissingThrows)
 TEST(resource_manager, RegisterAndCreateModel)
 {
     auto& rm = ResourceManager::GetInstance();
-    rm.RegisterModel(ModelFormatType::DEEPSEEK, [](const ModelConfig& cfg)
-    {
-        return std::make_unique<TestModel>(cfg);
-    });
-    TestRunner::AssertTrue(rm.HasModel(ModelFormatType::DEEPSEEK));
+    TestRunner::AssertTrue(rm.HasModel(ModelFormatType::OPENAI));
     ModelConfig cfg;
-    cfg.formatType = ModelFormatType::DEEPSEEK;
+    cfg.formatType = ModelFormatType::OPENAI;
+    cfg.baseUrl = "http://localhost:0";
+    cfg.apiKey = "test";
     auto model = rm.CreateModel(cfg);
     TestRunner::AssertTrue(model != nullptr);
 }

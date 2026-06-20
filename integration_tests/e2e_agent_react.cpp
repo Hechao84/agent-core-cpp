@@ -5,15 +5,11 @@
 #include "include/resource_manager.h"
 #ifdef _WIN32
 #include <windows.h>
-#else
-    // Linux/Unix specific alternatives if needed, or simply exclude logic
 #endif
 
 #ifdef _WIN32
 #endif
 
-// Helper function to convert local encoding to UTF-8 (Input for Agent)
-// Crucial for Windows console Chinese input support
 std::string LocalToUTF8(const std::string& str)
 {
 #ifdef _WIN32
@@ -36,7 +32,7 @@ void RunTestQuery(Agent& agent, const std::string& query)
     std::cout << "\n========================================\n"
               << "[TEST] Query: " << query << "\n"
               << "========================================" << std::endl;
-              
+
     std::string utf8Query = LocalToUTF8(query);
 
     agent.Invoke(utf8Query, [](const std::string& resp)
@@ -56,33 +52,28 @@ void RunTestQuery(Agent& agent, const std::string& query)
 
 int main()
 {
-    std::cout << "=== Running Testcases for Builtin Tools & Skills ===\n" << std::flush;
-    std::cout << "[INFO] Checking Skills directory: ./my_skills\n" << std::flush;
+    std::cout << "=== E2E Test: Agent ReAct Loop with Builtin Tools ===\n" << std::flush;
+    std::cout << "[INFO] Requires valid model API key and network access.\n" << std::flush;
 
-    // 2. Configuration
     AgentConfig config;
     config.id = "test-agent";
     config.name = "Test Agent";
     config.mode = AgentWorkMode::REACT;
     config.maxIterations = 5;
 
-    // Model Config
     config.modelConfig.baseUrl = "<your base url>";
     config.modelConfig.apiKey = "<your api key>";
     config.modelConfig.modelName = "<your model name>";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
     config.modelConfig.extraParams.Set("max_tokens", 4096);
 
-    // Context Config
     config.contextConfig.sessionId = "test_session";
     config.contextConfig.storageType = ContextConfig::StorageType::JSON_FILE;
     config.contextConfig.storagePath = "./data/context_test_builtin";
-    
-    // Skill Config
+
     config.skillDirectory = "./my_skills";
 
-    // Prompt Template
-    config.promptTemplates["react_system"] = 
+    config.promptTemplates["react_system"] =
         R"(You are a helpful assistant with access to tools and skills.
 Skills:
 {skills}
@@ -93,11 +84,9 @@ Context:
 Question: {query}
 You must reply in the same language as the user's query.)";
 
-    // 3. Initialize Agent
     Agent agent(config);
     agent.AddTools({"time_info", "web_search", "web_fetcher"});
 
-    // 4. Run Testcases
     RunTestQuery(agent, "What is the current time?");
     RunTestQuery(agent, "Can you search for 'NVIDIA RTX 5090 specs'?");
     RunTestQuery(agent, "Fetch the content of https://httpbin.org/get");

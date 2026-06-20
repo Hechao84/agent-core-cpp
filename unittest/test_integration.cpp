@@ -31,7 +31,7 @@ TEST(integration, RegisterAndExecuteBuiltinTools)
         "time_info", "web_search", "web_fetcher",
         "read_file", "write_file", "edit_file",
         "list_dir", "glob", "grep",
-        "exec", "notebook_edit", "file_state"
+        "exec", "file_state"
     };
 
     for (const auto& toolName : expectedTools) {
@@ -132,13 +132,13 @@ TEST(integration, AgentCreateAndCancel)
 {
     AgentConfig config;
     config.id = "test_agent";
-    config.mode = AgentWorkMode::PLAN_AND_EXECUTE; // Use P&E to avoid model calls
+    config.mode = AgentWorkMode::REACT;
     config.maxIterations = 1;
     config.modelConfig.baseUrl = "http://localhost:0";
     config.modelConfig.apiKey = "test";
     config.modelConfig.modelName = "test";
     config.modelConfig.formatType = ModelFormatType::OPENAI;
-    config.promptTemplates["plan_system"] = "Plan: {query}";
+    config.promptTemplates["react_system"] = PromptResource{PromptResourceType::TEXT, "React: {query}"};
     config.contextConfig.storageType = ContextConfig::StorageType::MEMORY_ONLY;
     config.contextConfig.sessionId = "agent_integration_test";
 

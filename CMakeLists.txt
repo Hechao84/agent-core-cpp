@@ -304,6 +304,25 @@ target_link_libraries(jiuwenClaw PRIVATE
     nlohmann_json::nlohmann_json
 )
 
+# --- jiuwenClaw unit tests ---
+add_executable(jiuwenClaw_tests
+    unittest/main.cpp
+    examples/jiuwenClaw/tests/test_notebook_edit_tool.cpp
+    examples/jiuwenClaw/tools/notebook_edit_tool.cpp
+)
+target_include_directories(jiuwenClaw_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/unittest
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/jiuwenClaw/tools
+    ${TRIRD_PARTY_INCLUDE_DIR}
+)
+target_link_libraries(jiuwenClaw_tests PRIVATE
+    agent_framework
+    nlohmann_json::nlohmann_json
+)
+
 # ============================================================
 # Test Targets
 # ============================================================
@@ -314,6 +333,16 @@ add_executable(unittest
     unittest/test_context_engine.cpp
     unittest/test_agent_config.cpp
     unittest/test_memory_runtime.cpp
+    unittest/test_resource_manager.cpp
+    unittest/test_agent_factory.cpp
+    unittest/test_tool_selector.cpp
+    unittest/test_file_tools.cpp
+    unittest/test_search_tools.cpp
+    unittest/test_misc_tools.cpp
+    unittest/test_integration.cpp
+    unittest/test_openai_format.cpp
+    unittest/test_anthropic_format.cpp
+    unittest/test_session_tools.cpp
 )
 target_include_directories(unittest PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 

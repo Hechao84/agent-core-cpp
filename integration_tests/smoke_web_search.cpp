@@ -1,4 +1,4 @@
-// Smoke test for the rewritten WebSearchTool. Requires outbound HTTPS access.
+
 #include <iostream>
 #include <string>
 #include "include/resource_manager.h"
