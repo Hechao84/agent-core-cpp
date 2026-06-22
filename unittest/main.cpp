@@ -40,7 +40,6 @@ int main()
     fs::create_directories("./data/memory");
     fs::create_directories("./data/sessions");
     fs::create_directories("./data/cron");
-    fs::create_directories("./data/context");
 
     // Clean up any leftover temp dirs from previous runs
     CleanupTempDirs();
