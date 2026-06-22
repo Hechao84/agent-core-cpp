@@ -86,23 +86,29 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
     longTermConsolidator_ = std::make_unique<LegacyDreamConsolidator>(config_.dreamConfig);
 
     if (config_.memoryConfig.enabled) {
-        MemoryConfig memoryConfig = config_.memoryConfig;
-        if (memoryConfig.dataPath.empty()) {
-            memoryConfig.dataPath = dataPath;
-        }
-        if (memoryConfig.mode == "server") {
-            memoryConfig.provider = "http.server";
-        }
-        memoryRuntime_ = ResourceManager::GetInstance().CreateMemoryRuntime(memoryConfig);
-        if (memoryRuntime_) {
-            LOG(INFO) << "[MemoryRuntime] Initialized mode=" << memoryConfig.mode
-                      << " provider=" << memoryConfig.provider
-                      << " dataPath=" << memoryConfig.dataPath;
-        } else {
-            LOG(WARN) << "[MemoryRuntime] Initialization failed provider=" << memoryConfig.provider;
+        try {
+            MemoryConfig memoryConfig = config_.memoryConfig;
+            if (memoryConfig.dataPath.empty()) {
+                memoryConfig.dataPath = dataPath;
+            }
+            if (memoryConfig.mode == "server") {
+                memoryConfig.provider = "http.server";
+            }
+            memoryRuntime_ = ResourceManager::GetInstance().CreateMemoryRuntime(memoryConfig);
+            if (memoryRuntime_) {
+                LOG(INFO) << "[MemoryRuntime] Initialized mode=" << memoryConfig.mode
+                          << " provider=" << memoryConfig.provider
+                          << " dataPath=" << memoryConfig.dataPath;
+            } else {
+                LOG(WARN) << "[MemoryRuntime] Initialization returned null, falling back to legacy memory";
+            }
+        } catch (const std::exception& e) {
+            LOG(WARN) << "[MemoryRuntime] Initialization failed: " << e.what()
+                      << ", falling back to legacy memory system";
+            memoryRuntime_.reset();
         }
     } else {
-        LOG(INFO) << "[MemoryRuntime] Disabled";
+        LOG(INFO) << "[MemoryRuntime] Disabled (using legacy memory system)";
     }
 
     consolidationThread_ = std::thread(&Agent::ConsolidationLoop, this);

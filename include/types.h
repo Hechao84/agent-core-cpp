@@ -195,7 +195,7 @@ struct DreamConfig
 
 struct MemoryConfig
 {
-    bool enabled{false};
+    bool enabled{true};
     std::string mode{"sdk"};
     std::string provider{"builtin.compat"};
     std::string dataPath;

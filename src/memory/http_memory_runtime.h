@@ -5,6 +5,8 @@
 
 #include "include/memory_runtime.h"
 
+#include <nlohmann/json.hpp>
+
 namespace jiuwen {
 
 class HttpMemoryRuntime : public MemoryRuntime
