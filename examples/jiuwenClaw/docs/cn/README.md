@@ -2,7 +2,7 @@
 
 `jiuwenClaw` 是基于 **jiuwen-lite** 框架构建的参考应用。它展示了如何将 `SessionManager`、`Agent`、`ResourceManager`、工具、MCP server、提示词模板、可热重载配置以及传输适配器组合成一个完整的智能体应用。
 
-> 关于核心框架的整体介绍，请参阅[顶层 README](../../../../doc/cn/README.md)。
+> 关于核心框架的整体介绍，请参阅[顶层 README](../../../../docs/cn/README.md)。
 
 ## 特性
 
@@ -57,7 +57,7 @@ examples/jiuwenClaw/
 ├── utils/                            # 编码、日志、数据目录、字符串辅助函数
 ├── templates/                        # 提示词模板
 ├── web/                              # 内置 Web UI
-└── doc/
+└── docs/
     ├── en/
     └── cn/
 ```
@@ -74,7 +74,7 @@ examples/jiuwenClaw/
 build_windows.bat
 ```
 
-构建产物输出到 `dist/<platform>/`。环境依赖与 vcpkg 说明请参阅[顶层 README](../../../../doc/cn/README.md)。
+构建产物输出到 `dist/<platform>/`。环境依赖与 vcpkg 说明请参阅[顶层 README](../../../../docs/cn/README.md)。
 
 ### 运行 CLI
 
@@ -302,11 +302,11 @@ OpenAI 兼容后端可直接使用内置 `OpenAIModel`。`max_tokens`、`tempera
 ## 文档
 
 - 本文件
-- [框架 README](../../../../doc/cn/README.md)
+- [框架 README](../../../../docs/cn/README.md)
 
 ## 快速链接
 
-- [框架 README](../../../../doc/cn/README.md)
+- [框架 README](../../../../docs/cn/README.md)
 - [发布说明](../../../../release_notes/)
 
 ## 许可证

@@ -217,7 +217,7 @@ if (!result.success) {
 }
 ```
 
-如需完整应用示例（CLI、HTTP server、Web UI、飞书机器人、通道管理、MCP 管理、心跳与定时任务），请查看 [`examples/jiuwenClaw/`](../../examples/jiuwenClaw/doc/cn/README.md)。
+如需完整应用示例（CLI、HTTP server、Web UI、飞书机器人、通道管理、MCP 管理、心跳与定时任务），请查看 [`examples/jiuwenClaw/`](../../examples/jiuwenClaw/docs/cn/README.md)。
 
 ## 测试
 
@@ -256,7 +256,7 @@ jiuwen-lite/
 │   └── utils/                # 日志、编码、提示词工具、工具解析
 ├── examples/
 │   └── jiuwenClaw/           # 参考应用
-├── doc/                      # 文档
+├── docs/                     # 文档
 │   ├── en/
 │   └── cn/
 ├── release_notes/            # 发布说明
@@ -268,7 +268,7 @@ jiuwen-lite/
 ## 文档
 
 - 本文件
-- [`examples/jiuwenClaw/doc/cn/README.md`](../../examples/jiuwenClaw/doc/cn/README.md)
+- [`examples/jiuwenClaw/docs/cn/README.md`](../../examples/jiuwenClaw/docs/cn/README.md)
 
 ## 许可证
 

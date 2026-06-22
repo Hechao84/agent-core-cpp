@@ -60,7 +60,7 @@ examples/jiuwenClaw/
 ├── utils/                            # Encoding, logging, data-dir, string helpers
 ├── templates/                        # Prompt templates
 ├── web/                              # Built-in Web UI
-└── doc/
+└── docs/
     ├── en/
     └── cn/
 ```

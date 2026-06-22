@@ -332,7 +332,7 @@ jiuwen-lite/
 │   └── utils/                # Logging, encoding, prompt utilities, tool parsing
 ├── examples/
 │   └── jiuwenClaw/           # Reference application
-├── doc/                      # Documentation
+├── docs/                     # Documentation
 │   ├── en/
 │   └── cn/
 ├── release_notes/            # Release notes
