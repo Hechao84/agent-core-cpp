@@ -22,8 +22,21 @@ struct MemoryConfig
 
     int tokenBudget{4096};
     int offloadToolResultChars{8000};
-    bool enablePayloadOffload{false};
+    // When true, tool results at or above offloadToolResultChars are written to
+    // a payload file and replaced in context by a short summary plus a payload
+    // reference, which the model can re-read on demand via the
+    // memory_read_payload tool. This saves context tokens for large outputs.
+    // Requires the memory_read_payload tool to be available in the session so
+    // the offloaded content remains reachable.
+    bool enablePayloadOffload{true};
 
+    // Runtime-owned (built-in) model for memory consolidation.
+    // - false (default): the runtime does NOT load its own model. LLM-backed
+    //   consolidation still happens because the host (Agent::ConsolidationLoop)
+    //   injects its own model via MemoryModelClient on each Consolidate call.
+    // - true: the runtime additionally loads the model described by the
+    //   model* fields below as its own internal client. Only set this when you
+    //   want the runtime to own a separate model independent of the host.
     bool modelEnabled{false};
     std::string modelFormatType{"openai"};
     std::string modelBaseUrl;
