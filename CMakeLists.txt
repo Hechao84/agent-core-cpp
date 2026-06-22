@@ -112,15 +112,20 @@ if(EXISTS "${TRIRD_PARTY_INCLUDE_DIR}/httplib.h")
 endif()
 
 # ============================================================
-# 5. Standalone agent memory runtime
+# 5. Standalone agent memory runtime (optional)
 # ============================================================
+option(ENABLE_MEMORY_BUILTIN "Build builtin memory runtime (requires agent-memory-cpp)" ON)
+
 set(AGENT_MEMORY_CPP_DIR "${TRIRD_PARTY_SRC_DIR}/agent-memory-cpp-src" CACHE PATH "Path to agent-memory-cpp repository")
-if(EXISTS "${AGENT_MEMORY_CPP_DIR}/CMakeLists.txt")
+if(ENABLE_MEMORY_BUILTIN AND EXISTS "${AGENT_MEMORY_CPP_DIR}/CMakeLists.txt")
     set(AGENT_MEMORY_BUILD_TOOLS OFF CACHE BOOL "Build agent-memory-cpp tools" FORCE)
     set(AGENT_MEMORY_BUILD_TESTS OFF CACHE BOOL "Build agent-memory-cpp tests" FORCE)
     add_subdirectory("${AGENT_MEMORY_CPP_DIR}" "${CMAKE_BINARY_DIR}/agent-memory-cpp")
+    message(STATUS "Builtin memory runtime enabled (agent-memory-cpp)")
+elseif(ENABLE_MEMORY_BUILTIN)
+    message(FATAL_ERROR "ENABLE_MEMORY_BUILTIN=ON but agent-memory-cpp not found: ${AGENT_MEMORY_CPP_DIR}")
 else()
-    message(FATAL_ERROR "agent-memory-cpp not found: ${AGENT_MEMORY_CPP_DIR}")
+    message(STATUS "Builtin memory runtime disabled (ENABLE_MEMORY_BUILTIN=OFF)")
 endif()
 
 # ============================================================
@@ -139,7 +144,6 @@ add_library(agent_framework SHARED
     src/context_engine/storage_base.cpp
     src/context_engine/json_storage.cpp
     src/context_engine/db_storage.cpp
-    src/memory/builtin_memory_runtime.cpp
     src/memory/http_memory_runtime.cpp
     src/memory/long_term_consolidator.cpp
     src/tools/builtin_tools/memory_read_payload_tool.cpp
@@ -184,19 +188,30 @@ target_include_directories(agent_framework PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR} 
     ${CMAKE_CURRENT_SOURCE_DIR}/include 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${AGENT_MEMORY_CPP_DIR}/include
     ${TRIRD_PARTY_INCLUDE_DIR}
     ${CURL_INCLUDE_DIRS}
 )
 
 target_compile_definitions(agent_framework PRIVATE BUILDING_AGENT_FRAMEWORK)
 
+# Builtin memory runtime is the only compilation unit that depends on
+# agent-memory-cpp. When disabled, the core library builds without it and the
+# http.server runtime remains available.
+if(ENABLE_MEMORY_BUILTIN)
+    target_sources(agent_framework PRIVATE
+        src/memory/builtin_memory_runtime.cpp
+        src/memory/type_bridge.cpp
+    )
+    target_include_directories(agent_framework PRIVATE ${AGENT_MEMORY_CPP_DIR}/include)
+    target_link_libraries(agent_framework PRIVATE agent_memory)
+    target_compile_definitions(agent_framework PRIVATE JIUWEN_ENABLE_MEMORY_BUILTIN)
+endif()
+
 # Core library only needs CURL/SQLite/JSON. No httplib, no OpenSSL.
 if(WIN32)
     target_link_libraries(agent_framework PRIVATE 
         ${CURL_LIB}
         ${SQLITE_LIB}
-        agent_memory
         nlohmann_json::nlohmann_json
         ws2_32
         crypt32
@@ -205,9 +220,9 @@ else()
     target_link_libraries(agent_framework PRIVATE 
         ${CURL_LIB}
         ${SQLITE_LIB}
-        agent_memory
         nlohmann_json::nlohmann_json
         pthread
+        ${CMAKE_DL_LIBS}
     )
 endif()
 
@@ -232,7 +247,6 @@ target_include_directories(jiuwenClaw_http_server_adapter PUBLIC
 )
 target_include_directories(jiuwenClaw_http_server_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${AGENT_MEMORY_CPP_DIR}/include
     ${TRIRD_PARTY_INCLUDE_DIR}
 )
 target_link_libraries(jiuwenClaw_http_server_adapter PUBLIC agent_framework)
@@ -259,7 +273,6 @@ target_include_directories(jiuwenClaw_feishu_adapter PUBLIC
 )
 target_include_directories(jiuwenClaw_feishu_adapter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${AGENT_MEMORY_CPP_DIR}/include
     ${TRIRD_PARTY_INCLUDE_DIR}
     ${CURL_INCLUDE_DIRS}
 )
@@ -294,7 +307,6 @@ target_include_directories(jiuwenClaw PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${AGENT_MEMORY_CPP_DIR}/include
     ${TRIRD_PARTY_INCLUDE_DIR}
 )
 target_link_libraries(jiuwenClaw PRIVATE
@@ -348,13 +360,16 @@ target_include_directories(unittest PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR} 
     ${CMAKE_CURRENT_SOURCE_DIR}/include 
     ${CMAKE_CURRENT_SOURCE_DIR}/src 
-    ${AGENT_MEMORY_CPP_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/unittest
 )
 target_link_libraries(unittest PRIVATE 
     agent_framework
     nlohmann_json::nlohmann_json
 )
+if(ENABLE_MEMORY_BUILTIN)
+    target_include_directories(unittest PRIVATE ${AGENT_MEMORY_CPP_DIR}/include)
+    target_compile_definitions(unittest PRIVATE JIUWEN_ENABLE_MEMORY_BUILTIN)
+endif()
 
 install(TARGETS agent_framework jiuwenClaw
     ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)

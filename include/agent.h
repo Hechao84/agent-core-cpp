@@ -60,6 +60,11 @@ public:
 
     void NotifySessionIdle(const std::string& sessionId);
     void NotifySessionActive(const std::string& sessionId);
+
+    // Non-owning memory runtime shared across sessions. Ownership lives in
+    // SessionManager so the runtime (and the ContextEngine callbacks that
+    // capture it) survive an Agent hot-reload.
+    void SetMemoryRuntime(MemoryRuntime* runtime);
 private:
     AgentConfig config_;
     std::unique_ptr<AgentWorker> worker_;
@@ -80,7 +85,7 @@ private:
 
     std::unique_ptr<HistoryStore> historyStore_;
     std::unique_ptr<LongTermConsolidator> longTermConsolidator_;
-    std::unique_ptr<MemoryRuntime> memoryRuntime_;
+    MemoryRuntime* memoryRuntime_{nullptr};
 
     // Session-scoped resources owned by Agent and accessed by AgentWorker
     // through the private WorkerEnv adapter.

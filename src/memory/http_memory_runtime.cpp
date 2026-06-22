@@ -5,7 +5,6 @@
 
 #include <utility>
 
-#include "include/model.h"
 #include "src/utils/logger.h"
 
 namespace jiuwen {
@@ -454,8 +453,12 @@ std::string HttpMemoryRuntime::ReadPayload(const std::string& uri)
     }
 }
 
-bool HttpMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request)
+bool HttpMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request, MemoryModelClient* modelClient)
 {
+    if (modelClient) {
+        LOG(WARN) << "[HttpMemoryRuntime] modelClient is not used in server mode. "
+                  << "Remote server uses its own model.";
+    }
     nlohmann::json body = SerializeConsolidationRequest(request);
     auto resp = HttpPost("/v1/consolidate", body.dump());
     if (resp.status != 200) {
@@ -481,15 +484,6 @@ bool HttpMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request)
         LOG(WARN) << "[HttpMemoryRuntime] Consolidate parse error: " << e.what();
         return false;
     }
-}
-
-bool HttpMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request, Model* model)
-{
-    if (model) {
-        LOG(WARN) << "[HttpMemoryRuntime] Model* is not supported in server mode. "
-                  << "Remote server uses its own model. Ignoring local model pointer.";
-    }
-    return Consolidate(request);
 }
 
 std::vector<MemorySearchHit> HttpMemoryRuntime::SearchMemory(const MemorySearchRequest& request)

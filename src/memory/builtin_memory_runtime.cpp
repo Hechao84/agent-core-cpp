@@ -2,70 +2,45 @@
 
 #include <utility>
 
+#include "src/memory/type_bridge.h"
+#include "src/utils/logger.h"
+
 #include "agent_memory/builtin_memory_runtime.h"
-#include "agent_memory/error.h"
 #include "agent_memory/context.h"
+#include "agent_memory/error.h"
+#include "agent_memory/long_term_memory.h"
+#include "agent_memory/model_client.h"
+#include "agent_memory/payload.h"
 #include "agent_memory/search.h"
 #include "agent_memory/stats.h"
-#include "agent_memory/payload.h"
-#include "agent_memory/long_term_memory.h"
-#include "include/model.h"
-#include "src/utils/logger.h"
 
 namespace jiuwen {
 
 namespace {
 
-agent_memory::MemoryConfig ToAgentMemoryConfig(const jiuwen::MemoryConfig& cfg)
-{
-    agent_memory::MemoryConfig out;
-    out.dataPath = cfg.dataPath;
-    out.tokenBudget = cfg.tokenBudget;
-    out.offloadThresholdChars = cfg.offloadToolResultChars;
-    out.enablePayloadOffload = cfg.enablePayloadOffload;
-    out.model.enabled = cfg.modelEnabled;
-    out.model.formatType = cfg.modelFormatType;
-    out.model.baseUrl = cfg.modelBaseUrl;
-    out.model.apiKey = cfg.modelApiKey;
-    out.model.modelName = cfg.modelName;
-    out.model.organization = cfg.modelOrganization;
-    out.model.anthropicVersion = cfg.modelAnthropicVersion;
-    out.model.timeoutSeconds = cfg.modelTimeoutSeconds;
-    out.model.temperature = cfg.modelTemperature;
-    out.model.maxTokens = cfg.modelMaxTokens;
-    return out;
-}
-
-class JiuwenMemoryModelClient : public agent_memory::MemoryModelClient
+// Adapts a jiuwen::MemoryModelClient to the agent_memory::MemoryModelClient
+// interface so a host-supplied model can drive agent-memory-cpp consolidation.
+class AgentMemoryModelClientAdapter : public agent_memory::MemoryModelClient
 {
 public:
-    explicit JiuwenMemoryModelClient(Model* model) : model_(model) {}
+    explicit AgentMemoryModelClientAdapter(jiuwen::MemoryModelClient* hostClient)
+        : hostClient_(hostClient)
+    {}
 
-    ModelInvokeResult GenerateMemoryUpdate(const std::string& prompt) override
+    agent_memory::ModelInvokeResult GenerateMemoryUpdate(const std::string& prompt) override
     {
-        ModelInvokeResult result;
-        if (!model_) {
-            result.errorCode = "null_model";
-            result.errorMessage = "No model provided";
-            return result;
-        }
-        std::string systemPrompt = "Follow the instructions in the user message precisely.";
-        Message userMsg;
-        userMsg.role = "user";
-        userMsg.content = prompt;
-        std::string formatted = model_->Format(systemPrompt, {userMsg}, {});
-        ModelResponse response = model_->Invoke(formatted, nullptr);
-        result.text = response.content;
-        result.httpStatus = 200;
-        if (response.content.empty()) {
-            result.errorCode = "empty_response";
-            result.errorMessage = "Model returned empty content";
-        }
-        return result;
+        jiuwen::MemoryModelResult r = hostClient_->GenerateMemoryUpdate(prompt);
+        agent_memory::ModelInvokeResult out;
+        out.text = r.text;
+        out.httpStatus = r.httpStatus;
+        out.errorCode = r.errorCode;
+        out.errorMessage = r.errorMessage;
+        out.providerError = r.providerError;
+        return out;
     }
 
 private:
-    Model* model_;
+    jiuwen::MemoryModelClient* hostClient_;
 };
 
 } // namespace
@@ -79,21 +54,21 @@ BuiltinMemoryRuntime::~BuiltinMemoryRuntime() = default;
 
 bool BuiltinMemoryRuntime::AppendEvent(const MemoryEvent& event)
 {
-    auto r = impl_->AppendEvent(event);
+    auto r = impl_->AppendEvent(ToAgentEvent(event));
     if (!r.succeeded) { LOG(WARN) << "[MemoryRuntime] AppendEvent failed: " << r.error.message; }
     return r.succeeded;
 }
 
 MemoryContextPackage BuiltinMemoryRuntime::BuildContext(const MemoryContextRequest& request)
 {
-    auto r = impl_->BuildContext(request);
+    auto r = impl_->BuildContext(ToAgentContextRequest(request));
     if (!r) { LOG(WARN) << "[MemoryRuntime] BuildContext failed: " << r.error.message; return {}; }
-    return r.context;
+    return FromAgentContextPackage(r.context);
 }
 
 MemoryPayloadWriteResult BuiltinMemoryRuntime::WritePayload(const MemoryPayloadWriteRequest& request)
 {
-    return impl_->WritePayload(request);
+    return FromAgentPayloadWriteResult(impl_->WritePayload(ToAgentPayloadWriteRequest(request)));
 }
 
 std::string BuiltinMemoryRuntime::ReadPayload(const std::string& uri)
@@ -103,40 +78,45 @@ std::string BuiltinMemoryRuntime::ReadPayload(const std::string& uri)
     return r.content;
 }
 
-bool BuiltinMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request)
+bool BuiltinMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request, MemoryModelClient* modelClient)
 {
-    auto r = impl_->Consolidate(request);
-    if (!r) { LOG(WARN) << "[MemoryRuntime] Consolidate failed: " << r.error.message; }
-    else { LOG(INFO) << "[MemoryRuntime] Consolidate ok: processed=" << r.processedEvents
-                     << " summaries=" << r.savedSummaries << " entities=" << r.savedEntities
-                     << " relations=" << r.savedRelations; }
-    return r.succeeded;
-}
-
-bool BuiltinMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request, Model* model)
-{
-    if (!model) { return Consolidate(request); }
-    JiuwenMemoryModelClient client(model);
-    auto r = impl_->Consolidate(request, &client);
-    if (!r) { LOG(WARN) << "[MemoryRuntime] Consolidate with model failed: " << r.error.message; }
-    else { LOG(INFO) << "[MemoryRuntime] Consolidate with model ok: processed=" << r.processedEvents
-                     << " summaries=" << r.savedSummaries << " entities=" << r.savedEntities
-                     << " relations=" << r.savedRelations; }
+    agent_memory::MemoryConsolidationRequest agentRequest = ToAgentConsolidationRequest(request);
+    agent_memory::MemoryConsolidationResult r;
+    if (modelClient == nullptr) {
+        // nullptr -> runtime decides: use the configured built-in model when
+        // available, otherwise rule-based extraction.
+        r = impl_->Consolidate(agentRequest);
+    } else {
+        AgentMemoryModelClientAdapter adapter(modelClient);
+        r = impl_->Consolidate(agentRequest, &adapter);
+    }
+    if (!r) {
+        LOG(WARN) << "[MemoryRuntime] Consolidate failed: " << r.error.message;
+    } else {
+        LOG(INFO) << "[MemoryRuntime] Consolidate ok: processed=" << r.processedEvents
+                  << " summaries=" << r.savedSummaries << " entities=" << r.savedEntities
+                  << " relations=" << r.savedRelations;
+    }
     return r.succeeded;
 }
 
 std::vector<MemorySearchHit> BuiltinMemoryRuntime::SearchMemory(const MemorySearchRequest& request)
 {
-    auto r = impl_->SearchMemory(request);
+    auto r = impl_->SearchMemory(ToAgentSearchRequest(request));
     if (!r) { LOG(WARN) << "[MemoryRuntime] SearchMemory failed: " << r.error.message; return {}; }
-    return r.hits;
+    std::vector<MemorySearchHit> hits;
+    hits.reserve(r.hits.size());
+    for (const auto& h : r.hits) {
+        hits.push_back(FromAgentSearchHit(h));
+    }
+    return hits;
 }
 
 MemoryStats BuiltinMemoryRuntime::GetStats() const
 {
     auto r = impl_->GetStats();
     if (!r) { LOG(WARN) << "[MemoryRuntime] GetStats failed: " << r.error.message; return {}; }
-    return r.stats;
+    return FromAgentStats(r.stats);
 }
 
 } // namespace jiuwen

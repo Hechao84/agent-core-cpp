@@ -32,6 +32,45 @@ namespace fs = std::filesystem;
 
 namespace jiuwen {
 
+namespace {
+
+// Wraps a framework Model as a MemoryModelClient so the consolidation pipeline
+// can drive LLM-backed memory updates without the plugin interface depending on
+// the Model class.
+class HostMemoryModelClient : public MemoryModelClient
+{
+public:
+    explicit HostMemoryModelClient(Model* model) : model_(model) {}
+
+    MemoryModelResult GenerateMemoryUpdate(const std::string& prompt) override
+    {
+        MemoryModelResult result;
+        if (!model_) {
+            result.errorCode = "null_model";
+            result.errorMessage = "No model provided";
+            return result;
+        }
+        Message userMsg;
+        userMsg.role = "user";
+        userMsg.content = prompt;
+        std::string formatted = model_->Format(
+            "Follow the instructions in the user message precisely.", {userMsg}, {});
+        ModelResponse response = model_->Invoke(formatted, nullptr);
+        result.text = response.content;
+        result.httpStatus = 200;
+        if (response.content.empty()) {
+            result.errorCode = "empty_response";
+            result.errorMessage = "Model returned empty content";
+        }
+        return result;
+    }
+
+private:
+    Model* model_;
+};
+
+} // namespace
+
 // Private adapter that exposes the per-session resources Agent owns to the
 // AgentWorker without leaking the full Agent type into the worker layer.
 class WorkerEnvImpl : public WorkerEnv {
@@ -85,32 +124,6 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
     config_.dreamConfig.dataBasePath = dataPath;
     longTermConsolidator_ = std::make_unique<LegacyDreamConsolidator>(config_.dreamConfig);
 
-    if (config_.memoryConfig.enabled) {
-        try {
-            MemoryConfig memoryConfig = config_.memoryConfig;
-            if (memoryConfig.dataPath.empty()) {
-                memoryConfig.dataPath = dataPath;
-            }
-            if (memoryConfig.mode == "server") {
-                memoryConfig.provider = "http.server";
-            }
-            memoryRuntime_ = ResourceManager::GetInstance().CreateMemoryRuntime(memoryConfig);
-            if (memoryRuntime_) {
-                LOG(INFO) << "[MemoryRuntime] Initialized mode=" << memoryConfig.mode
-                          << " provider=" << memoryConfig.provider
-                          << " dataPath=" << memoryConfig.dataPath;
-            } else {
-                LOG(WARN) << "[MemoryRuntime] Initialization returned null, falling back to legacy memory";
-            }
-        } catch (const std::exception& e) {
-            LOG(WARN) << "[MemoryRuntime] Initialization failed: " << e.what()
-                      << ", falling back to legacy memory system";
-            memoryRuntime_.reset();
-        }
-    } else {
-        LOG(INFO) << "[MemoryRuntime] Disabled (using legacy memory system)";
-    }
-
     consolidationThread_ = std::thread(&Agent::ConsolidationLoop, this);
 
     LOG(INFO) << "[Agent] Single-Agent initialized with Dream memory consolidation, maxConcurrentSessions="
@@ -141,7 +154,12 @@ void Agent::SetContextEngineGetter(
 
 MemoryRuntime* Agent::GetMemoryRuntime()
 {
-    return memoryRuntime_.get();
+    return memoryRuntime_;
+}
+
+void Agent::SetMemoryRuntime(MemoryRuntime* runtime)
+{
+    memoryRuntime_ = runtime;
 }
 
 std::string Agent::Invoke(const std::string& sessionId, const std::string& query,
@@ -342,7 +360,8 @@ void Agent::ConsolidationLoop()
                 request.agentId = config_.id;
                 request.forceReprocess = false;
                 auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
-                handledByMemoryRuntime = memoryRuntime_->Consolidate(request, model.get());
+                HostMemoryModelClient hostClient(model.get());
+                handledByMemoryRuntime = memoryRuntime_->Consolidate(request, &hostClient);
                 if (handledByMemoryRuntime) {
                     LOG(INFO) << "[MemoryRuntime] Memory consolidation completed";
                 }

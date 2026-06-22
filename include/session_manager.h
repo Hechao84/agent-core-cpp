@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 #include "include/agent_export.h"
+#include "include/memory_runtime.h"
 #include "include/model.h"
 #include "include/types.h"
 
@@ -96,6 +97,11 @@ public:
     // the duration of a single request/command.
     std::shared_ptr<Agent> GetAgent() const { return agent_; }
 
+    // Access the shared memory runtime owned by SessionManager. Returns
+    // nullptr when memory is disabled or initialization failed. The runtime is
+    // shared across all sessions and survives an Agent hot-reload.
+    MemoryRuntime* GetMemoryRuntime() const { return memoryRuntime_.get(); }
+
     // Atomically rebuild the underlying Agent with a new config.
     // Existing sessions (history/context) are preserved; in-flight calls are
     // drained via the concurrency gate before the swap. Returns false if the
@@ -110,9 +116,15 @@ private:
     SessionEntry* FindOrCreateEntry(const std::string& sessionId);
     std::shared_ptr<ContextEngine> GetContextEngine(const std::string& sessionId);
     void SetupAgentContextRouting();
+    void InitMemoryRuntime();
 
     AgentConfig config_;
     bool initialized_{false};
+
+    // Shared memory runtime, owned here (not by Agent) so it outlives an
+    // Agent hot-reload and keeps the ContextEngine callbacks that capture it
+    // valid across a swap.
+    std::unique_ptr<MemoryRuntime> memoryRuntime_;
 
     // Single shared Agent instance. shared_ptr (not unique_ptr) so that
     // GetAgent() can hand a strong reference to callers without risk of

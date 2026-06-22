@@ -5,6 +5,7 @@
 #include <string>
 #include <system_error>
 #include "include/agent.h"
+#include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
 #include "src/utils/data_dir.h"
 #include "src/utils/logger.h"
@@ -120,8 +121,13 @@ void SessionManager::Initialize(const AgentConfig& config)
         maxConcurrent_ = config_.maxConcurrentSessions;
     }
 
+    // Build the shared memory runtime before the Agent so its context routing
+    // can be wired immediately.
+    InitMemoryRuntime();
+
     // Create the single shared Agent
     agent_ = std::make_shared<Agent>(config_);
+    agent_->SetMemoryRuntime(memoryRuntime_.get());
 
     // Register default tools
     if (!config_.defaultTools.empty()) {
@@ -184,6 +190,37 @@ std::shared_ptr<ContextEngine> SessionManager::GetContextEngine(const std::strin
     return it->second->contextEngine;
 }
 
+void SessionManager::InitMemoryRuntime()
+{
+    // Caller holds sessionMutex_.
+    memoryRuntime_.reset();
+    if (!config_.memoryConfig.enabled) {
+        LOG(INFO) << "[MemoryRuntime] Disabled (using legacy memory system)";
+        return;
+    }
+    try {
+        MemoryConfig memoryConfig = config_.memoryConfig;
+        if (memoryConfig.dataPath.empty()) {
+            memoryConfig.dataPath = config_.dataBasePath;
+        }
+        if (memoryConfig.mode == "server") {
+            memoryConfig.provider = "http.server";
+        }
+        memoryRuntime_ = ResourceManager::GetInstance().CreateMemoryRuntime(memoryConfig);
+        if (memoryRuntime_) {
+            LOG(INFO) << "[MemoryRuntime] Initialized mode=" << memoryConfig.mode
+                      << " provider=" << memoryConfig.provider
+                      << " dataPath=" << memoryConfig.dataPath;
+        } else {
+            LOG(WARN) << "[MemoryRuntime] Initialization returned null, falling back to legacy memory";
+        }
+    } catch (const std::exception& e) {
+        LOG(WARN) << "[MemoryRuntime] Initialization failed: " << e.what()
+                  << ", falling back to legacy memory system";
+        memoryRuntime_.reset();
+    }
+}
+
 void SessionManager::SetupAgentContextRouting()
 {
     // Use a raw pointer to "this" since SessionManager outlives Agent
@@ -218,7 +255,7 @@ SessionEntry* SessionManager::FindOrCreateEntry(const std::string& sessionId)
     entry->contextEngine = std::make_shared<ContextEngine>(ctxConfig);
     entry->contextEngine->Initialize();
 
-    MemoryRuntime* memoryRuntime = agent_ ? agent_->GetMemoryRuntime() : nullptr;
+    MemoryRuntime* memoryRuntime = memoryRuntime_.get();
     if (memoryRuntime) {
         entry->contextEngine->SetMemoryContextProvider([memoryRuntime, sessionId, agentId = config_.id]() {
             MemoryContextRequest request;
@@ -487,6 +524,9 @@ bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* erro
             effective.dataBasePath = config_.dataBasePath;
         }
         newAgent = std::make_shared<Agent>(effective);
+        // Reuse the existing shared memory runtime so the ContextEngine
+        // callbacks captured for live sessions stay valid across the swap.
+        newAgent->SetMemoryRuntime(memoryRuntime_.get());
         if (!effective.defaultTools.empty()) {
             newAgent->AddTools(effective.defaultTools);
         }

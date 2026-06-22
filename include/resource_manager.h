@@ -36,6 +36,13 @@ public:
     void RegisterMemoryRuntime(const std::string& provider,
                                std::function<std::unique_ptr<MemoryRuntime>(const MemoryConfig&)> factory);
 
+    // Scan a directory for memory plugin shared libraries (*.so / *.dll),
+    // load each one and invoke its exported RegisterMemoryPlugin(ResourceManager&)
+    // entry point so the plugin can register its own MemoryRuntime providers.
+    // Missing directories are ignored; load/symbol failures are logged and
+    // skipped so one bad plugin cannot abort startup.
+    void LoadMemoryPlugins(const std::string& pluginDir);
+
     // Session-scoped tool registry (X-3): factory receives a ToolBuildContext
     // carrying the per-session dependencies the tool needs. Stateless tools
     // should keep using RegisterTool.

@@ -1,10 +1,17 @@
 #include "include/resource_manager.h"
 #include <algorithm>
+#include <filesystem>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include "include/memory_runtime.h"
 #include "include/model.h"
@@ -26,12 +33,15 @@
 #include "src/tools/builtin_tools/web_fetch_tool.h"
 #include "src/tools/builtin_tools/web_search_tool.h"
 #include "src/tools/builtin_tools/write_file_tool.h"
-#include "src/memory/builtin_memory_runtime.h"
 #include "src/memory/http_memory_runtime.h"
 #include "src/mcp/mcp_config_manager.h"
 #include "src/mcp/mcp_connection.h"
 #include "src/utils/logger.h"
 #include "third_party/include/nlohmann/json.hpp"
+
+#ifdef JIUWEN_ENABLE_MEMORY_BUILTIN
+#include "src/memory/builtin_memory_runtime.h"
+#endif
 
 namespace jiuwen {
 
@@ -45,9 +55,11 @@ ResourceManager::ResourceManager()
 {
     RegisterBuiltinTools();
     RegisterBuiltinModels();
+#ifdef JIUWEN_ENABLE_MEMORY_BUILTIN
     RegisterMemoryRuntime("builtin.compat", [](const MemoryConfig& cfg) {
         return std::make_unique<BuiltinMemoryRuntime>(cfg);
     });
+#endif
     RegisterMemoryRuntime("http.server", [](const MemoryConfig& cfg) {
         return std::make_unique<HttpMemoryRuntime>(cfg);
     });
@@ -236,6 +248,55 @@ void ResourceManager::RegisterMemoryRuntime(
 {
     std::lock_guard<std::mutex> lock(mutex_);
     memoryFactories_[provider] = std::move(factory);
+}
+
+void ResourceManager::LoadMemoryPlugins(const std::string& pluginDir)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (pluginDir.empty() || !fs::is_directory(pluginDir, ec)) {
+        LOG(INFO) << "[ResourceManager] Memory plugin dir not found, skipping: " << pluginDir;
+        return;
+    }
+
+#if defined(_WIN32)
+    const std::string ext = ".dll";
+#else
+    const std::string ext = ".so";
+#endif
+
+    using RegisterFn = void (*)(ResourceManager&);
+    const char* kEntry = "RegisterMemoryPlugin";
+
+    for (const auto& entry : fs::directory_iterator(pluginDir, ec)) {
+        if (ec) break;
+        if (!entry.is_regular_file()) continue;
+        if (entry.path().extension().string() != ext) continue;
+
+        const std::string path = entry.path().string();
+#if defined(_WIN32)
+        HMODULE handle = LoadLibraryA(path.c_str());
+        if (!handle) {
+            LOG(WARN) << "[ResourceManager] Failed to load memory plugin: " << path;
+            continue;
+        }
+        auto fn = reinterpret_cast<RegisterFn>(GetProcAddress(handle, kEntry));
+#else
+        void* handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+        if (!handle) {
+            LOG(WARN) << "[ResourceManager] Failed to load memory plugin: " << path
+                      << " (" << (dlerror() ? dlerror() : "unknown") << ")";
+            continue;
+        }
+        auto fn = reinterpret_cast<RegisterFn>(dlsym(handle, kEntry));
+#endif
+        if (!fn) {
+            LOG(WARN) << "[ResourceManager] Memory plugin missing " << kEntry << ": " << path;
+            continue;
+        }
+        fn(*this);
+        LOG(INFO) << "[ResourceManager] Loaded memory plugin: " << path;
+    }
 }
 
 void ResourceManager::RegisterMCPServer(const McpServerConfig& config)

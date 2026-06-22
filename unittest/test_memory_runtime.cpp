@@ -7,10 +7,13 @@
 
 #include "include/model.h"
 #include "include/resource_manager.h"
-#include "src/memory/builtin_memory_runtime.h"
 #include "src/tools/builtin_tools/memory_read_payload_tool.h"
 #include "test_runner.h"
 #include "third_party/include/nlohmann/json.hpp"
+
+#ifdef JIUWEN_ENABLE_MEMORY_BUILTIN
+#include "src/memory/builtin_memory_runtime.h"
+#endif
 
 namespace fs = std::filesystem;
 using namespace jiuwen;
@@ -53,6 +56,35 @@ private:
     std::string response_;
 };
 
+// Wraps a test Model as a MemoryModelClient for Consolidate, mirroring the
+// HostMemoryModelClient bridge the framework uses internally.
+class TestMemoryModelClient : public MemoryModelClient
+{
+public:
+    explicit TestMemoryModelClient(Model* model) : model_(model) {}
+
+    MemoryModelResult GenerateMemoryUpdate(const std::string& prompt) override
+    {
+        MemoryModelResult result;
+        Message userMsg;
+        userMsg.role = "user";
+        userMsg.content = prompt;
+        std::string formatted = model_->Format("system", {userMsg}, {});
+        ModelResponse response = model_->Invoke(formatted, nullptr);
+        result.text = response.content;
+        result.httpStatus = 200;
+        if (response.content.empty()) {
+            result.errorCode = "empty_response";
+            result.errorMessage = "Model returned empty content";
+        }
+        return result;
+    }
+
+private:
+    Model* model_;
+};
+
+#ifdef JIUWEN_ENABLE_MEMORY_BUILTIN
 TEST(memory_runtime, ResourceManagerRegistersBuiltinCompat)
 {
     auto& rm = ResourceManager::GetInstance();
@@ -63,6 +95,7 @@ TEST(memory_runtime, ResourceManagerRegistersBuiltinCompat)
     auto runtime = rm.CreateMemoryRuntime(config);
     TestRunner::AssertTrue(runtime != nullptr);
 }
+#endif // JIUWEN_ENABLE_MEMORY_BUILTIN
 
 TEST(memory_runtime, ResourceManagerRegistersHttpServerRuntime)
 {
@@ -76,6 +109,7 @@ TEST(memory_runtime, ResourceManagerRegistersHttpServerRuntime)
     TestRunner::AssertEq(runtime->GetConfig().serverUrl, std::string("http://127.0.0.1:8090"));
 }
 
+#ifdef JIUWEN_ENABLE_MEMORY_BUILTIN
 TEST(memory_runtime, AppendEventUpdatesStats)
 {
     fs::path base = fs::temp_directory_path() / "jiuwen_memory_stats_test";
@@ -270,7 +304,7 @@ TEST(memory_runtime, ConsolidateWritesSessionSummary)
     request.agentId = "agent";
     request.sessionId = "session";
     request.maxEvents = 10;
-    TestRunner::AssertTrue(runtime.Consolidate(request));
+    TestRunner::AssertTrue(runtime.Consolidate(request, nullptr));
 
     MemoryContextRequest contextRequest;
     contextRequest.agentId = "agent";
@@ -306,7 +340,7 @@ TEST(memory_runtime, ConsolidateExtractsTopicPreferenceEntityRelation)
     MemoryConsolidationRequest request;
     request.agentId = "agent";
     request.sessionId = "session";
-    TestRunner::AssertTrue(runtime.Consolidate(request));
+    TestRunner::AssertTrue(runtime.Consolidate(request, nullptr));
 
     MemoryContextRequest contextRequest;
     contextRequest.agentId = "agent";
@@ -366,7 +400,8 @@ TEST(memory_runtime, ConsolidateUsesLlmProcessorWhenModelProvided)
     MemoryConsolidationRequest request;
     request.agentId = "agent";
     request.sessionId = "session";
-    TestRunner::AssertTrue(runtime.Consolidate(request, &model));
+    TestMemoryModelClient client(&model);
+    TestRunner::AssertTrue(runtime.Consolidate(request, &client));
 
     MemoryContextRequest contextRequest;
     contextRequest.agentId = "agent";
@@ -403,7 +438,8 @@ TEST(memory_runtime, ConsolidateFallsBackWhenLlmJsonInvalid)
     MemoryConsolidationRequest request;
     request.agentId = "agent";
     request.sessionId = "session";
-    TestRunner::AssertTrue(runtime.Consolidate(request, &model));
+    TestMemoryModelClient client(&model);
+    TestRunner::AssertTrue(runtime.Consolidate(request, &client));
 
     MemoryContextRequest contextRequest;
     contextRequest.agentId = "agent";
@@ -473,7 +509,8 @@ TEST(memory_runtime, SupersedesRelationMarksOldEntityObsolete)
     MemoryConsolidationRequest request;
     request.agentId = "agent";
     request.sessionId = "session";
-    TestRunner::AssertTrue(runtime.Consolidate(request, &model));
+    TestMemoryModelClient client(&model);
+    TestRunner::AssertTrue(runtime.Consolidate(request, &client));
 
     MemoryContextRequest contextRequest;
     contextRequest.agentId = "agent";
@@ -486,5 +523,6 @@ TEST(memory_runtime, SupersedesRelationMarksOldEntityObsolete)
 
     fs::remove_all(base);
 }
+#endif // JIUWEN_ENABLE_MEMORY_BUILTIN
 
 

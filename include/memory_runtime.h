@@ -5,12 +5,10 @@
 #include <vector>
 
 #include "include/agent_export.h"
+#include "include/memory_config.h"
 #include "include/memory_types.h"
-#include "include/types.h"
 
 namespace jiuwen {
-
-class Model;
 
 class AGENT_API MemoryRuntime
 {
@@ -22,12 +20,8 @@ public:
     virtual MemoryContextPackage BuildContext(const MemoryContextRequest& request) = 0;
     virtual MemoryPayloadWriteResult WritePayload(const MemoryPayloadWriteRequest& request) = 0;
     virtual std::string ReadPayload(const std::string& uri) = 0;
-    virtual bool Consolidate(const MemoryConsolidationRequest& request) = 0;
-    virtual bool Consolidate(const MemoryConsolidationRequest& request, Model* model)
-    {
-        (void)model;
-        return Consolidate(request);
-    }
+    virtual bool Consolidate(const MemoryConsolidationRequest& request,
+                             MemoryModelClient* modelClient) = 0;
     virtual std::vector<MemorySearchHit> SearchMemory(const MemorySearchRequest& request) = 0;
     virtual MemoryStats GetStats() const = 0;
 
