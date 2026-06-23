@@ -73,27 +73,43 @@ bool ContextEngine::Initialize()
 void ContextEngine::AddMessage(const Message& message)
 {
     if (!ContextStorageBase::IsValidMessage(message)) return;
-    memoryBuffer_.push_back(message);
-    if (storage_) {
-        storage_->SaveMessage(message);
+
+    std::function<void(const MemoryEvent&)> sink;
+    MemoryEvent event;
+    {
+        std::lock_guard<std::mutex> lock(memoryMutex_);
+        memoryBuffer_.push_back(message);
+        if (storage_) {
+            storage_->SaveMessage(message);
+        }
+        if (memoryEventSink_) {
+            event.type = MemoryEventType::MESSAGE_APPENDED;
+            event.sessionId = config_.sessionId;
+            event.role = message.role;
+            event.content = message.content;
+            event.toolCallId = message.toolCallId;
+            event.toolName = message.toolName;
+            event.payloadRef = message.payloadRef;
+            // Copy the sink and invoke it outside the lock: in HTTP memory
+            // mode the sink performs network I/O, which must not block other
+            // readers by holding memoryMutex_ for the duration of the call.
+            sink = memoryEventSink_;
+        }
     }
-    if (memoryEventSink_) {
-        MemoryEvent event;
-        event.type = MemoryEventType::MESSAGE_APPENDED;
-        event.sessionId = config_.sessionId;
-        event.role = message.role;
-        event.content = message.content;
-        event.toolCallId = message.toolCallId;
-        event.toolName = message.toolName;
-        event.payloadRef = message.payloadRef;
-        memoryEventSink_(event);
+    if (sink) {
+        sink(event);
     }
 }
 
 std::vector<Message> ContextEngine::GetContextWindow() const
 {
-    if (memoryBuffer_.empty()) return {};
-    return ApplyContextLimits(memoryBuffer_);
+    std::vector<Message> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(memoryMutex_);
+        if (memoryBuffer_.empty()) return {};
+        snapshot = memoryBuffer_;
+    }
+    return ApplyContextLimits(snapshot);
 }
 
 int ContextEngine::CalculateMessageTokens(const Message& msg) const
@@ -335,11 +351,13 @@ std::string ContextEngine::GetContextAsString() const
 
 std::vector<Message> ContextEngine::GetAllMessages() const
 {
+    std::lock_guard<std::mutex> lock(memoryMutex_);
     return memoryBuffer_;
 }
 
 void ContextEngine::Clear()
 {
+    std::lock_guard<std::mutex> lock(memoryMutex_);
     memoryBuffer_.clear();
     if (storage_) {
         storage_->Clear();
@@ -348,6 +366,7 @@ void ContextEngine::Clear()
 
 int ContextEngine::GetTokenCount() const
 {
+    std::lock_guard<std::mutex> lock(memoryMutex_);
     int total = 0;
     for (const auto& msg : memoryBuffer_) {
         total += CalculateMessageTokens(msg);
@@ -367,7 +386,9 @@ int ContextEngine::EstimateTokens(const std::string& text)
 
 std::string ContextEngine::LoadMemoryContext() const
 {
-    std::lock_guard<std::mutex> lock(memoryMutex_);
+    // No lock: this reads the on-disk memory file and does not touch
+    // memoryBuffer_ or the callback objects. memoryMutex_ exclusively
+    // protects the in-memory shared state.
     fs::path memoryPath = fs::path(GetDataDir().GetMemoryPath());
     if (fs::exists(memoryPath) && fs::is_regular_file(memoryPath)) {
         std::ifstream file(memoryPath);
@@ -484,9 +505,14 @@ std::vector<Message> ContextEngine::BuildMessagesForLLM(
 
 std::string ContextEngine::GetMemoryContent() const
 {
-    if (memoryContextProvider_) {
+    std::function<std::string()> provider;
+    {
+        std::lock_guard<std::mutex> lock(memoryMutex_);
+        provider = memoryContextProvider_;
+    }
+    if (provider) {
         try {
-            std::string content = memoryContextProvider_();
+            std::string content = provider();
             if (!content.empty()) {
                 return content;
             }
@@ -501,16 +527,19 @@ std::string ContextEngine::GetMemoryContent() const
 
 void ContextEngine::SetMemoryContextProvider(std::function<std::string()> provider)
 {
+    std::lock_guard<std::mutex> lock(memoryMutex_);
     memoryContextProvider_ = std::move(provider);
 }
 
 void ContextEngine::SetMemoryEventSink(std::function<void(const MemoryEvent&)> sink)
 {
+    std::lock_guard<std::mutex> lock(memoryMutex_);
     memoryEventSink_ = std::move(sink);
 }
 
 std::string ContextEngine::GetConsolidationPayload(int maxMessages) const
 {
+    std::lock_guard<std::mutex> lock(memoryMutex_);
     if (memoryBuffer_.empty()) return "";
     int startIdx = 0;
     if (static_cast<int>(memoryBuffer_.size()) > maxMessages) {

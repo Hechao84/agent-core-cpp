@@ -15,7 +15,7 @@ ContextEngine
  ├── storage_ (unique_ptr<ContextStorageBase>) ← 持久化存储后端
  ├── memoryContextProvider_ (function<string()>) ← MemoryRuntime 上下文回调
  ├── memoryEventSink_ (function<void(MemoryEvent)>) ← MemoryRuntime 事件回调
- ├── memoryMutex_ (mutex)               ← 保护内存缓冲区并发访问
+ ├── memoryMutex_ (mutex)               ← 保护 memoryBuffer_ 及两个回调对象的并发访问
 ```
 
 ### 2.2 核心方法
@@ -50,7 +50,7 @@ AddMessage(message)
   │  1. lock(memoryMutex_)
   │  2. memoryBuffer_.push_back(message)
   │  3. 若 storage_ 存在 → storage_->SaveMessage(message)
-  │  4. 若 memoryEventSink_ 存在 → memoryEventSink_(event)
+  │  4. 若 memoryEventSink_ 存在:
   │     ├── 构建 MemoryEvent:
   │     │   ├── type = MESSAGE_APPENDED
   │     │   ├── sessionId = config_.sessionId
@@ -58,9 +58,17 @@ AddMessage(message)
   │     │   ├── content = message.content
   │     │   ├── toolCallId / toolName / payloadRef (如有)
   │     │   └── timestamp = 当前时间
-  │     └── memoryEventSink_ → MemoryRuntime::AppendEvent(event)
+  │     └── 将 memoryEventSink_ 拷贝到局部变量 sink
   │  5. unlock
+  │  6. 若 sink 存在 → sink(event) → MemoryRuntime::AppendEvent(event)（锁外调用）
 ```
+
+> **并发设计说明**：`memoryEventSink_` 在 HTTP 记忆模式下会执行网络 I/O。
+> 若在持有 `memoryMutex_` 期间调用，临界区时长将被网络延迟绑定，阻塞所有
+> 读者（consolidation 线程、外部查询）。因此采用「锁内拷贝回调 → 锁外执行」
+> 模式：既消除对 `memoryBuffer_` 与回调对象的数据竞争，又避免锁内做阻塞 I/O，
+> 同时防止未来回调重入 ContextEngine 造成自死锁。
+
 
 ### 3.3 消息恢复
 
@@ -136,8 +144,8 @@ LLM 有上下文窗口限制（token 数量）。`GetContextWindow()` 从完整�
 
 ```
 GetContextWindow()
-  │  1. 获取 memoryBuffer_ 的副本
-  │  2. 合并相邻同类消息
+  │  1. lock(memoryMutex_) → 拷贝 memoryBuffer_ 副本 → unlock
+  │  2. 合并相邻同类消息（在副本上进行，无需持锁）
   │     ├── 连续 user+user → 合为一条
   │     ├── 连续 text-only assistant+assistant → 合为一条
   │     ├── 含 tool_calls / tool_call_id 的消息不可合并
@@ -293,9 +301,12 @@ void SetMemoryEventSink(std::function<void(const MemoryEvent&)> sink);
 
 ```
 AddMessage(message)
-  │  ├── memoryBuffer_.push_back(message)
-  │  ├── storage_->SaveMessage(message)
-  │  └── memoryEventSink_(MemoryEvent{...}) → MemoryRuntime::AppendEvent()
+  │  ├── lock(memoryMutex_)
+  │  │   ├── memoryBuffer_.push_back(message)
+  │  │   ├── storage_->SaveMessage(message)
+  │  │   └── 拷贝 memoryEventSink_ 到局部 sink
+  │  ├── unlock
+  │  └── sink(MemoryEvent{...}) → MemoryRuntime::AppendEvent()（锁外调用）
 ```
 
 ### 7.4 SetupAgentContextRouting
