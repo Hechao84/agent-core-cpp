@@ -132,6 +132,14 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
 
 Agent::~Agent()
 {
+    Shutdown();
+    LOG(INFO) << "[Agent] Shutdown complete";
+}
+
+void Agent::Shutdown()
+{
+    // Idempotent: once running_ is cleared and the thread joined, subsequent
+    // calls find the thread non-joinable and return immediately.
     running_ = false;
     if (worker_) {
         worker_->Cancel();
@@ -143,7 +151,6 @@ Agent::~Agent()
     if (consolidationThread_.joinable()) {
         consolidationThread_.join();
     }
-    LOG(INFO) << "[Agent] Shutdown complete";
 }
 
 void Agent::SetContextEngineGetter(

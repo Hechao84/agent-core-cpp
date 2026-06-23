@@ -17,6 +17,20 @@ AGENT_API void InitSessionManager(const AgentConfig& config);
 - `InitSessionManager` 首次调用时构建并初始化单例
 - `GetSessionManager` 返回单例引用（未初始化时行为未定义）
 
+**线程安全与生命周期（init-once，永不 delete）**：
+
+- 单例指针由 `std::atomic<SessionManager*>` 持有。`GetSessionManager` 走
+  acquire-load 快路径，与构造时的 release-store 配对，保证调用方观察到
+  完整构造的对象；首次创建在 `g_initMutex` 下做双重检查（DCLP），但读侧
+  改用 atomic load，因此**不再是数据竞争**。
+- **单例一经发布永不删除**：`InitSessionManager` 不再 delete-and-recreate，
+  而是幂等地复用同一实例（无实例则创建，有则重新 `Initialize()`）。这样
+  `GetSessionManager()` 返回的引用永远不会悬空（消除 use-after-free）。
+- 运行时重新配置走 `ReloadAgent()`（仅原子替换内部 `agent_`），**不**重建
+  SessionManager 本身。
+- 单例对象的内存不显式释放，由进程退出时交还 OS（标准单例惯例）；后台线程
+  的优雅停止见 §2.4 `Shutdown()`。
+
 ### 2.2 类结构
 
 ```
@@ -49,7 +63,31 @@ SessionManager
 | 会话管理 | `GetOrCreateSession` | 查找/创建 SessionEntry + ContextEngine |
 | 热重载 | `ReloadAgent(newConfig)` | 原子替换 Agent |
 | 取消 | `Cancel()` | 取消当前 Agent 执行 |
+| 优雅停机 | `Shutdown()` | 进程退出前停止后台线程（见 §2.4） |
 | 会话查询 | `GetSessionIds/Messages/Metadata` | 查询会话状态 |
+
+### 2.4 优雅停机 Shutdown()
+
+```cpp
+void SessionManager::Shutdown();   // 幂等
+```
+
+进程退出前应显式调用 `Shutdown()`，以便确定性地停止 Agent 的后台
+consolidation 线程（调用 `Agent::Shutdown()` → 置 `running_=false` →
+唤醒并 `join()` 线程），而非依赖静态析构时序。
+
+- **不删除单例本身**：仅排空 Agent 的后台工作；单例内存仍交进程退出回收。
+- **调用顺序约束**：调用方必须先停止所有可能调用 `SessionManager` 的线程
+  （heartbeat、cron、channel、HTTP server），再调用 `Shutdown()`，确保此后
+  没有线程会再进入 SessionManager。
+- **不主动取消在途 Invoke**：若退出瞬间恰有任务在执行，`join()` 会等待其当前
+  这轮 Invoke 自然结束后再返回（该等待在静态析构方案下同样存在）。
+- 幂等：`Agent::Shutdown()` 可重复调用，线程已 join 后再次调用立即返回。
+
+> jiuwenClaw 参考实现的退出顺序（`main.cpp`）：
+> `ConfigWatcher.Stop` → `ChannelService.StopAll` → `HttpServer.Stop` →
+> 销毁 `CronWatcher`/`HeartbeatManager`（join 各自线程）→
+> `GetSessionManager().Shutdown()` → `return 0`。
 
 ## 3. SessionEntry 与会话隔离
 

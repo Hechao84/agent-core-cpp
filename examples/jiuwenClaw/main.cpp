@@ -580,15 +580,18 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Initialize heartbeat and cron using reserved sessions
-    HeartbeatManager heartbeat(
+    // Initialize heartbeat and cron using reserved sessions.
+    // Held in unique_ptr so they can be stopped (and their threads joined)
+    // deterministically in the shutdown section, before SessionManager is
+    // drained, rather than at end-of-main stack unwinding.
+    auto heartbeat = std::make_unique<HeartbeatManager>(
         "./data/HEARTBEAT.md",
         config.modelConfig,
         300
     );
     std::cout << "[Boot] HeartbeatManager constructed\n" << std::flush;
 
-    CronWatcher cronWatcher("./data", config.modelConfig, 60);
+    auto cronWatcher = std::make_unique<CronWatcher>("./data", config.modelConfig, 60);
     std::cout << "[Boot] CronWatcher constructed\n" << std::flush;
 
     // Start HTTP server if enabled
@@ -670,6 +673,17 @@ int main(int argc, char* argv[])
         g_HttpServer->Stop();
         g_HttpServer.reset();
     }
+
+    // Stop the background schedulers BEFORE draining the SessionManager so that
+    // no thread can call into it afterwards. Each reset() joins its worker
+    // thread (waiting for any in-flight Invoke to finish).
+    cronWatcher.reset();
+    heartbeat.reset();
+
+    // Gracefully stop the Agent's consolidation thread. The singleton itself is
+    // never deleted (its memory is reclaimed at process exit); this only drains
+    // background work so it is joined deterministically here.
+    GetSessionManager().Shutdown();
 
     std::cout << "[Shutdown] Goodbye.\n" << std::flush;
 

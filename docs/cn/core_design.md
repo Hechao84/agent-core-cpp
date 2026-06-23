@@ -64,6 +64,20 @@ Agent
 
 转发到 `AskUserDispatcher::ProvideResponse`，唤醒阻塞的 `ask_user` 工具调用。
 
+#### `Agent::Shutdown()`
+
+优雅停止后台 consolidation 线程的公开方法，幂等：
+
+1. 置 `running_ = false`
+2. 取消活跃 worker（`worker_->Cancel()`）
+3. 唤醒条件变量（`cv_.notify_all()`）使 `ConsolidationLoop` 退出等待
+4. `join()` consolidation 线程
+
+析构函数 `~Agent()` 复用 `Shutdown()` 实现。提供独立的公开方法，是为了让应用层
+（经由 `SessionManager::Shutdown()`）在进程退出前确定性地排空后台线程，而不必
+依赖 `shared_ptr<Agent>` 的析构时序——`GetAgent()` 可能已将强引用交给外部调用方，
+其析构时机不可控。`Shutdown()` 可被多次调用：线程一旦 join 完成，后续调用立即返回。
+
 ### 2.3 设计要点
 
 - **非拥有 MemoryRuntime**：`memoryRuntime_` 由 `SessionManager` 拥有，Agent 只持有裸指针。这确保了热重载时 MemoryRuntime 和 ContextEngine 回调的一致性。

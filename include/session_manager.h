@@ -59,6 +59,16 @@ public:
     // Cancel the running agent
     void Cancel();
 
+    // Gracefully stop background work before process exit. Stops the Agent's
+    // consolidation thread (Agent::Shutdown) so it is joined deterministically
+    // rather than at static teardown. Idempotent. Does NOT delete the singleton
+    // itself: the instance is intentionally never freed (see InitSessionManager)
+    // so any reference handed out by GetSessionManager() never dangles; its
+    // memory is reclaimed by the OS at process exit. Callers must ensure all
+    // threads that may call into SessionManager (heartbeat, cron, channels,
+    // HTTP) are stopped before invoking this.
+    void Shutdown();
+
     // Remove a session by ID and delete its data
     void RemoveSession(const std::string& sessionId);
 

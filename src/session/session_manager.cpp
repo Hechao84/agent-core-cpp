@@ -1,5 +1,6 @@
 #include "include/session_manager.h"
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <mutex>
 #include <string>
@@ -15,30 +16,42 @@ namespace fs = std::filesystem;
 namespace jiuwen {
 
 namespace {
-    SessionManager* g_sessionManager = nullptr;
+    std::atomic<SessionManager*> g_sessionManager{nullptr};
     std::mutex g_initMutex;
 }
 
 SessionManager& GetSessionManager()
 {
-    if (!g_sessionManager) {
+    // Lock-free fast path: an acquire-load pairs with the release-store below
+    // so callers observe a fully constructed SessionManager. The pointer is
+    // published exactly once and never reset, so it never dangles.
+    SessionManager* sm = g_sessionManager.load(std::memory_order_acquire);
+    if (!sm) {
         std::lock_guard<std::mutex> lock(g_initMutex);
-        if (!g_sessionManager) {
-            g_sessionManager = new SessionManager();
+        sm = g_sessionManager.load(std::memory_order_relaxed);
+        if (!sm) {
+            sm = new SessionManager();
+            g_sessionManager.store(sm, std::memory_order_release);
         }
     }
-    return *g_sessionManager;
+    return *sm;
 }
 
 void InitSessionManager(const AgentConfig& config)
 {
+    // init-once: the singleton is created at most once and never deleted.
+    // Runtime reconfiguration goes through ReloadAgent(), not by recreating
+    // the SessionManager. Never deleting the instance guarantees the pointer
+    // handed out by GetSessionManager() can never become a dangling
+    // reference. A repeat call (not expected in practice) simply
+    // re-Initialize()s the same instance.
     std::lock_guard<std::mutex> lock(g_initMutex);
-    if (g_sessionManager) {
-        delete g_sessionManager;
-        g_sessionManager = nullptr;
+    SessionManager* sm = g_sessionManager.load(std::memory_order_relaxed);
+    if (!sm) {
+        sm = new SessionManager();
+        g_sessionManager.store(sm, std::memory_order_release);
     }
-    g_sessionManager = new SessionManager();
-    g_sessionManager->Initialize(config);
+    sm->Initialize(config);
 }
 
 namespace {
@@ -380,6 +393,18 @@ void SessionManager::Cancel()
 {
     if (agent_) {
         agent_->Cancel();
+    }
+}
+
+void SessionManager::Shutdown()
+{
+    // Stop the Agent's background consolidation thread so it is joined here
+    // rather than at static teardown. The singleton itself is never deleted
+    // (see InitSessionManager), so we only drain the Agent. Idempotent:
+    // Agent::Shutdown is safe to call repeatedly.
+    std::shared_ptr<Agent> agent = agent_;
+    if (agent) {
+        agent->Shutdown();
     }
 }
 

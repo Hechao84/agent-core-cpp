@@ -42,6 +42,12 @@ public:
     bool IsSessionBusy(const std::string& sessionId) const;
     void Cancel();
 
+    // Stop background work (the consolidation thread) and join it. Idempotent:
+    // safe to call multiple times and is also invoked by the destructor. Lets
+    // the application drain the agent gracefully on shutdown without relying on
+    // the (possibly externally referenced) shared_ptr's destruction timing.
+    void Shutdown();
+
     void AddTools(const std::vector<std::string>& toolNames);
     std::vector<std::string> GetRegisteredTools() const;
 
