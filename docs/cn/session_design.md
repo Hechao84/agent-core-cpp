@@ -98,10 +98,19 @@ struct SessionEntry {
     std::string sessionId;
     std::shared_ptr<ContextEngine> contextEngine;  // 会话独立的上下文引擎
     std::mutex invokeMutex;                        // 每会话串行锁
-    bool isBusy{false};                            // 会话忙碌标志
+    std::atomic<bool> isBusy{false};               // 会话忙碌标志（跨锁读写，需原子）
     std::map<std::string, std::string> metadata;   // 通道、发送者等元数据
 };
 ```
+
+`sessions_` 以 `std::shared_ptr<SessionEntry>` 持有每个条目（而非 `unique_ptr`）。
+这样 `Invoke` 可在 `sessionMutex_` 下取得一份 `shared_ptr` 拷贝、释放锁后再长时间
+持有 `invokeMutex` 执行：即便 `RemoveSession` 在此期间把条目移出 map，`SessionEntry`
+（连同其 `invokeMutex`）也不会被销毁，从而消除并发删除导致的 use-after-free。
+
+`isBusy` 为 `std::atomic<bool>`：写发生在持 `invokeMutex` 的 `Invoke` 路径，读发生在
+持 `sessionMutex_` 的 `RemoveSession`/`IsSessionBusy`——读写用不同的锁，故必须用原子
+类型保证可见性，避免数据竞争。
 
 ### 3.2 会话隔离原则
 
@@ -115,7 +124,7 @@ struct SessionEntry {
 首次 Invoke(sessionId)
   │
   ▼
-FindOrCreateEntry(sessionId)
+FindOrCreateEntry(sessionId)   // 返回 shared_ptr<SessionEntry>
   │  ├── 若 sessionId 已存在 → 返回已有 SessionEntry
   │  └── 若不存在 → 创建新 SessionEntry
   │      ├── 构建 ContextConfig (基于全局 config + sessionId)
@@ -126,16 +135,30 @@ FindOrCreateEntry(sessionId)
   │
   ▼
 会话使用期间
-  │  ├── Invoke → acquire invokeMutex → 执行 → release invokeMutex
+  │  ├── Invoke → 锁内取 shared_ptr<SessionEntry> 拷贝 → 释放 sessionMutex_
+  │  │            → acquire invokeMutex → 执行 → release invokeMutex
   │  ├── ContextEngine 独立管理上下文窗口
   │  └── MemoryRuntime 共享但通过 sessionId 区分数据
   │
   ▼
-RemoveSession(sessionId)
-  │  ├── 移除 SessionEntry
-  │  ├── ContextEngine::Clear() 清除数据
-  │  └── 删除会话数据文件
+RemoveSession(sessionId)   // 软删除
+  │  1. 单段持锁 sessionMutex_：find → 读 isBusy（原子）→ move 出 shared_ptr → erase
+  │     （单一 lock_guard 自动解锁，无手动 unlock、无二次解锁 UB、无 TOCTOU）
+  │  2. 磁盘删除护栏：对移出的 entry->invokeMutex 做非阻塞 try_lock
+  │     ├── 成功（无 in-flight Invoke）→ remove_all(sessionDir)
+  │     └── 失败（正忙）→ 跳过磁盘删除，避免与在途 ContextEngine 写并发
+  │  3. 局部 shared_ptr 析构：若仍有 in-flight Invoke 持引用，真正析构延后到引用归零
 ```
+
+> **删除语义（软删除）**：删除操作总是立即从 map 移除并返回成功，不会因会话忙碌而
+> 阻塞或拒绝（避免“卡死任务删不掉”的体验问题）。`shared_ptr` 延寿保证不崩溃，
+> `try_lock` 护栏避免最危险的“磁盘删除 vs 在途写”并发。
+>
+> **已知残余风险（低概率）**：同一 sessionId 在删除后立即被重建，可能短暂出现两个
+> `SessionEntry` 指向同一磁盘目录并发读写。`RemoveSession` 的唯一入口是 HTTP
+> `DELETE /api/sessions/{id}`，正常用法不会对同一会话并发“删除 + 发消息”，故概率极低。
+> 若将来需要彻底消除，可改为忙碌拒绝（busy-reject）或强制 cancel 后删除。
+
 
 ## 4. 全局并发门控
 

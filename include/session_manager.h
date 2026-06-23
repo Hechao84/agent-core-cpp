@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <map>
@@ -28,7 +29,7 @@ struct SessionEntry
     std::string sessionId;
     std::shared_ptr<ContextEngine> contextEngine;
     std::mutex invokeMutex; // Per-session lock (serializes same-session calls)
-    bool isBusy{false};
+    std::atomic<bool> isBusy{false};
     std::map<std::string, std::string> metadata; // channel, sender, etc.
 };
 
@@ -123,7 +124,7 @@ public:
     static std::string MakeSessionKey(const std::string& channel, const std::string& chatId);
 
 private:
-    SessionEntry* FindOrCreateEntry(const std::string& sessionId);
+    std::shared_ptr<SessionEntry> FindOrCreateEntry(const std::string& sessionId);
     std::shared_ptr<ContextEngine> GetContextEngine(const std::string& sessionId);
     void SetupAgentContextRouting();
     void InitMemoryRuntime();
@@ -143,7 +144,7 @@ private:
 
     // Per-session ContextEngine instances
     mutable std::mutex sessionMutex_;
-    std::unordered_map<std::string, std::unique_ptr<SessionEntry>> sessions_;
+    std::unordered_map<std::string, std::shared_ptr<SessionEntry>> sessions_;
 
     // Global concurrency gate
     mutable std::mutex concurrencyMutex_;

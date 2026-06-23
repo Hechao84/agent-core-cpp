@@ -245,15 +245,15 @@ void SessionManager::SetupAgentContextRouting()
     );
 }
 
-SessionEntry* SessionManager::FindOrCreateEntry(const std::string& sessionId)
+std::shared_ptr<SessionEntry> SessionManager::FindOrCreateEntry(const std::string& sessionId)
 {
     // Caller must hold sessionMutex_
     auto it = sessions_.find(sessionId);
     if (it != sessions_.end()) {
-        return it->second.get();
+        return it->second;
     }
 
-    auto entry = std::make_unique<SessionEntry>();
+    auto entry = std::make_shared<SessionEntry>();
     entry->sessionId = sessionId;
 
     // Build per-session ContextEngine
@@ -296,7 +296,7 @@ SessionEntry* SessionManager::FindOrCreateEntry(const std::string& sessionId)
     }
 
     sessions_[sessionId] = std::move(entry);
-    return sessions_[sessionId].get();
+    return sessions_[sessionId];
 }
 
 SessionInvokeResult SessionManager::Invoke(
@@ -343,7 +343,7 @@ SessionInvokeResult SessionManager::Invoke(
     std::shared_ptr<Agent> agentPtr;
 
     // Find or create session entry
-    SessionEntry* entry = nullptr;
+    std::shared_ptr<SessionEntry> entry;
     {
         std::lock_guard<std::mutex> lock(sessionMutex_);
         entry = FindOrCreateEntry(sessionId);
@@ -433,34 +433,48 @@ void SessionManager::RemoveSession(const std::string& sessionId)
     std::string basePath = config_.dataBasePath.empty() ? "./data" : config_.dataBasePath;
     fs::path sessionDir = fs::path(basePath) / "sessions" / SanitizePathName(sessionId);
 
-    bool isBusy = false;
+    // Single critical section: find -> read isBusy -> erase, all under one
+    // lock_guard (no manual unlock, no TOCTOU). The entry is moved out into a
+    // local shared_ptr so that an in-flight Invoke holding its own copy keeps
+    // the SessionEntry (and its invokeMutex) alive; the real destruction is
+    // deferred until the last reference is released.
+    std::shared_ptr<SessionEntry> removed;
+    bool wasInMemory = false;
     {
         std::lock_guard<std::mutex> lock(sessionMutex_);
         auto it = sessions_.find(sessionId);
         if (it != sessions_.end()) {
-            isBusy = it->second->isBusy;
-        } else {
-            // Session not in memory, but might exist on disk.
-            // Proceed to delete directory if it exists.
+            wasInMemory = true;
+            if (it->second->isBusy.load(std::memory_order_acquire)) {
+                LOG(WARN) << "[SessionManager] Removing busy session (soft delete): " << sessionId;
+            }
+            removed = std::move(it->second);
+            sessions_.erase(it);
+            LOG(INFO) << "[SessionManager] In-memory session removed: " << sessionId;
         }
-        sessionMutex_.unlock();
+        // else: not in memory, but may still exist on disk; fall through.
     }
 
-    if (isBusy) {
-        // Optional: force cancel busy session? For now, just log and delete memory.
-        LOG(WARN) << "[SessionManager] Deleting busy session: " << sessionId;
+    // Disk deletion. Guard against deleting files out from under an in-flight
+    // Invoke that is still writing this session's ContextEngine storage. A
+    // non-blocking try_lock on invokeMutex succeeds only when no Invoke holds
+    // it; otherwise we skip the disk removal (the directory is left for a
+    // later cleanup) rather than racing remove_all against concurrent writes.
+    bool skipDisk = false;
+    if (removed) {
+        if (removed->invokeMutex.try_lock()) {
+            // No in-flight Invoke: safe to delete the directory.
+            removed->invokeMutex.unlock();
+        } else {
+            skipDisk = true;
+            LOG(WARN) << "[SessionManager] Session busy; skipped disk deletion: " << sessionId;
+        }
     }
+    // If it was never in memory (removed == nullptr), there can be no in-flight
+    // Invoke for it, so disk removal is safe.
+    (void)wasInMemory;
 
-    // Remove from in-memory map
-    // We need to lock again to perform erase
-    {
-        std::lock_guard<std::mutex> lock(sessionMutex_);
-        sessions_.erase(sessionId);
-        LOG(INFO) << "[SessionManager] In-memory session removed: " << sessionId;
-    }
-
-    // Remove from disk
-    if (fs::exists(sessionDir)) {
+    if (!skipDisk && fs::exists(sessionDir)) {
         try {
             fs::remove_all(sessionDir);
             LOG(INFO) << "[SessionManager] Session directory deleted: " << sessionDir.string();
@@ -468,6 +482,8 @@ void SessionManager::RemoveSession(const std::string& sessionId)
             LOG(ERR) << "[SessionManager] Failed to delete session directory: " << e.what();
         }
     }
+    // 'removed' is destroyed here; if an in-flight Invoke still references the
+    // SessionEntry, actual destruction is deferred until that reference drops.
 }
 
 std::shared_ptr<ContextEngine> SessionManager::GetOrCreateSession(
