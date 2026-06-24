@@ -135,11 +135,24 @@ private:
     // Shared memory runtime, owned here (not by Agent) so it outlives an
     // Agent hot-reload and keeps the ContextEngine callbacks that capture it
     // valid across a swap.
+    //
+    // LIFETIME CONTRACT: memoryRuntime_ is the sole owner. Several parties hold
+    // NON-OWNING raw MemoryRuntime* into it: Agent::memoryRuntime_, the
+    // ContextEngine memory callbacks (captured per session), ToolBuildContext /
+    // MemoryReadPayloadTool, and WorkerEnv::GetMemoryRuntime(). All of these
+    // must not outlive memoryRuntime_. This is guaranteed two ways:
+    //   1. Declaration order: memoryRuntime_ is declared BEFORE agent_ and
+    //      sessions_, so it is destroyed AFTER them (members destruct in
+    //      reverse declaration order). DO NOT reorder these members.
+    //   2. ~SessionManager() and Shutdown() tear down agent_/sessions_ first.
+    // memoryRuntime_ itself is created once in Initialize() and never rebuilt
+    // (ReloadAgent reuses it), so the raw pointers stay valid across reloads.
     std::unique_ptr<MemoryRuntime> memoryRuntime_;
 
     // Single shared Agent instance. shared_ptr (not unique_ptr) so that
     // GetAgent() can hand a strong reference to callers without risk of
     // dangling across a ReloadAgent swap.
+    // NOTE: declared AFTER memoryRuntime_ on purpose (see lifetime contract).
     std::shared_ptr<Agent> agent_;
 
     // Per-session ContextEngine instances

@@ -98,11 +98,20 @@ SessionManager::SessionManager() = default;
 
 SessionManager::~SessionManager()
 {
+    // Destruction order matters: agent_ and the per-session ContextEngine
+    // callbacks both hold non-owning raw pointers into memoryRuntime_. They
+    // must be torn down before memoryRuntime_ is destroyed. We do that
+    // explicitly here (rather than relying solely on reverse member-decl
+    // order) so the lifetime contract is enforced by code, not just layout.
     if (agent_) {
-        agent_->Cancel();
+        agent_->Shutdown();  // stop the consolidation thread before teardown
     }
-    std::lock_guard<std::mutex> lock(sessionMutex_);
-    sessions_.clear();
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        sessions_.clear();   // drops ContextEngine callbacks capturing memoryRuntime_
+    }
+    agent_.reset();          // drop the Agent (holds a raw MemoryRuntime*)
+    memoryRuntime_.reset();  // now safe: no surviving non-owning reference
 }
 
 void SessionManager::Initialize(const AgentConfig& config)

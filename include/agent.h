@@ -91,6 +91,10 @@ private:
 
     std::unique_ptr<HistoryStore> historyStore_;
     std::unique_ptr<LongTermConsolidator> longTermConsolidator_;
+    // NON-OWNING. Owned by SessionManager::memoryRuntime_, which outlives every
+    // Agent (it is created once and reused across hot-reloads, and destroyed
+    // only after all Agents are torn down). Must never be deleted here. See the
+    // lifetime contract on SessionManager::memoryRuntime_.
     MemoryRuntime* memoryRuntime_{nullptr};
 
     // Session-scoped resources owned by Agent and accessed by AgentWorker

@@ -80,7 +80,7 @@ Agent
 
 ### 2.3 设计要点
 
-- **非拥有 MemoryRuntime**：`memoryRuntime_` 由 `SessionManager` 拥有，Agent 只持有裸指针。这确保了热重载时 MemoryRuntime 和 ContextEngine 回调的一致性。
+- **非拥有 MemoryRuntime**：`memoryRuntime_` 由 `SessionManager` 拥有，Agent 只持有裸指针（non-owning），绝不在 Agent 内释放。生命周期契约：`SessionManager::memoryRuntime_` 是唯一所有者，在 `Initialize()` 中创建一次、热重载时复用、且声明顺序早于 `agent_`/`sessions_`（成员逆序析构 → runtime 最后销毁），并由 `~SessionManager()`/`Shutdown()` 显式先拆 agent_/sessions_ 再销毁 runtime。因此 Agent、ContextEngine 回调、ToolBuildContext 等处的裸指针在其整个有效期内都不会悬空（详见 #5 评审答复）。
 - **contextEngineGetter 函数**：Agent 不直接管理 `ContextEngine`，而是通过回调函数从 `SessionManager` 获取。这个回调在 `SessionManager::Initialize` 时通过 `SetContextEngineGetter` 注入。
 - **SessionActivity 追踪**：Agent 维护每个会话的活跃状态（`isBusy` 标志），用于 ConsolidationLoop 判断哪些会话空闲需要整合。
 

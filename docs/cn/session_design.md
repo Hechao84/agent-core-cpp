@@ -329,6 +329,20 @@ InitMemoryRuntime()
   │          └── 自定义插件实现
 ```
 
+> **生命周期契约（non-owning 裸指针的安全保证）**：`memoryRuntime_`
+> （`unique_ptr`）是唯一所有者，仅在 `Initialize()` 中创建一次，热重载
+> （`ReloadAgent`）复用同一实例、不重建不销毁。多处持有**非拥有裸指针**指向它：
+> `Agent::memoryRuntime_`、各 `ContextEngine` 的记忆回调（按会话捕获）、
+> `ToolBuildContext`/`MemoryReadPayloadTool`、`WorkerEnv::GetMemoryRuntime()`。
+> 这些裸指针不会悬空，由两点保证：
+> 1. **成员声明顺序**：`memoryRuntime_` 声明早于 `agent_`/`sessions_`，成员逆序
+>    析构 → runtime 在它们之后销毁（**不得重排这些成员**）。
+> 2. **显式拆除顺序**：`~SessionManager()` 与 `Shutdown()` 先停 `agent_`、清
+>    `sessions_`（释放捕获 runtime 的回调），最后才 `memoryRuntime_.reset()`。
+>
+> 经此设计，评审 #5 担心的“Agent 析构导致 MemoryRuntime 悬空”不会发生——
+> runtime 的所有权不在 Agent，且其生命周期覆盖所有 Agent 与 in-flight worker。
+
 ### 7.2 SetupAgentContextRouting
 
 为每个已有和新建的 `ContextEngine` 设置 MemoryRuntime 回调：
@@ -360,5 +374,5 @@ SetupAgentContextRouting()
 | `concurrentCount_` | `concurrencyMutex_` + `concurrencyCv_` | Invoke 加减 |
 | `reloading_` | `concurrencyMutex_` + `reloadCv_` | 热重载专用 |
 | `agent_` (shared_ptr) | 原子替换 + shared_ptr 引用计数 | 读多写极少 |
-| `memoryRuntime_` | 构造时设置，之后只读 | 一次写入 |
+| `memoryRuntime_` | 构造时设置，之后只读；声明早于 agent_/sessions_ 保证最后析构 | 一次写入 |
 | SessionEntry::invokeMutex | 每会话独立锁 | 同会话串行 |
