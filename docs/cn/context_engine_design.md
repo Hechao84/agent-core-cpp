@@ -253,7 +253,19 @@ CompressSegment(messages, segment, tokenBudget)
 static int EstimateTokens(const std::string& text);
 ```
 
-使用简单的字符数 / 4 估算（英文约 4 字符 = 1 token，中文约 2 字符 = 1 token）。此估算不精确但足以做预算分配。
+按 **UTF-8 字符类型加权**估算，区分 ASCII 与多字节字符：
+
+- 逐字节遍历 UTF-8 串，按首字节判定每个码点占用的字节数（1/2/3/4 字节）。
+- ASCII（单字节）累计后按 **约 1/4 token/字符** 计费。
+- 非 ASCII 码点（≥2 字节，如 CJK）按 **约 3/4 token/字符** 计费（略微高估，
+  使裁剪倾向于“宁可少装”，避免超出模型上下文窗口）。
+- 即 `tokens ≈ asciiChars/4 + wideChars*3/4`。
+
+> **为何不再用 `length()/4`**：旧公式按字节数估算，一个中文字符占 3 字节、
+> 实际约 0.6–1 token，`/4` 会低估 3–4 倍，导致裁剪器误判“未超限”而放行
+> 过量中文内容，实际发给模型时溢出。加权估算修正了这一偏差（评审 #8）。
+> 该估算仍是启发式、不依赖外部分词器（不引入 tiktoken/icu 重依赖），但足以
+> 做预算分配。
 
 ```cpp
 int CalculateMessageTokens(const Message& msg) const;

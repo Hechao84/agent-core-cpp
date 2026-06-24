@@ -57,21 +57,33 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
 {
     LOG(INFO) << "[React] Starting loop for query length=" << query.length();
 
-    // Load history (already includes the just-added user message) so the
-    // model sees the running conversation.
-    std::vector<Message> msgHistory;
-    if (contextEngine) {
-        msgHistory = contextEngine->GetContextWindow();
-        LOG(INFO) << "[React] Loaded " << msgHistory.size() << " messages from history";
-    }
-
     std::string scratchpad;  // unused under structured mode but kept for BuildPrompt signature
+
+    // msgHistory is refreshed from the ContextEngine at the top of every
+    // iteration rather than accumulated locally. Each iteration persists its
+    // assistant/tool turns via AddMessage(), so the next GetContextWindow()
+    // already reflects them AND applies the context-window limits. This keeps
+    // what we send to the model bounded by maxContextTokens/maxMessages, even
+    // across many tool-calling rounds (previously the local copy grew without
+    // bound and could overflow the model's context). The latest user query is
+    // always retained: it is the start of the most-recent segment, which the
+    // limiter selects first and preserves even when compressing.
+    std::vector<Message> msgHistory;
+    if (!contextEngine) {
+        LOG(ERR) << "[React] No ContextEngine; aborting loop";
+        callback("\n[STATUS] Error: no context engine\n");
+        return "";
+    }
 
     for (int iteration = 0; iteration < config_.maxIterations; ++iteration) {
         if (IsCancelled(myGeneration)) {
             callback("\n[STATUS] Cancelled\n");
             return "";
         }
+
+        msgHistory = contextEngine->GetContextWindow();
+        LOG(INFO) << "[React] Iteration " << (iteration + 1) << ": loaded "
+                  << msgHistory.size() << " messages from context window";
 
         std::string systemPrompt = BuildPrompt("react_system", query, scratchpad, contextEngine);
         callback("\n[STATUS] Thinking... (Iteration " + std::to_string(iteration + 1) + ")\n");
@@ -126,8 +138,7 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
             Message asst;
             asst.role = "assistant";
             asst.content = finalAnswer;
-            msgHistory.push_back(asst);
-            if (contextEngine) contextEngine->AddMessage(asst);
+            contextEngine->AddMessage(asst);
 
             callback("\n[FINAL] " + finalAnswer + "\n");
             return finalAnswer;
@@ -139,8 +150,7 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
         asst.role = "assistant";
         asst.content = resp.content;
         asst.toolCalls = resp.toolCalls;
-        msgHistory.push_back(asst);
-        if (contextEngine) contextEngine->AddMessage(asst);
+        contextEngine->AddMessage(asst);
 
         // Execute each tool call sequentially and emit per-call SSE tags.
         for (const auto& tc : resp.toolCalls) {
@@ -176,11 +186,10 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
                     }
                 }
             }
-            msgHistory.push_back(tool);
-            if (contextEngine) contextEngine->AddMessage(tool);
+            contextEngine->AddMessage(tool);
         }
-        // Loop back: the model will see the just-added tool results on the
-        // next CallModelStream pass.
+        // Loop back: the next iteration reloads the (now-updated, limited)
+        // context window via GetContextWindow().
     }
 
     callback("\n[STATUS] Max iterations reached\n");

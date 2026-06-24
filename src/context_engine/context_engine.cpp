@@ -381,7 +381,42 @@ std::string ContextEngine::GetSessionId() const
 
 int ContextEngine::EstimateTokens(const std::string& text)
 {
-    return static_cast<int>(text.length()) / 4;
+    // Heuristic token estimate that distinguishes ASCII from multi-byte
+    // (UTF-8) characters. The old length/4 rule badly underestimated CJK
+    // text: a Chinese character is 3 UTF-8 bytes but tends to cost ~0.6-1
+    // token, so length/4 (0.25 token/char) could under-count by 3-4x and let
+    // an over-budget context slip through the window limiter.
+    //
+    // We walk the UTF-8 string codepoint by codepoint:
+    //   - ASCII (single-byte) chars are accumulated and charged at ~1/4 token.
+    //   - Each non-ASCII codepoint (>= 2 UTF-8 bytes, e.g. CJK) is charged at
+    //     ~0.75 token, a deliberate slight over-estimate so the limiter errs
+    //     on the side of staying within the model's context window.
+    size_t asciiChars = 0;
+    size_t wideChars = 0;
+    for (size_t i = 0; i < text.size();) {
+        unsigned char c = static_cast<unsigned char>(text[i]);
+        size_t advance = 1;
+        if (c < 0x80) {
+            ++asciiChars;
+        } else if ((c >> 5) == 0x6) {       // 110xxxxx -> 2-byte sequence
+            advance = 2;
+            ++wideChars;
+        } else if ((c >> 4) == 0xE) {       // 1110xxxx -> 3-byte sequence (CJK)
+            advance = 3;
+            ++wideChars;
+        } else if ((c >> 3) == 0x1E) {      // 11110xxx -> 4-byte sequence
+            advance = 4;
+            ++wideChars;
+        } else {
+            // Continuation byte or invalid lead; count defensively as wide.
+            ++wideChars;
+        }
+        i += advance;
+    }
+
+    // asciiChars/4 + wideChars*3/4, using integer math.
+    return static_cast<int>(asciiChars / 4 + (wideChars * 3) / 4);
 }
 
 std::string ContextEngine::LoadMemoryContext() const

@@ -559,3 +559,70 @@ TEST(context_engine, OrphanTrailingAssistantTrimmedOnReload)
 
     fs::remove_all(testDir);
 }
+
+// #8: CJK text must not be under-counted the way length/4 did. With the
+// UTF-8-aware estimator, a window of many Chinese messages under a small token
+// budget should be trimmed to far fewer than the message-count limit, because
+// each Chinese character costs ~0.75 token rather than ~0.25.
+TEST(context_engine, CjkTokenEstimationBoundsWindow)
+{
+    ContextConfig config;
+    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
+    config.maxMessages = 50;
+    config.maxContextTokens = 40; // small budget
+    ContextEngine engine(config);
+    engine.Initialize();
+
+    // Each message: 20 Chinese chars (~15 tokens under the new estimator;
+    // would be only ~5 under the old length/4 since each char is 3 bytes).
+    const std::string zh = "这是一段用于测试的中文消息内容长度二十字"; // 20 CJK chars
+    for (int i = 0; i < 10; ++i) {
+        engine.AddMessage({"user", zh});
+    }
+
+    auto window = engine.GetContextWindow();
+    // Under a 40-token budget with ~15 tokens/message, only a couple messages
+    // can fit. Assert the limiter did not admit anywhere near all 10.
+    TestRunner::AssertTrue(window.size() <= 4,
+        "CJK window must be tightly bounded by token budget");
+    TestRunner::AssertTrue(!window.empty(), "at least the latest message kept");
+}
+
+// #7 mechanism: the latest user query is always retained by GetContextWindow,
+// even when many assistant/tool turns precede it and the budget is tight. This
+// is what makes the worker's per-iteration GetContextWindow refresh safe.
+TEST(context_engine, LatestUserQueryAlwaysRetained)
+{
+    ContextConfig config;
+    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
+    config.maxMessages = 6;
+    config.maxContextTokens = 60;
+    ContextEngine engine(config);
+    engine.Initialize();
+
+    // Simulate a long tool-calling round: user query followed by many
+    // assistant/tool turns that would overflow the budget.
+    engine.AddMessage({"user", "PLEASE_REMEMBER_THIS_QUERY"});
+    for (int i = 0; i < 8; ++i) {
+        Message a; a.role = "assistant"; a.content = "";
+        ToolCall tc; tc.id = "call_" + std::to_string(i); tc.name = "search";
+        tc.argumentsJson = "{\"q\":\"some longer query text number " + std::to_string(i) + "\"}";
+        a.toolCalls.push_back(tc);
+        engine.AddMessage(a);
+        Message t; t.role = "tool"; t.toolCallId = tc.id; t.toolName = "search";
+        t.content = "a fairly long tool observation result body number " + std::to_string(i);
+        engine.AddMessage(t);
+    }
+
+    auto window = engine.GetContextWindow();
+    TestRunner::AssertTrue(!window.empty(), "window not empty");
+    bool hasQuery = false;
+    for (const auto& m : window) {
+        if (m.role == "user" && m.content.find("PLEASE_REMEMBER_THIS_QUERY") != std::string::npos) {
+            hasQuery = true;
+            break;
+        }
+    }
+    TestRunner::AssertTrue(hasQuery,
+        "latest user query must survive context-window trimming/compression");
+}

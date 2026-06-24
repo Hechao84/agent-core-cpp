@@ -151,6 +151,11 @@ ReactLoop(query, contextEngine, callback, myGeneration)
   │  │  │  ├── ApplyContextLimits → 消息分段 + 压缩               │
   │  │  │  ├── 清理孤立消息                                       │
   │  │  │  └── 返回裁剪后的消息列表                               │
+  │  │  │  ※ 每轮迭代都重新获取（而非循环外取一次后本地累加）。   │
+  │  │  │    上一轮的 assistant/tool 已通过 AddMessage 写入引擎，   │
+  │  │  │    故此处天然包含它们且已受 maxContextTokens/maxMessages  │
+  │  │  │    限制——发送给模型的历史不会无界增长。最近一轮用户      │
+  │  │  │    query 位于最新分段起点，裁剪/压缩时被优先保留。        │
   │  │  └───────────────────────────────────────────────────────────┘
   │  │
   │  │  ┌─ Step 3: 构建工具 Schema ─────────────────────────────────┐
