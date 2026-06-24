@@ -18,10 +18,8 @@
 #include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
 #include "src/core/agent_worker.h"
-#include "src/core/ask_user_dispatcher.h"
 #include "src/core/history_store.h"
 #include "src/memory/long_term_consolidator.h"
-#include "src/core/session_todo_list.h"
 #include "src/core/worker_env.h"
 #include "src/skills/skill_engine.h"
 #include "src/tools/builtin_tools/skill_search_tool.h"
@@ -71,30 +69,6 @@ private:
 
 } // namespace
 
-// Private adapter that exposes the per-session resources Agent owns to the
-// AgentWorker without leaking the full Agent type into the worker layer.
-class WorkerEnvImpl : public WorkerEnv {
-public:
-    explicit WorkerEnvImpl(Agent* agent) : agent_(agent) {}
-
-    SessionTodoList* GetOrCreateSessionTodoList(const std::string& sessionId) override
-    {
-        return agent_->GetOrCreateSessionTodoList(sessionId);
-    }
-
-    AskUserDispatcher* GetAskUserDispatcher() override
-    {
-        return agent_->GetAskUserDispatcher();
-    }
-
-    MemoryRuntime* GetMemoryRuntime() override
-    {
-        return agent_->GetMemoryRuntime();
-    }
-private:
-    Agent* agent_;
-};
-
 Agent::Agent(AgentConfig config) : config_(std::move(config))
 {
     std::string dataPath = config_.dataBasePath.empty() ? "./data" : config_.dataBasePath;
@@ -108,12 +82,14 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
         SkillSearchTool::SetEngine(skillEngine_.get());
     }
 
-    askUserDispatcher_ = std::make_unique<AskUserDispatcher>();
-    workerEnv_ = std::make_unique<WorkerEnvImpl>(this);
+    // workerEnv_ is now injected by SessionManager via SetWorkerEnv after
+    // construction, eliminating the WorkerEnv→Agent back-reference.
+    // Session-scoped resources (todoList, askUser) are owned by
+    // SessionEntry, not by Agent.
 
     worker_ = CreateAgentWorker(this->config_);
-    if (worker_) {
-        worker_->SetWorkerEnv(workerEnv_.get());
+    if (workerEnv_) {
+        worker_->SetWorkerEnv(workerEnv_);
     }
     if (skillEngine_) {
         worker_->SetSkillEngine(skillEngine_);
@@ -138,8 +114,6 @@ Agent::~Agent()
 
 void Agent::Shutdown()
 {
-    // Idempotent: once running_ is cleared and the thread joined, subsequent
-    // calls find the thread non-joinable and return immediately.
     running_ = false;
     if (worker_) {
         worker_->Cancel();
@@ -169,6 +143,14 @@ void Agent::SetMemoryRuntime(MemoryRuntime* runtime)
     memoryRuntime_ = runtime;
 }
 
+void Agent::SetWorkerEnv(WorkerEnv* env)
+{
+    workerEnv_ = env;
+    if (worker_) {
+        worker_->SetWorkerEnv(workerEnv_);
+    }
+}
+
 std::string Agent::Invoke(const std::string& sessionId, const std::string& query,
                           std::function<void(const std::string&)> callback)
 {
@@ -187,10 +169,8 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
         return "Error: Session context not found";
     }
 
-    // 1. Mark session as active
     NotifySessionActive(sessionId);
 
-    // 2. Save user query to context (worker will see it via GetContextWindow).
     {
         Message userMsg;
         userMsg.role = "user";
@@ -201,9 +181,6 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
         historyStore_->AppendEntry("user", query, sessionId);
     }
 
-    // 3. Run the worker. The worker is now responsible for persisting any
-    // assistant tool_calls and tool result messages into the ContextEngine
-    // directly; this Agent layer only handles user/final-assistant turns.
     std::string finalAnswer = worker_->Invoke(
         query, contextEngine.get(),
         [callback](const std::string& response) {
@@ -212,16 +189,12 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
             }
         });
 
-    // 5. Save final assistant text into Dream's history store when memory runtime is disabled. The
-    // ContextEngine already received the structured assistant message from the worker, and memory runtime
-    // persists message events when enabled.
     if (!finalAnswer.empty()) {
         if (historyStore_ && !memoryRuntime_) {
             historyStore_->AppendEntry("assistant", finalAnswer, sessionId);
         }
     }
 
-    // 6. Mark session as idle, notify consolidation
     NotifySessionIdle(sessionId);
 
     return finalAnswer;
@@ -281,7 +254,6 @@ int Agent::SyncMcpTools()
     auto currentSet = ResourceManager::GetInstance().GetMcpToolNames();
     std::unordered_set<std::string> desired(currentSet.begin(), currentSet.end());
 
-    // Compute additions: in 'desired' but not yet in ownedMcpTools_
     std::vector<std::string> toAdd;
     for (const auto& name : currentSet) {
         bool owned = std::find(ownedMcpTools_.begin(), ownedMcpTools_.end(), name) != ownedMcpTools_.end();
@@ -290,7 +262,6 @@ int Agent::SyncMcpTools()
         }
     }
 
-    // Compute removals: in ownedMcpTools_ but no longer in 'desired'
     std::vector<std::string> toRemove;
     for (const auto& name : ownedMcpTools_) {
         if (desired.find(name) == desired.end()) {
@@ -298,7 +269,6 @@ int Agent::SyncMcpTools()
         }
     }
 
-    // Apply additions: extend Agent's master list + worker pool
     for (const auto& name : toAdd) {
         if (std::find(toolNames_.begin(), toolNames_.end(), name) == toolNames_.end()) {
             toolNames_.push_back(name);
@@ -309,7 +279,6 @@ int Agent::SyncMcpTools()
         worker_->AddTools(toAdd);
     }
 
-    // Apply removals: shrink Agent's master list + worker pool
     for (const auto& name : toRemove) {
         toolNames_.erase(std::remove(toolNames_.begin(), toolNames_.end(), name), toolNames_.end());
         ownedMcpTools_.erase(std::remove(ownedMcpTools_.begin(), ownedMcpTools_.end(), name), ownedMcpTools_.end());
@@ -344,7 +313,6 @@ void Agent::ConsolidationLoop()
             }
         }
 
-        // Check if any session is idle (not busy) before running Dream
         bool anyIdle = false;
         {
             std::lock_guard<std::mutex> lock(sessionActivityMutex_);
@@ -409,32 +377,6 @@ std::string Agent::GetSkillRootDir() const
         return {};
     }
     return skillEngine_->GetRootDir();
-}
-
-SessionTodoList* Agent::GetOrCreateSessionTodoList(const std::string& sessionId)
-{
-    std::lock_guard<std::mutex> lock(sessionTodosMutex_);
-    auto it = sessionTodos_.find(sessionId);
-    if (it == sessionTodos_.end()) {
-        auto list = std::make_unique<SessionTodoList>();
-        auto* raw = list.get();
-        sessionTodos_[sessionId] = std::move(list);
-        return raw;
-    }
-    return it->second.get();
-}
-
-AskUserDispatcher* Agent::GetAskUserDispatcher()
-{
-    return askUserDispatcher_.get();
-}
-
-bool Agent::ProvideUserResponse(const std::string& requestId, const std::string& answer)
-{
-    if (!askUserDispatcher_) {
-        return false;
-    }
-    return askUserDispatcher_->ProvideResponse(requestId, answer);
 }
 
 } // namespace jiuwen

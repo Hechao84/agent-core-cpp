@@ -26,7 +26,7 @@ AgentWorker
   │  ├── toolNames_ (vector<string>)    ← 注册的工具名称列表
   │  ├── toolSelector_ (unique_ptr<ToolSelector>) ← 工具选择器
   │  ├── skillEngine_ (shared_ptr<SkillEngine>) ← 技能引擎
-  │  ├── workerEnv_ (WorkerEnv*)        ← 环境接口（非拥有）
+  │  ├── workerEnv_ (WorkerEnv*)        ← 环境接口（非拥有，由 SessionManager 注入）
   │  ├── cancelGeneration_ (atomic<uint64_t>) ← 取消代数计数器
   │  ├── toolMutex_ (mutex)             ← 保护工具列表
   │  │
@@ -434,7 +434,7 @@ ExecuteTool(toolName, input, streamCallback)
   │     ├── ResourceManager::HasSessionTool(toolName) → 会话级
   │     │   ├── 构建 ToolBuildContext:
   │     │   │   ├── todoList = workerEnv_->GetOrCreateSessionTodoList(sessionId)
-  │     │   │   ├── askUser = workerEnv_->GetAskUserDispatcher()
+  │     │   │   ├── askUser = workerEnv_->GetAskUserDispatcher(sessionId)
   │     │   │   ├── memoryRuntime = workerEnv_->GetMemoryRuntime()
   │     │   │   ├── streamCallback = 当前的流式回调
   │     │   │   └── sessionId = 当前会话 ID

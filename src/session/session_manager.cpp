@@ -8,6 +8,9 @@
 #include "include/agent.h"
 #include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
+#include "src/core/ask_user_dispatcher.h"
+#include "src/core/session_todo_list.h"
+#include "src/core/worker_env.h"
 #include "src/utils/data_dir.h"
 #include "src/utils/logger.h"
 
@@ -19,6 +22,69 @@ namespace {
     std::atomic<SessionManager*> g_sessionManager{nullptr};
     std::mutex g_initMutex;
 }
+
+// WorkerEnv adapter that resolves session-scoped resources through
+// SessionManager. This eliminates the AgentWorker → WorkerEnv → Agent
+// back-reference cycle: the worker only depends on the
+// WorkerEnv interface, and this implementation routes via SessionManager
+// which owns SessionEntry (todoList, askUser) and memoryRuntime.
+class SmWorkerEnv : public WorkerEnv {
+public:
+    explicit SmWorkerEnv(SessionManager* sm) : sm_(sm) {}
+
+    SessionTodoList* GetOrCreateSessionTodoList(const std::string& sessionId) override
+    {
+        std::lock_guard<std::mutex> lock(sm_->sessionMutex_);
+        auto it = sm_->sessions_.find(sessionId);
+        if (it == sm_->sessions_.end() || !it->second) {
+            return nullptr;
+        }
+        if (!it->second->todoList) {
+            it->second->todoList = std::make_unique<SessionTodoList>();
+        }
+        return it->second->todoList.get();
+    }
+
+    AskUserDispatcher* GetAskUserDispatcher(const std::string& sessionId) override
+    {
+        std::lock_guard<std::mutex> lock(sm_->sessionMutex_);
+        auto it = sm_->sessions_.find(sessionId);
+        if (it == sm_->sessions_.end() || !it->second) {
+            return nullptr;
+        }
+        return it->second->askUser.get();
+    }
+
+    MemoryRuntime* GetMemoryRuntime() override
+    {
+        return sm_->memoryRuntime_.get();
+    }
+
+private:
+    SessionManager* sm_;
+};
+
+// AskUserRouter adapter: routes registration calls from AskUserDispatcher
+// into SessionManager's requestId→sessionId index.
+class SmAskUserRouter : public AskUserRouter {
+public:
+    explicit SmAskUserRouter(SessionManager* sm) : sm_(sm) {}
+
+    void RegisterAskRequest(const std::string& requestId, const std::string& sessionId) override
+    {
+        std::lock_guard<std::mutex> lock(sm_->askIndexMutex_);
+        sm_->askRequestToSession_[requestId] = sessionId;
+    }
+
+    void UnregisterAskRequest(const std::string& requestId) override
+    {
+        std::lock_guard<std::mutex> lock(sm_->askIndexMutex_);
+        sm_->askRequestToSession_.erase(requestId);
+    }
+
+private:
+    SessionManager* sm_;
+};
 
 SessionManager& GetSessionManager()
 {
@@ -147,9 +213,16 @@ void SessionManager::Initialize(const AgentConfig& config)
     // can be wired immediately.
     InitMemoryRuntime();
 
+    // Create the AskUserRouter and WorkerEnv adapters. These resolve
+    // session-scoped resources through SessionManager, eliminating the
+    // WorkerEnv→Agent back-reference cycle.
+    askRouter_ = std::make_unique<SmAskUserRouter>(this);
+    workerEnv_ = std::make_unique<SmWorkerEnv>(this);
+
     // Create the single shared Agent
     agent_ = std::make_shared<Agent>(config_);
     agent_->SetMemoryRuntime(memoryRuntime_.get());
+    agent_->SetWorkerEnv(workerEnv_.get());
 
     // Register default tools
     if (!config_.defaultTools.empty()) {
@@ -264,6 +337,9 @@ std::shared_ptr<SessionEntry> SessionManager::FindOrCreateEntry(const std::strin
 
     auto entry = std::make_shared<SessionEntry>();
     entry->sessionId = sessionId;
+
+    entry->todoList = std::make_unique<SessionTodoList>();
+    entry->askUser = std::make_unique<AskUserDispatcher>(sessionId, askRouter_.get());
 
     // Build per-session ContextEngine
     ContextConfig ctxConfig = config_.contextConfig;
@@ -542,6 +618,36 @@ std::string SessionManager::MakeSessionKey(const std::string& channel, const std
     return channel + "_" + chatId;
 }
 
+bool SessionManager::ProvideUserResponse(const std::string& requestId, const std::string& answer)
+{
+    // Step 1: look up which session this requestId belongs to.
+    std::string sessionId;
+    {
+        std::lock_guard<std::mutex> lock(askIndexMutex_);
+        auto it = askRequestToSession_.find(requestId);
+        if (it == askRequestToSession_.end()) {
+            return false;
+        }
+        sessionId = it->second;
+    }
+
+    // Step 2: find the session entry and forward to its dispatcher.
+    std::shared_ptr<SessionEntry> entry;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        auto it = sessions_.find(sessionId);
+        if (it == sessions_.end() || !it->second) {
+            return false;
+        }
+        entry = it->second;
+    }
+
+    if (!entry->askUser) {
+        return false;
+    }
+    return entry->askUser->ProvideResponse(requestId, answer);
+}
+
 bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* errorOut)
 {
     if (!initialized_) {
@@ -577,6 +683,9 @@ bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* erro
         // Reuse the existing shared memory runtime so the ContextEngine
         // callbacks captured for live sessions stay valid across the swap.
         newAgent->SetMemoryRuntime(memoryRuntime_.get());
+        // Inject the SessionManager-owned WorkerEnv so the worker can resolve
+        // session-scoped resources without a back-reference to Agent.
+        newAgent->SetWorkerEnv(workerEnv_.get());
         if (!effective.defaultTools.empty()) {
             newAgent->AddTools(effective.defaultTools);
         }

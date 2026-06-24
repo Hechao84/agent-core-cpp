@@ -85,7 +85,7 @@ std::vector<ToolSchema> AgentWorker::BuildToolSchemas() const
     ctx.sessionId = config_.contextConfig.sessionId;
     if (workerEnv_ != nullptr) {
         ctx.todoList = workerEnv_->GetOrCreateSessionTodoList(ctx.sessionId);
-        ctx.askUser = workerEnv_->GetAskUserDispatcher();
+        ctx.askUser = workerEnv_->GetAskUserDispatcher(ctx.sessionId);
     }
     return ResourceManager::GetInstance().BuildToolSchemas(names, ctx);
 }
@@ -243,7 +243,7 @@ std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::str
             ctx.streamCallback = streamCallback;
             if (workerEnv_ != nullptr) {
                 ctx.todoList = workerEnv_->GetOrCreateSessionTodoList(ctx.sessionId);
-                ctx.askUser = workerEnv_->GetAskUserDispatcher();
+                ctx.askUser = workerEnv_->GetAskUserDispatcher(ctx.sessionId);
                 ctx.memoryRuntime = workerEnv_->GetMemoryRuntime();
             }
             tool = rm.CreateSessionTool(toolName, ctx);

@@ -18,6 +18,10 @@ namespace jiuwen {
 
 class Agent;
 class ContextEngine;
+class SessionTodoList;
+class AskUserDispatcher;
+class AskUserRouter;
+class WorkerEnv;
 
 // Reserved session IDs for internal use
 inline constexpr char kDefaultSessionId[] = "__DEFAULT__";
@@ -28,6 +32,8 @@ struct SessionEntry
 {
     std::string sessionId;
     std::shared_ptr<ContextEngine> contextEngine;
+    std::unique_ptr<SessionTodoList> todoList;
+    std::unique_ptr<AskUserDispatcher> askUser;
     std::mutex invokeMutex; // Per-session lock (serializes same-session calls)
     std::atomic<bool> isBusy{false};
     std::map<std::string, std::string> metadata; // channel, sender, etc.
@@ -123,11 +129,20 @@ public:
     // Generate a session key from channel + chatId
     static std::string MakeSessionKey(const std::string& channel, const std::string& chatId);
 
+    // Resolve a pending ask_user request by requestId. Routes the answer
+    // to the correct session's AskUserDispatcher regardless of whether
+    // the Agent has been hot-reloaded. Returns true if the requestId
+    // matched a pending slot.
+    bool ProvideUserResponse(const std::string& requestId, const std::string& answer);
+
 private:
     std::shared_ptr<SessionEntry> FindOrCreateEntry(const std::string& sessionId);
     std::shared_ptr<ContextEngine> GetContextEngine(const std::string& sessionId);
     void SetupAgentContextRouting();
     void InitMemoryRuntime();
+
+    friend class SmWorkerEnv;
+    friend class SmAskUserRouter;
 
     AgentConfig config_;
     bool initialized_{false};
@@ -168,6 +183,21 @@ private:
     // Reload barrier: when set, new Invoke calls wait until clear.
     bool reloading_{false};
     std::condition_variable reloadCv_;
+
+    // requestId → sessionId index for routing ask_user responses.
+    // Populated when AskUserDispatcher::EmitAskUser fires, cleared on
+    // ProvideResponse or timeout (WaitForResponse cleanup).
+    mutable std::mutex askIndexMutex_;
+    std::unordered_map<std::string, std::string> askRequestToSession_;
+
+    // WorkerEnv implementation that resolves session-scoped resources
+    // via SessionManager (eliminates WorkerEnv→Agent back-reference).
+    // Defined in session_manager.cpp as a private adapter class.
+    std::unique_ptr<WorkerEnv> workerEnv_;
+
+    // AskUserRouter implementation that routes requestId registration
+    // into the askRequestToSession_ index. Defined in session_manager.cpp.
+    std::unique_ptr<AskUserRouter> askRouter_;
 };
 
 // Global singleton

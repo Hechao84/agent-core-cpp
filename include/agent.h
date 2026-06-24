@@ -22,9 +22,7 @@ class ContextEngine;
 class SkillEngine;
 class HistoryStore;
 class LongTermConsolidator;
-class SessionTodoList;
-class AskUserDispatcher;
-class WorkerEnvImpl;
+class WorkerEnv;
 
 struct SessionActivity
 {
@@ -58,12 +56,6 @@ public:
     const std::vector<std::string>& GetMcpServerIds() const { return config_.mcpServerIds; }
     int SyncMcpTools();
 
-    // Resolve a pending ask_user request. Called by application-layer
-    // adapters (HTTP, CLI, channel bridges) after they collected the user's
-    // answer for a particular request id emitted via the [ASK_USER] tag.
-    // Returns true if the request id matched a pending slot.
-    bool ProvideUserResponse(const std::string& requestId, const std::string& answer);
-
     void NotifySessionIdle(const std::string& sessionId);
     void NotifySessionActive(const std::string& sessionId);
 
@@ -71,6 +63,11 @@ public:
     // SessionManager so the runtime (and the ContextEngine callbacks that
     // capture it) survive an Agent hot-reload.
     void SetMemoryRuntime(MemoryRuntime* runtime);
+
+    // Inject the WorkerEnv that resolves session-scoped resources via
+    // SessionManager. Called by SessionManager after Agent construction
+    // eliminates WorkerEnv→Agent back-reference.
+    void SetWorkerEnv(WorkerEnv* env);
 private:
     AgentConfig config_;
     std::unique_ptr<AgentWorker> worker_;
@@ -97,16 +94,11 @@ private:
     // lifetime contract on SessionManager::memoryRuntime_.
     MemoryRuntime* memoryRuntime_{nullptr};
 
-    // Session-scoped resources owned by Agent and accessed by AgentWorker
-    // through the private WorkerEnv adapter.
-    std::unordered_map<std::string, std::unique_ptr<SessionTodoList>> sessionTodos_;
-    mutable std::mutex sessionTodosMutex_;
-    std::unique_ptr<AskUserDispatcher> askUserDispatcher_;
-    std::unique_ptr<WorkerEnvImpl> workerEnv_;
-
-    SessionTodoList* GetOrCreateSessionTodoList(const std::string& sessionId);
-    AskUserDispatcher* GetAskUserDispatcher();
-    friend class WorkerEnvImpl;
+    // NON-OWNING. Owned by SessionManager::workerEnv_, injected after Agent
+    // construction. The worker resolves session-scoped resources (todoList,
+    // askUser, memoryRuntime) via this interface without back-referencing
+    // Agent (cycle elimination).
+    WorkerEnv* workerEnv_{nullptr};
 
     mutable std::mutex sessionActivityMutex_;
     std::unordered_map<std::string, SessionActivity> sessionActivity_;

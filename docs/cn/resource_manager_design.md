@@ -128,7 +128,7 @@ BuildToolSchemas(["read_file", "todo_create"], ctx)
 
 ### 4.1 设计意图
 
-`ToolBuildContext` 是会话级工具的**依赖注入桥**，将 `Agent` 拥有的会话级资源通过 `WorkerEnv` 接口传递到工具实例。
+`ToolBuildContext` 是会话级工具的**依赖注入桥**，将 `SessionEntry` 拥有的会话级资源通过 `WorkerEnv` → `SmWorkerEnv` → SessionManager 传递到工具实例。依赖链为 `AgentWorker → WorkerEnv(SmWorkerEnv) → SessionManager → SessionEntry`，`WorkerEnv` 不反向引用 Agent。
 
 ### 4.2 填充流程
 
@@ -139,7 +139,7 @@ ReactAgentWorker::ExecuteTool(toolName, input, streamCallback)
   │  ├── ResourceManager::HasSessionTool(toolName)
   │  │   ├── 构建 ToolBuildContext:
   │  │   │   ├── todoList = workerEnv_->GetOrCreateSessionTodoList(sessionId)
-  │  │   │   ├── askUser = workerEnv_->GetAskUserDispatcher()
+  │  │   │   ├── askUser = workerEnv_->GetAskUserDispatcher(sessionId)
   │  │   │   ├── memoryRuntime = workerEnv_->GetMemoryRuntime()
   │  │   │   ├── streamCallback = 当前的流式回调
   │  │   │   └── sessionId = 当前会话 ID

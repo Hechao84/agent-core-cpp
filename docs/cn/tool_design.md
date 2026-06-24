@@ -153,7 +153,9 @@ tool->Invoke(input);  // 操作会话的任务列表
 
 ### 4.4 AskUserTool
 
-`AskUserTool` 是最复杂的会话级工具，实现了**异步问答**模式：
+`AskUserTool` 是最复杂的会话级工具，实现了**异步问答**模式。
+
+`AskUserDispatcher` 是会话级资源（随 `SessionEntry` 存活），构造时带上 `sessionId` 和 `AskUserRouter*`。`EmitAskUser` 注册 requestId→sessionId 索引（通过 `AskUserRouter`），使 `SessionManager::ProvideUserResponse(requestId, answer)` 能路由到正确会话，即使 Agent 已被热重载。
 
 ```
 AskUserTool::Invoke(input)
@@ -161,11 +163,21 @@ AskUserTool::Invoke(input)
   │  2. 生成 requestId
   │  3. askUser_->EmitAskUser(requestId, payload, streamCallback)
   │     ├── 注册 Slot (条件变量 + 可选答案)
+  │     ├── AskUserRouter::RegisterAskRequest(requestId, sessionId)
   │     └── 发送 [ASK_USER] 标记到流式回调
   │  4. askUser_->WaitForResponse(requestId, timeout)
   │     ├── 阻塞等待 (条件变量)
+  │     ├── 完成或超时后 AskUserRouter::UnregisterAskRequest(requestId)
   │     └── 超时返回 nullopt → 工具返回超时消息
   │  5. 收到 answer → 返回答案字符串
+```
+
+应用层回应路由：
+```
+POST /api/answer → SessionManager::ProvideUserResponse(requestId, answer)
+  │  1. 查 askRequestToSession_ 索引 → 得到 sessionId
+  │  2. 查 sessions_ → 得到 SessionEntry->askUser
+  │  3. SessionEntry->askUser->ProvideResponse(requestId, answer)
 ```
 
 ### 4.5 MemoryReadPayloadTool

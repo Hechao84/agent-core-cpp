@@ -1001,7 +1001,7 @@ void HttpServer::Start(const HttpServerConfig& config)
             }
             bool ok = false;
             if (auto liveAgent = GetSessionManager().GetAgent()) {
-                ok = liveAgent->ProvideUserResponse(requestId, answer);
+                ok = GetSessionManager().ProvideUserResponse(requestId, answer);
             }
             nlohmann::json result;
             result["ok"] = ok;

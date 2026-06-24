@@ -29,10 +29,8 @@ Agent
  ├── skillEngine_ (shared_ptr<SkillEngine>)  ← 技能发现
  ├── historyStore_ (unique_ptr<HistoryStore>) ← 遗留历史
  ├── longTermConsolidator_ (unique_ptr<LongTermConsolidator>) ← 遗留整合
- ├── memoryRuntime_ (MemoryRuntime*)         ← 非拥有，来自 SessionManager
- ├── sessionTodos_ (map<sid, unique_ptr<SessionTodoList>>) ← 会话任务
- ├── askUserDispatcher_ (unique_ptr<AskUserDispatcher>) ← 问答调度
- ├── workerEnv_ (unique_ptr<WorkerEnvImpl>) ← Worker 环境适配
+  ├── memoryRuntime_ (MemoryRuntime*)               ← 非拥有，来自 SessionManager（跨热重载存活）
+  ├── workerEnv_ (WorkerEnv*)                      ← 非拥有，来自 SessionManager（消环）
  ├── consolidationThread_ (std::thread)      ← 后台整合线程
  ├── contextEngineGetter_ (function)         ← 从 SessionManager 获取 ContextEngine
  └── sessionActivity_ (map<sid, SessionActivity>) ← 会话活跃状态
@@ -60,9 +58,9 @@ Agent
 3. 否则，调用 `longTermConsolidator_->Run(model, historyStore)`
 4. 循环继续，直到 `running_` 标志变为 false
 
-#### `Agent::ProvideUserResponse(requestId, answer)`
+#### `SessionManager::ProvideUserResponse(requestId, answer)` （原 `Agent::ProvideUserResponse`）
 
-转发到 `AskUserDispatcher::ProvideResponse`，唤醒阻塞的 `ask_user` 工具调用。
+`SessionManager::ProvideUserResponse(requestId, answer)` 通过 `askRequestToSession_` 索引（requestId → sessionId）定位到正确 `SessionEntry` 的 `AskUserDispatcher::ProvideResponse`，唤醒阻塞的 `ask_user` 工具调用。此设计确保 ask_user 请求在 Agent 热重载后仍可路由到正确会话、实现交互可接续。
 
 #### `Agent::Shutdown()`
 
@@ -148,7 +146,7 @@ AgentWorker
 
 `ToolBuildContext` 由 `WorkerEnv` 提供的会话级资源构建：
 - `todoList` → `WorkerEnv::GetOrCreateSessionTodoList(sessionId)`
-- `askUser` → `WorkerEnv::GetAskUserDispatcher()`
+- `askUser` → `WorkerEnv::GetAskUserDispatcher(sessionId)`
 - `memoryRuntime` → `WorkerEnv::GetMemoryRuntime()`
 - `streamCallback` → 来自调用者的流式回调
 - `sessionId` → 当前会话 ID
@@ -157,7 +155,7 @@ AgentWorker
 
 ### 4.1 设计动机
 
-`AgentWorker` 需要访问 `Agent` 拥有的会话级资源（`SessionTodoList`、`AskUserDispatcher`、`MemoryRuntime`），但直接依赖 `Agent` 类会造成循环依赖。`WorkerEnv` 接口将这种依赖抽象化。
+`AgentWorker` 需要访问会话级资源（`SessionTodoList`、`AskUserDispatcher`、`MemoryRuntime`），但直接依赖 `Agent` 类会造成循环依赖（`AgentWorker → WorkerEnv → Agent`）。`WorkerEnv` 接口将这种依赖抽象化，实现由 SessionManager 提供，资源存储在 `SessionEntry` 中，消除循环引用且保证跨热重载存活。
 
 ### 4.2 接口定义
 
@@ -166,32 +164,34 @@ class WorkerEnv {
 public:
     virtual ~WorkerEnv() = default;
     virtual SessionTodoList* GetOrCreateSessionTodoList(const std::string& sessionId) = 0;
-    virtual AskUserDispatcher* GetAskUserDispatcher() = 0;
+    virtual AskUserDispatcher* GetAskUserDispatcher(const std::string& sessionId) = 0;
     virtual MemoryRuntime* GetMemoryRuntime() = 0;
 };
 ```
 
+> `GetAskUserDispatcher` 签名为 `const std::string& sessionId`，因为 `AskUserDispatcher` 是会话级资源（随 `SessionEntry` 存活），而非 Agent 级单例。
+
 ### 4.3 实现
 
-`WorkerEnvImpl` 是 `Agent` 的私有内部类，通过 `friend` 关系转发到 `Agent` 的对应方法：
+`SmWorkerEnv`（定义在 `session_manager.cpp`）通过 `SessionManager` 按 sessionId 查找 `SessionEntry`，获取其 `todoList`、`askUser`，以及全局 `memoryRuntime_`。Agent 持有非拥有 `WorkerEnv*`，由 SessionManager 在 Initialize/ReloadAgent 时通过 `Agent::SetWorkerEnv` 注入。
 
 ```cpp
-class WorkerEnvImpl : public WorkerEnv {
-    Agent* owner_;
+class SmWorkerEnv : public WorkerEnv {
+    SessionManager* sm_;
 public:
-    SessionTodoList* GetOrCreateSessionTodoList(const std::string& sid) override {
-        return owner_->GetOrCreateSessionTodoList(sid);
+    SessionTodoList* GetOrCreateSessionTodoList(const std::string& sessionId) override {
+        // 通过 sm_->sessionMutex_ 查找 SessionEntry->todoList
     }
-    AskUserDispatcher* GetAskUserDispatcher() override {
-        return owner_->GetAskUserDispatcher();
+    AskUserDispatcher* GetAskUserDispatcher(const std::string& sessionId) override {
+        // 通过 sm_->sessionMutex_ 查找 SessionEntry->askUser
     }
     MemoryRuntime* GetMemoryRuntime() override {
-        return owner_->GetMemoryRuntime();
+        return sm_->memoryRuntime_.get();
     }
 };
 ```
 
-这种设计遵循了**接口隔离原则（ISP）**，`AgentWorker` 只依赖它真正需要的三个方法，而不依赖 `Agent` 的完整接口。
+依赖链为 `AgentWorker → WorkerEnv(SmWorkerEnv) → SessionManager → SessionEntry`，Agent 不被反向引用。
 
 ## 5. AskUserDispatcher 异步问答
 
@@ -284,8 +284,8 @@ struct TodoItem {
 
 ### 6.5 生命周期管理
 
-- `Agent` 维护 `sessionTodos_` map（sessionId → `unique_ptr<SessionTodoList>`）
-- `WorkerEnv::GetOrCreateSessionTodoList(sessionId)` 按需创建
+- `SessionEntry` 维护 `todoList`（`unique_ptr<SessionTodoList>`），随会话存活、跨热重载保留
+- `WorkerEnv::GetOrCreateSessionTodoList(sessionId)` 通过 SessionManager 查找 SessionEntry
 - `TodoCreateTool` / `TodoCompleteTool` / 等会话级工具通过 `ToolBuildContext` 获取指针
 
 ## 7. HistoryStore 追加式历史存储

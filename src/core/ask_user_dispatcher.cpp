@@ -30,6 +30,9 @@ void AskUserDispatcher::EmitAskUser(const std::string& requestId, const std::str
                                      const StreamCallback& streamCallback)
 {
     GetOrCreateSlot(requestId);
+    if (router_) {
+        router_->RegisterAskRequest(requestId, sessionId_);
+    }
     if (streamCallback) {
         std::string tag = "\n[ASK_USER]" + payloadJson + "[/ASK_USER]\n";
         streamCallback(tag);
@@ -53,6 +56,9 @@ std::optional<std::string> AskUserDispatcher::WaitForResponse(const std::string&
     {
         std::lock_guard<std::mutex> sl(slotsMu_);
         slots_.erase(requestId);
+    }
+    if (router_) {
+        router_->UnregisterAskRequest(requestId);
     }
     return result;
 }

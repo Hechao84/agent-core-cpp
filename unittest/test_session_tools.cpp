@@ -1,7 +1,8 @@
-
+ 
 #include <chrono>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "include/resource_manager.h"
@@ -134,4 +135,41 @@ TEST(session_tools, DispatcherTimeout)
     AskUserDispatcher dispatcher;
     auto missing = dispatcher.WaitForResponse("req-never", std::chrono::seconds(1));
     TestRunner::AssertFalse(missing.has_value(), "dispatcher returns nullopt on timeout");
+}
+
+TEST(session_tools, DispatcherWithRouterRegistersRequestId)
+{
+    class TestRouter : public AskUserRouter {
+    public:
+        void RegisterAskRequest(const std::string& requestId, const std::string& sessionId) override
+        {
+            registry[requestId] = sessionId;
+        }
+        void UnregisterAskRequest(const std::string& requestId) override
+        {
+            registry.erase(requestId);
+        }
+        std::unordered_map<std::string, std::string> registry;
+    };
+
+    TestRouter router;
+    AskUserDispatcher dispatcher("sess-42", &router);
+    std::string captured;
+    auto stream = [&captured](const std::string& s) { captured += s; };
+
+    std::thread provider([&dispatcher]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        dispatcher.ProvideResponse("req-r1", "answer-r1");
+    });
+
+    dispatcher.EmitAskUser("req-r1", R"({"question":"x","request_id":"req-r1"})", stream);
+    TestRunner::AssertTrue(router.registry.count("req-r1") > 0, "requestId registered in router");
+    TestRunner::AssertEq(router.registry["req-r1"], std::string("sess-42"), "correct sessionId in router");
+
+    auto ans = dispatcher.WaitForResponse("req-r1", std::chrono::seconds(2));
+    provider.join();
+
+    TestRunner::AssertTrue(ans.has_value(), "dispatcher returns value with router");
+    TestRunner::AssertEq(*ans, std::string("answer-r1"), "dispatcher returns correct answer");
+    TestRunner::AssertTrue(router.registry.count("req-r1") == 0, "requestId unregistered after completion");
 }

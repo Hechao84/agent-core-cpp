@@ -97,11 +97,19 @@ consolidation 线程（调用 `Agent::Shutdown()` → 置 `running_=false` →
 struct SessionEntry {
     std::string sessionId;
     std::shared_ptr<ContextEngine> contextEngine;  // 会话独立的上下文引擎
+    std::unique_ptr<SessionTodoList> todoList;      // 会话独立的任务列表
+    std::unique_ptr<AskUserDispatcher> askUser;     // 会话独立的问答调度器
     std::mutex invokeMutex;                        // 每会话串行锁
     std::atomic<bool> isBusy{false};               // 会话忙碌标志（跨锁读写，需原子）
     std::map<std::string, std::string> metadata;   // 通道、发送者等元数据
 };
 ```
+
+> `todoList` 和 `askUser` 随 `SessionEntry` 存活、由 SessionManager 拥有，与 `contextEngine` 归属一致。
+> 这两项会话级资源现在随 `SessionEntry` 存活，与 `contextEngine` 归属一致，在
+> Agent 热重载（`ReloadAgent`）后保留。`AskUserDispatcher` 持有 `sessionId_` 和
+> `AskUserRouter*`，在 EmitAskUser 时注册 requestId→sessionId 索引，确保用户
+> 回答在热重载后仍可路由到正确会话。
 
 `sessions_` 以 `std::shared_ptr<SessionEntry>` 持有每个条目（而非 `unique_ptr`）。
 这样 `Invoke` 可在 `sessionMutex_` 下取得一份 `shared_ptr` 拷贝、释放锁后再长时间

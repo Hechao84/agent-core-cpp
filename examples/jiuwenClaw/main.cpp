@@ -310,7 +310,7 @@ void RunCliMode()
                                         answer = ans.dump();
                                     }
                                     if (auto agent = GetSessionManager().GetAgent()) {
-                                        agent->ProvideUserResponse(requestId, answer);
+                                        GetSessionManager().ProvideUserResponse(requestId, answer);
                                     }
                                 }).detach();
                             }
