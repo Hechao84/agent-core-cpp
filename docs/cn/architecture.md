@@ -112,7 +112,7 @@ MCP ─── Model Context Protocol 集成                         │
   │
   ▼
 SessionManager::Invoke(sessionId, message, callback)
-  │  1. 获取并发许可 (AcquireConcurrency)
+  │  1. 入口内联门控: 等待 !reloading_ + 并发槽位
   │  2. 查找/创建 SessionEntry → ContextEngine
   │  3. 获取 Agent (shared_ptr，热重载安全)
   │
@@ -207,7 +207,7 @@ DreamProcessor::Run(model, historyStore)
 ```
 全局并发门控 (SessionManager)
   │  maxConcurrentSessions 限制同时执行的 Invoke 数量
-  │  AcquireConcurrency() / ReleaseConcurrency()
+  │  Invoke 入口内联门控 + releaseGate 释放（无独立 Acquire/Release 方法）
   │  热重载屏障: reloading_ flag + reloadCv_
   │
   ▼

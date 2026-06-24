@@ -634,18 +634,4 @@ bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* erro
     return true;
 }
 
-void SessionManager::AcquireConcurrency()
-{
-    std::unique_lock<std::mutex> lock(concurrencyMutex_);
-    concurrencyCv_.wait(lock, [this](){ return concurrentCount_ < maxConcurrent_; });
-    ++concurrentCount_;
-}
-
-void SessionManager::ReleaseConcurrency()
-{
-    std::lock_guard<std::mutex> lock(concurrencyMutex_);
-    --concurrentCount_;
-    concurrencyCv_.notify_one();
-}
-
 } // namespace jiuwen

@@ -378,10 +378,10 @@ SessionManager ─────────────────────�
   │              [=](event){ memoryRuntime->AppendEvent(event) })  │
   │                                                                │
   │  Invoke(sessionId, message, callback)                          │
-  │  ├── AcquireConcurrency()                                      │
+  │  ├── 入口内联门控: 等待 !reloading_ + 并发槽位, ++count       │
   │  ├── GetOrCreateSession → ContextEngine                        │
   │  ├── agent_->Invoke(sessionId, message, callback)              │
-  │  └── ReleaseConcurrency()                                      │
+  │  └── releaseGate(): --count + 通知 concurrency/reload          │
   │                                                                │
   │  ReloadAgent(newConfig)                                        │
   │  ├── 设置屏障，排空并发                                         │

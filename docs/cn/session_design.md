@@ -168,18 +168,29 @@ RemoveSession(sessionId)   // 软删除
 
 ### 4.2 实现机制
 
-```
-AcquireConcurrency()
-  │  ├── lock(concurrencyMutex_)
-  │  ├── while (concurrentCount_ >= maxConcurrent_ && maxConcurrent_ > 0)
-  │  │   └── concurrencyCv_.wait()
-  │  └── concurrentCount_++
+并发门控与热重载屏障**内联实现在 `Invoke()` 的入口**（一把 `concurrencyMutex_`
+同时管理两者），不再有独立的 Acquire/Release 方法。进入时：
 
-ReleaseConcurrency()
-  │  ├── lock(concurrencyMutex_)
-  │  ├── concurrentCount_--
-  │  └── concurrencyCv_.notify_all()
 ```
+Invoke 入口（持 concurrencyMutex_）
+  │  ├── reloadCv_.wait(lock, !reloading_)          ← 热重载期间阻塞新 Invoke
+  │  ├── 若 maxConcurrent_ > 0:
+  │  │   └── concurrencyCv_.wait(lock,
+  │  │         !reloading_ && concurrentCount_ < maxConcurrent_)  ← 等待空闲槽位
+  │  └── ++concurrentCount_
+```
+
+退出时由 `releaseGate` lambda 统一释放（正常返回、异常、提前返回三条路径共用）：
+
+```
+releaseGate()（持 concurrencyMutex_）
+  │  ├── 若 concurrentCount_ > 0 → --concurrentCount_
+  │  ├── concurrencyCv_.notify_all()   ← 唤醒等待槽位的 Invoke
+  │  └── reloadCv_.notify_all()        ← 唤醒等待排空的 ReloadAgent
+```
+
+> `concurrentCount_` 既作并发计数，也作热重载的 drain 计数：它始终等于“已进入
+> 门控、尚未 releaseGate”的 Invoke 数，与 `maxConcurrent_` 是否启用无关。
 
 ### 4.3 与热重载屏障的协作
 
@@ -187,23 +198,15 @@ ReleaseConcurrency()
 
 ```
 ReloadAgent(newConfig)
-  │  ├── lock(concurrencyMutex_)
-  │  ├── reloading_ = true
-  │  ├── while (concurrentCount_ > 0)
-  │  │   └── concurrencyCv_.wait()  ← 等待所有 Invoke 完成
-  │  ├── ... 构建新 Agent ...
-  │  ├── reloading_ = false
-  │  └── concurrencyCv_.notify_all() ← 释放阻塞的 Invoke
+  │  ├── lock(concurrencyMutex_); reloading_ = true   ← 升起屏障
+  │  ├── concurrencyCv_.wait(concurrentCount_ == 0)   ← 等待所有 Invoke 排空
+  │  ├── ... 构建并原子替换新 Agent ...
+  │  ├── reloading_ = false                            ← 落下屏障
+  │  └── reloadCv_/concurrencyCv_.notify_all()         ← 释放阻塞的 Invoke
 ```
 
-`AcquireConcurrency` 在获取许可前也会检查 `reloading_` 标志：
-
-```
-AcquireConcurrency()
-  │  ├── while (reloading_)
-  │  │   └── concurrencyCv_.wait()  ← 热重载期间阻塞新 Invoke
-  │  ├── ... 正常获取许可 ...
-```
+由于门控逻辑内联在 `Invoke` 中、且谓词同时包含 `!reloading_`，新 Invoke 在
+热重载期间必然阻塞，保证 drain 不被绕过。
 
 ## 5. 会话键派生
 
@@ -301,12 +304,12 @@ ReloadAgent(newConfig, errorOut)
 ```
 调用者 A (正在执行 Invoke)
   │  ├── 持有 agent_ 的 shared_ptr (旧 Agent)
-  │  ├── 执行完成 → ReleaseConcurrency()
+  │  ├── 执行完成 → releaseGate() 递减 concurrentCount_
   │  └── shared_ptr 释放后旧 Agent 销毁
 
 调用者 B (等待 Invoke)
-  │  ├── AcquireConcurrency() 被阻塞 (reloading_ == true)
-  │  ├── 热重载完成 → 获取许可
+  │  ├── Invoke 入口门控被阻塞 (reloading_ == true)
+  │  ├── 热重载完成 → 通过门控
   │  ├── GetAgent() 返回新 Agent 的 shared_ptr
   │  └── 正常执行
 ```

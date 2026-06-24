@@ -165,9 +165,6 @@ private:
     int concurrentCount_{0};
     int maxConcurrent_{0};
 
-    void AcquireConcurrency();
-    void ReleaseConcurrency();
-
     // Reload barrier: when set, new Invoke calls wait until clear.
     bool reloading_{false};
     std::condition_variable reloadCv_;
