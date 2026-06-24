@@ -123,7 +123,7 @@ Agent::Invoke(sessionId, query, callback)
   │
   ▼
 ReactAgentWorker::Invoke(query, contextEngine, callback)
-  │  1. StartNewInvocation() → 获取 generation counter
+  │  1. CurrentCancelGeneration() → 获取 generation counter
   │  2. 进入 ReactLoop()
   │
   ▼
@@ -228,8 +228,8 @@ DreamProcessor::Run(model, historyStore)
 
 `AgentWorker::Cancel()` 通过递增 `cancelGeneration_` 实现：
 
-- 每次 `StartNewInvocation()` 返回当前 generation 值（不递增）
-- `IsCancelled(myGeneration)` 检查 `cancelGeneration_ >= myGeneration + 100`
+- 每次 `CurrentCancelGeneration()` 返回当前 generation 值（不递增），作为本次 invocation 的基线快照
+- `IsCancelled(myGeneration)` 检查 `cancelGeneration_ > myGeneration`（已取消返回 true）
 - 取消时递增 100，确保所有正在运行的 invocation 都失效
 - 不同会话共享同一 worker，但各自持有不同的 generation，因此一次取消不会影响其他会话
 

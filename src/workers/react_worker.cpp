@@ -68,7 +68,7 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
     std::string scratchpad;  // unused under structured mode but kept for BuildPrompt signature
 
     for (int iteration = 0; iteration < config_.maxIterations; ++iteration) {
-        if (!IsCancelled(myGeneration)) {
+        if (IsCancelled(myGeneration)) {
             callback("\n[STATUS] Cancelled\n");
             return "";
         }
@@ -88,7 +88,7 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
             callback("\n[STATUS] " + resp.content + "\n");
             return "";
         }
-        if (resp.finishReason == "cancelled" || !IsCancelled(myGeneration)) {
+        if (resp.finishReason == "cancelled" || IsCancelled(myGeneration)) {
             callback("\n[STATUS] Cancelled\n");
             return "";
         }
@@ -190,7 +190,7 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
 std::string ReactAgentWorker::Invoke(const std::string& query, ContextEngine* contextEngine,
                                       std::function<void(const std::string&)> callback)
 {
-    uint64_t myGeneration = StartNewInvocation();
+    uint64_t myGeneration = CurrentCancelGeneration();
     return ReactLoop(query, contextEngine, std::move(callback), myGeneration);
 }
 

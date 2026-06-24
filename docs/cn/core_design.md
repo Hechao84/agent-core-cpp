@@ -112,7 +112,7 @@ AgentWorker
  │   GetToolSchemaForQuery(query)
  │   GetTodoSnippet()
  │   IsCancelled(myGeneration)
- │   StartNewInvocation()
+ │   CurrentCancelGeneration()
 ```
 
 ### 3.3 CallModelStream

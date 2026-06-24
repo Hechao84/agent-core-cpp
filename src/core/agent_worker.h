@@ -61,11 +61,16 @@ protected:
     std::string ExecuteTool(const std::string& toolName, const std::string& input,
                             const std::function<void(const std::string&)>& streamCallback);
     std::string GetToolSchemaForQuery(const std::string& query);
+    // Returns true when the invocation identified by myGeneration has been
+    // cancelled (i.e. Cancel() advanced cancelGeneration_ past myGeneration).
     bool IsCancelled(uint64_t myGeneration) const;
 
     std::string GetTodoSnippet() const;
 
-    std::uint64_t StartNewInvocation();
+    // Snapshot the current cancel generation to use as this invocation's
+    // baseline. Does NOT increment - the counter only moves on Cancel() - so
+    // concurrent invocations sharing this worker are not invalidated.
+    std::uint64_t CurrentCancelGeneration();
 };
 
 std::unique_ptr<AgentWorker> CreateAgentWorker(AgentConfig config);

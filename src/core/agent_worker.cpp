@@ -96,7 +96,7 @@ ModelResponse AgentWorker::CallModelStream(const std::string& systemPrompt,
                                             uint64_t generation)
 {
     ModelResponse out;
-    if (!IsCancelled(generation)) {
+    if (IsCancelled(generation)) {
         out.finishReason = "cancelled";
         out.isFinished = true;
         return out;
@@ -284,19 +284,21 @@ std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
     return schema;
 }
 
-uint64_t AgentWorker::StartNewInvocation()
+uint64_t AgentWorker::CurrentCancelGeneration()
 {
     // Return the current generation value without incrementing.
     // Incrementing a global counter for every new request would invalidate
     // all other concurrently running sessions sharing this worker.
     // Cancellation is still supported because Cancel() jumps the counter by 100,
-    // making all current myGeneration values smaller than cancelGeneration_.
+    // making cancelGeneration_ exceed every prior myGeneration snapshot.
     return cancelGeneration_.load(std::memory_order_relaxed);
 }
 
 bool AgentWorker::IsCancelled(uint64_t myGeneration) const
 {
-    return cancelGeneration_.load(std::memory_order_relaxed) <= myGeneration;
+    // True once Cancel() has advanced cancelGeneration_ past this invocation's
+    // baseline snapshot. Name and return value agree: cancelled => true.
+    return cancelGeneration_.load(std::memory_order_relaxed) > myGeneration;
 }
 
 } // namespace jiuwen

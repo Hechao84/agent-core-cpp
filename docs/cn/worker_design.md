@@ -41,7 +41,7 @@ AgentWorker
   │  │   GetToolSchemaForQuery(query)
   │  │   GetTodoSnippet()
   │  │   IsCancelled(myGeneration)
-  │  │   StartNewInvocation()
+  │  │   CurrentCancelGeneration()
 ```
 
 ### 2.3 模板方法模式
@@ -57,7 +57,7 @@ AgentWorker
 ```cpp
 void Cancel();
 bool IsCancelled(uint64_t myGeneration) const;
-uint64_t StartNewInvocation();
+uint64_t CurrentCancelGeneration();
 ```
 
 取消机制基于**代数计数器（generation counter）**：
@@ -67,19 +67,19 @@ Cancel()
   │  cancelGeneration_ += 100
   │  ← 递增 100，使所有正在运行的 invocation 失效
 
-StartNewInvocation()
+CurrentCancelGeneration()
   │  return cancelGeneration_.load()
-  │  ← 返回当前值（不递增）
+  │  ← 返回当前值（不递增），作为本次 invocation 的基线快照
 
 IsCancelled(myGeneration)
-  │  return cancelGeneration_.load() >= myGeneration + 100
-  │  ← 检查是否被取消
+  │  return cancelGeneration_.load() > myGeneration
+  │  ← 名实相符：已取消返回 true
 ```
 
 **为什么递增 100？**
 
 - 一次 `Cancel` 使所有当前 invocation 失效
-- 递增 100 确保即使有多次 `StartNewInvocation`（每次返回同一值），也能正确失效
+- 递增 100 确保即使有多次 `CurrentCancelGeneration`（每次返回同一值），也能正确失效
 - 不同会话共享同一 worker，但各自持有不同的 generation 值
 - 一次会话的取消不会影响其他正在进行的会话（它们的 generation 值不同）
 
@@ -87,13 +87,13 @@ IsCancelled(myGeneration)
 
 ```
 ReactAgentWorker::Invoke
-  │  myGeneration = StartNewInvocation()
+  │  myGeneration = CurrentCancelGeneration()
   │  ReactLoop(query, contextEngine, callback, myGeneration)
   │    │  每次迭代检查:
-  │    │  ├── IsCancelled(myGeneration) → 中止循环
-  │    │  └── CallModelStream 中在 onChunk 回调中检查取消
+  │    │  ├── IsCancelled(myGeneration) 为真 → 中止循环
+  │    │  └── CallModelStream 中检查取消
   │    │      ├── 若已取消 → 停止处理流式数据
-  │    │      └── 返回空 ModelResponse
+  │    │      └── 返回 cancelled ModelResponse
 ```
 
 ## 3. ReactAgentWorker ReAct 循环
@@ -121,7 +121,7 @@ private:
 
 ```
 ReactAgentWorker::Invoke(query, contextEngine, callback)
-  │  1. myGeneration = StartNewInvocation()
+  │  1. myGeneration = CurrentCancelGeneration()
   │  2. 返回 ReactLoop(query, contextEngine, callback, myGeneration)
 ```
 
