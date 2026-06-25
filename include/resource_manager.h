@@ -51,8 +51,6 @@ public:
     std::unique_ptr<Tool> CreateSessionTool(const std::string& name, const ToolBuildContext& ctx);
     bool HasSessionTool(const std::string& name) const;
     std::vector<std::string> GetAvailableSessionToolNames() const;
-    std::string GetSessionToolSchema(const std::string& name);
-
     std::unique_ptr<Tool> CreateTool(const std::string& name);
     std::string GetToolSchema(const std::string& name);
     std::unique_ptr<Model> CreateModel(const ModelConfig& config);
@@ -103,11 +101,19 @@ private:
 
     // Tool domain (toolMutex_)
     std::unordered_map<std::string, std::function<std::unique_ptr<Tool>()>> toolFactories_;
-    std::unordered_map<std::string, std::string> toolSchemas_;
     std::unordered_map<std::string, SessionToolFactory> sessionToolFactories_;
-    std::unordered_map<std::string, std::string> sessionToolSchemas_;
-    std::unordered_map<std::string, ToolSchema> toolSchemaCache_;
     std::unordered_set<std::string> mcpToolNames_;
+
+    // promptSchemas_ caches the human-readable text produced by
+    // Tool::GetSchema(), used in the fallback (prompt-only) mode where
+    // tool signatures are embedded into the system prompt via {$tools}.
+    std::unordered_map<std::string, std::string> promptSchemas_;
+
+    // functionCallSchemas_ caches the structured ToolSchema (name +
+    // description + JSON Schema parameters) used in native
+    // function-calling mode where schemas are serialized into the
+    // HTTP request body's "tools" field.
+    std::unordered_map<std::string, ToolSchema> functionCallSchemas_;
 
     // Model domain (modelMutex_)
     std::unordered_map<ModelFormatType, std::function<std::unique_ptr<Model>(const ModelConfig&)>> modelFactories_;

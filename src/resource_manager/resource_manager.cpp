@@ -117,16 +117,16 @@ void ResourceManager::RegisterTool(const std::string& name, std::function<std::u
 {
     std::lock_guard<std::mutex> lock(toolMutex_);
     toolFactories_[name] = std::move(factory);
-    toolSchemas_.erase(name);
-    toolSchemaCache_.erase(name);
+    promptSchemas_.erase(name);
+    functionCallSchemas_.erase(name);
 }
 
 void ResourceManager::RegisterSessionTool(const std::string& name, SessionToolFactory factory)
 {
     std::lock_guard<std::mutex> lock(toolMutex_);
     sessionToolFactories_[name] = std::move(factory);
-    sessionToolSchemas_.erase(name);
-    toolSchemaCache_.erase(name);
+    promptSchemas_.erase(name);
+    functionCallSchemas_.erase(name);
 }
 
 std::unique_ptr<Tool> ResourceManager::CreateSessionTool(const std::string& name, const ToolBuildContext& ctx)
@@ -160,29 +160,40 @@ std::vector<std::string> ResourceManager::GetAvailableSessionToolNames() const
     return out;
 }
 
-std::string ResourceManager::GetSessionToolSchema(const std::string& name)
+std::string ResourceManager::GetToolSchema(const std::string& name)
 {
     {
         std::lock_guard<std::mutex> lock(toolMutex_);
-        auto it = sessionToolSchemas_.find(name);
-        if (it != sessionToolSchemas_.end()) {
+        auto it = promptSchemas_.find(name);
+        if (it != promptSchemas_.end()) {
             return it->second;
         }
     }
-    SessionToolFactory factory;
+
+    // Create a probe instance outside the lock to get the human-readable
+    // schema text (used in fallback / prompt-only mode). Works for all
+    // tool types (stateless, session-scoped, MCP) — the caller no longer
+    // needs to distinguish between HasSessionTool and HasTool.
+    std::unique_ptr<Tool> probe;
     {
         std::lock_guard<std::mutex> lock(toolMutex_);
-        auto it = sessionToolFactories_.find(name);
-        if (it == sessionToolFactories_.end()) {
-            throw std::runtime_error("Session tool not found: " + name);
+        auto sit = sessionToolFactories_.find(name);
+        if (sit != sessionToolFactories_.end()) {
+            ToolBuildContext probeCtx;
+            probe = sit->second(probeCtx);
+        } else {
+            auto tit = toolFactories_.find(name);
+            if (tit != toolFactories_.end()) {
+                probe = tit->second();
+            } else {
+                throw std::runtime_error("Tool not found: " + name);
+            }
         }
-        factory = it->second;
     }
-    ToolBuildContext probeCtx;
-    auto probe = factory(probeCtx);
+
     std::string schema = probe->GetSchema();
     std::lock_guard<std::mutex> lock(toolMutex_);
-    sessionToolSchemas_[name] = schema;
+    promptSchemas_[name] = schema;
     return schema;
 }
 
@@ -193,7 +204,6 @@ std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std:
     schemas.reserve(toolNames.size());
 
     for (const auto& name : toolNames) {
-        // Step 1: check cache + determine tool kind in one lock acquisition
         ToolSchema cachedSchema;
         bool hasCache = false;
         bool isSession = false;
@@ -203,8 +213,8 @@ std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std:
 
         {
             std::lock_guard<std::mutex> lock(toolMutex_);
-            auto cached = toolSchemaCache_.find(name);
-            if (cached != toolSchemaCache_.end()) {
+            auto cached = functionCallSchemas_.find(name);
+            if (cached != functionCallSchemas_.end()) {
                 cachedSchema = cached->second;
                 hasCache = true;
             } else {
@@ -230,7 +240,6 @@ std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std:
             continue;
         }
 
-        // Step 2: create probe outside the lock
         std::unique_ptr<Tool> probe;
         try {
             if (isSession) {
@@ -248,10 +257,9 @@ std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std:
         s.description = probe->GetDescription();
         s.parameters = probe->GetJsonSchema();
 
-        // Step 3: write to cache under the lock
         {
             std::lock_guard<std::mutex> lock(toolMutex_);
-            toolSchemaCache_[name] = s;
+            functionCallSchemas_[name] = s;
         }
         schemas.push_back(std::move(s));
     }
@@ -398,8 +406,8 @@ void ResourceManager::UnregisterMcpTool(const std::string& name)
     std::lock_guard<std::mutex> lock(toolMutex_);
     mcpToolNames_.erase(name);
     toolFactories_.erase(name);
-    toolSchemas_.erase(name);
-    toolSchemaCache_.erase(name);
+    promptSchemas_.erase(name);
+    functionCallSchemas_.erase(name);
 }
 
 std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
@@ -416,23 +424,6 @@ std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
         factory = it->second;
     }
     return factory();
-}
-
-std::string ResourceManager::GetToolSchema(const std::string& name)
-{
-    {
-        std::lock_guard<std::mutex> lock(toolMutex_);
-        auto it = toolSchemas_.find(name);
-        if (it != toolSchemas_.end()) {
-            return it->second;
-        }
-    }
-
-    auto tool = CreateTool(name);
-    std::string schema = tool->GetSchema();
-    std::lock_guard<std::mutex> lock(toolMutex_);
-    toolSchemas_[name] = schema;
-    return schema;
 }
 
 std::unique_ptr<Model> ResourceManager::CreateModel(const ModelConfig& config)

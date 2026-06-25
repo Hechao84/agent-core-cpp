@@ -265,16 +265,13 @@ std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::str
 
 std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
 {
-    // TODO: Bypass tool selection for now; dump all registered tools into prompt.
     (void)query;
     std::lock_guard<std::mutex> lock(toolMutex_);
     auto& rm = ResourceManager::GetInstance();
     std::string schema;
     for (const auto& name : toolNames_) {
         try {
-            if (rm.HasSessionTool(name)) {
-                schema += rm.GetSessionToolSchema(name) + "\n\n";
-            } else if (rm.HasTool(name)) {
+            if (rm.HasTool(name) || rm.HasSessionTool(name)) {
                 schema += rm.GetToolSchema(name) + "\n\n";
             }
         } catch (const std::exception& e) {

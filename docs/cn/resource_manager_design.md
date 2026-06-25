@@ -18,7 +18,7 @@ static ResourceManager& GetInstance();
 
 ```
 ResourceManager
- ├── toolMutex_ (工具域：toolFactories_ + sessionToolFactories_ + schema 缓存 + mcpToolNames_)
+ ├── toolMutex_ (工具域：toolFactories_ + sessionToolFactories_ + promptSchemas_ + functionCallSchemas_ + mcpToolNames_)
  ├── modelMutex_ (模型域：modelFactories_ + providerModelFactories_)
  ├── memoryMutex_ (内存域：memoryFactories_)
  ├── mcpMutex_ (MCP 域：mcpServers_)
@@ -28,9 +28,8 @@ ResourceManager
  │   │   ← 无状态工具工厂
  │   ├── sessionToolFactories_ (map<string, SessionToolFactory>)
  │   │   ← 会话级工具工厂 (function<unique_ptr<Tool>(ToolBuildContext)>)
- │   ├── toolSchemas_ (map<string, string>) ← 无状态工具 JSON Schema 缓存
- │   ├── sessionToolSchemas_ (map<string, string>) ← 会话级工具 Schema 缓存
- │   ├── toolSchemaCache_ (map<string, ToolSchema>) ← 结构化 Schema 缓存
+  │   ├── promptSchemas_ (map<string, string>) ← fallback 模式的人类可读文本 Schema 缓存
+  │   ├── functionCallSchemas_ (map<string, ToolSchema>) ← 原生 function-calling 结构化 Schema 缓存
  │   └── mcpToolNames_ (unordered_set<string>) ← MCP 工具名称集合
  │
  ├── 模型注册表 (两层)
@@ -65,15 +64,15 @@ ResourceManager
 void RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory);
 ```
 
-工厂函数无参数，每次调用创建一个全新的工具实例。注册时同时缓存其 JSON Schema：
+工厂函数无参数，每次调用创建一个全新的工具实例。注册时同时失效两份缓存（promptSchemas_ + functionCallSchemas_），后续按需重新填充。
 
 ```
 RegisterTool("read_file", []() -> unique_ptr<Tool> {
     return make_unique<ReadFileTool>();
 })
   │  ├── toolFactories_["read_file"] = factory
-  │  ├── toolSchemaCache_["read_file"] = 构建并缓存 ToolSchema
-  │  └── toolSchemas_["read_file"] = Schema JSON 字符串
+   │  ├── functionCallSchemas_["read_file"] = 构建并缓存 ToolSchema（原生 function-calling）
+   │  └── promptSchemas_["read_file"] = 构建并缓存文本 Schema（fallback prompt 嵌入）
 ```
 
 ### 3.3 会话级工具注册
@@ -121,9 +120,9 @@ CreateSessionTool("todo_create", ctx)
 BuildToolSchemas(["read_file", "todo_create"], ctx)
    │  ├── 对每个工具名:
    │  │   ├── lock(toolMutex_) → 查 cache + 判定类型（session/stateless/未知） → unlock
-   │  │   ├── 若有缓存 → 直接返回
-   │  │   ├── 锁外创建 probe（拷贝的 factory 在锁外调用）
-   │  │   ├── lock(toolMutex_) → 写入 toolSchemaCache_ → unlock
+    │  │   ├── 若有缓存 → 直接返回
+    │  │   ├── 锁外创建 probe（拷贝的 factory 在锁外调用）
+    │  │   ├── lock(toolMutex_) → 写入 functionCallSchemas_ → unlock
    │  │   └── 返回 ToolSchema
    │  └── 返回 vector<ToolSchema>
 ```
@@ -345,3 +344,5 @@ UnregisterMCPServer(id)
 `GetAvailableTools()` 等查询方法获取对应域的锁，遍历注册表期间阻塞同域的注册/注销但不影响其他域。
 
 MCP 工具名集合（`mcpToolNames_`）属于 tool 域（`toolMutex_`），MCP 连接实例（`mcpServers_`）属于 MCP 域（`mcpMutex_`）。两者独立，不互相阻塞。
+
+两份 schema 缓存服务不同运行时模式：`promptSchemas_` 缓存 `Tool::GetSchema()` 的人类可读文本（用于 fallback 模式的 prompt 嵌入），`functionCallSchemas_` 缓存 `ToolSchema` 结构化对象（用于原生 function-calling 模式的 HTTP 请求体）。注册/注销时统一失效两份缓存。`GetToolSchema(name)` 统一查 `promptSchemas_`，覆盖所有工具类型（无状态、会话级、MCP），不再需要调用方区分工具类型。
