@@ -371,4 +371,7 @@ MCP 工具列表在服务器连接时一次性发现。如需更新：
 | MCPConnection::availableTools_ | stateMutex_ | 工具列表 |
 | MCPConnection::CallTool | callMutex_ | 工具调用串行化 |
 | MCPConfigManager::lastConfigs_/servers_ | mutex_ | 配置和连接池 |
-| ResourceManager 注册表 | mutex_ | 工具注册/注销 |
+| ResourceManager 工具域 | toolMutex_ | 工具注册/注销 + schema 缓存 + MCP 工具名 |
+| ResourceManager 模型域 | modelMutex_ | 模型注册/注销 |
+| ResourceManager 内存域 | memoryMutex_ | MemoryRuntime 注册 |
+| ResourceManager MCP 域 | mcpMutex_ | MCP 连接实例注册/查询 |

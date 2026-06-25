@@ -18,7 +18,10 @@ static ResourceManager& GetInstance();
 
 ```
 ResourceManager
- ├── mutex_ (保护所有注册表操作)
+ ├── toolMutex_ (工具域：toolFactories_ + sessionToolFactories_ + schema 缓存 + mcpToolNames_)
+ ├── modelMutex_ (模型域：modelFactories_ + providerModelFactories_)
+ ├── memoryMutex_ (内存域：memoryFactories_)
+ ├── mcpMutex_ (MCP 域：mcpServers_)
  │
  ├── 工具注册表 (两层)
  │   ├── toolFactories_ (map<string, function<unique_ptr<Tool>()>>)
@@ -96,30 +99,33 @@ struct ToolBuildContext {
 
 ```
 CreateTool("read_file")
-  │  ├── lock(mutex_)
-  │  ├── 查找 toolFactories_["read_file"]
-  │  ├── factory() → 创建新 ReadFileTool
-  │  └── 返回 unique_ptr<Tool>
+   │  ├── lock(toolMutex_)
+   │  ├── 查找 toolFactories_["read_file"] → 拷贝 factory 到局部变量
+   │  ├── unlock(toolMutex_)
+   │  ├── factory() → 锁外创建新 ReadFileTool
+   │  └── 返回 unique_ptr<Tool>
 
 CreateSessionTool("todo_create", ctx)
-  │  ├── lock(mutex_)
-  │  ├── 查找 sessionToolFactories_["todo_create"]
-  │  ├── factory(ctx) → 创建 TodoCreateTool(ctx.todoList)
-  │  └── 返回 unique_ptr<Tool>
+   │  ├── lock(toolMutex_)
+   │  ├── 查找 sessionToolFactories_["todo_create"] → 拷贝 factory 到局部变量
+   │  ├── unlock(toolMutex_)
+   │  ├── factory(ctx) → 锁外创建 TodoCreateTool(ctx.todoList)
+   │  └── 返回 unique_ptr<Tool>
 ```
 
 ### 3.5 Schema 构建
 
-`BuildToolSchemas(toolNames, ctx)` 为指定工具列表构建结构化 Schema：
+`BuildToolSchemas(toolNames, ctx)` 为指定工具列表构建结构化 Schema。每个工具的流程合并了 cache 查找 + 类型判定（一次锁获取）+ 锁外 probe 创建 + cache 写入（一次锁获取）：
 
 ```
 BuildToolSchemas(["read_file", "todo_create"], ctx)
-  │  ├── 对每个工具名:
-  │  │   ├── 无状态工具 → CreateTool(name) → tool->GetJsonSchema() → 释放工具
-  │  │   ├── 会话级工具 → CreateSessionTool(name, ctx) → tool->GetJsonSchema() → 释放工具
-  │  │   ├── MCP 工具 → GetMCPServer → 获取 MCPToolInfo → 构建 Schema
-  │  │   └── 未知工具 → 跳过
-  │  └── 返回 vector<ToolSchema>
+   │  ├── 对每个工具名:
+   │  │   ├── lock(toolMutex_) → 查 cache + 判定类型（session/stateless/未知） → unlock
+   │  │   ├── 若有缓存 → 直接返回
+   │  │   ├── 锁外创建 probe（拷贝的 factory 在锁外调用）
+   │  │   ├── lock(toolMutex_) → 写入 toolSchemaCache_ → unlock
+   │  │   └── 返回 ToolSchema
+   │  └── 返回 vector<ToolSchema>
 ```
 
 注意：Schema 构建时创建临时工具实例仅用于获取 Schema，然后立即释放。会话级工具的 Schema 与具体 `ToolBuildContext` 无关，只需要一个探测实例。
@@ -181,15 +187,17 @@ void RegisterModel(const std::string& provider, function<unique_ptr<Model>(Model
 
 ```
 CreateModel(config)
-  │  ├── 若 config.provider 非空:
-  │  │   ├── 查找 providerModelFactories_[config.provider]
-  │  │   ├── 若找到 → 使用 provider 工厂创建
-  │  │   └── 若未找到 → 回退到 formatType 工厂
-  │  │
-  │  └── 若 config.provider 为空:
-  │  │   ├── 查找 modelFactories_[config.formatType]
-  │  │   └── 若找到 → 使用 formatType 工厂创建
-  │  │   └── 若未找到 → 报错
+   │  ├── lock(modelMutex_) → 查找 factory → 拷贝到局部变量 → unlock
+   │  ├── 若 config.provider 非空:
+   │  │   ├── 查找 providerModelFactories_[config.provider]
+   │  │   ├── 若找到 → 拷贝 factory
+   │  │   └── 若未找到 → 回退到 formatType 工厂
+   │  │
+   │  └── 若 config.provider 为空:
+   │  │   ├── 查找 modelFactories_[config.formatType]
+   │  │   ├── 若找到 → 拷贝 factory
+   │  │   └── 若未找到 → 报错
+   │  └── 锁外调用 factory(config) → 返回 Model 实例
 ```
 
 这种双路由设计允许用户在同一个 formatType 下注册不同的 provider 实现，处理各厂商的协议差异。
@@ -332,8 +340,8 @@ UnregisterMCPServer(id)
 
 ## 9. 线程安全
 
-所有注册表操作在 `mutex_` 保护下执行。创建操作（`CreateTool`、`CreateSessionTool`、`CreateModel`、`CreateMemoryRuntime`）也需要加锁，因为它们读取工厂 map。但创建出的实例本身不需要锁——每个实例是独立的，只被一个调用者使用。
+四把域级锁（`toolMutex_`、`modelMutex_`、`memoryMutex_`、`mcpMutex_`）独立保护各自注册表，tool 注册不阻塞 model 创建。创建操作（`CreateTool`、`CreateSessionTool`、`CreateModel`、`CreateMemoryRuntime`）在锁内查找 factory 并拷贝到局部变量，锁外调用 factory 创建实例，确保构造（可能较慢）不阻塞注册表。
 
-`GetAvailableTools()`、`GetAvailableModels()` 等查询方法也需要加锁，因为它们遍历注册表。
+`GetAvailableTools()` 等查询方法获取对应域的锁，遍历注册表期间阻塞同域的注册/注销但不影响其他域。
 
-MCP 相关操作（`LoadMCPServers`、`RegisterMCPServer`、`UnregisterMCPServer`）涉及多个注册表的修改，在同一个锁范围内完成。
+MCP 工具名集合（`mcpToolNames_`）属于 tool 域（`toolMutex_`），MCP 连接实例（`mcpServers_`）属于 MCP 域（`mcpMutex_`）。两者独立，不互相阻塞。

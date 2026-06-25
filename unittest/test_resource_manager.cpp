@@ -1,8 +1,12 @@
-
+ 
 // Dummy tool for ResourceManager tests
 
+#include <atomic>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 #include "include/model.h"
 #include "include/resource_manager.h"
@@ -114,4 +118,51 @@ TEST(resource_manager, MCPFunctionsDontCrash)
     auto& rm = ResourceManager::GetInstance();
     auto servers = rm.GetAvailableMCPServers();
     TestRunner::AssertTrue(rm.HasMCPServer("nonexistent") == false);
+}
+
+TEST(resource_manager, ConcurrentDomainLocksNoDeadlock)
+{
+    auto& rm = ResourceManager::GetInstance();
+    std::atomic<int> toolOps{0};
+    std::atomic<int> modelOps{0};
+    std::mutex startMu;
+    std::condition_variable startCv;
+    bool started = false;
+
+    auto toolThread = std::thread([&]() {
+        {
+            std::unique_lock<std::mutex> lk(startMu);
+            startCv.wait(lk, [&]{ return started; });
+        }
+        for (int i = 0; i < 50; ++i) {
+            rm.HasTool("time_info");
+            rm.GetAvailableTools();
+            rm.GetToolSchema("time_info");
+            toolOps++;
+        }
+    });
+
+    auto modelThread = std::thread([&]() {
+        {
+            std::unique_lock<std::mutex> lk(startMu);
+            startCv.wait(lk, [&]{ return started; });
+        }
+        for (int i = 0; i < 50; ++i) {
+            rm.HasModel(ModelFormatType::OPENAI);
+            rm.GetAvailableModels();
+            modelOps++;
+        }
+    });
+
+    {
+        std::lock_guard<std::mutex> lk(startMu);
+        started = true;
+    }
+    startCv.notify_all();
+
+    toolThread.join();
+    modelThread.join();
+
+    TestRunner::AssertEq(toolOps.load(), 50, "50 tool operations completed without deadlock");
+    TestRunner::AssertEq(modelOps.load(), 50, "50 model operations completed without deadlock");
 }

@@ -94,19 +94,29 @@ private:
     void RegisterBuiltinModels();
     void RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory);
 
-    mutable std::mutex mutex_;
+    // Domain-level mutexes: tool, model, memory, and MCP server registries
+    // are independently protected so they do not block each other.
+    mutable std::mutex toolMutex_;
+    mutable std::mutex modelMutex_;
+    mutable std::mutex memoryMutex_;
+    mutable std::mutex mcpMutex_;
+
+    // Tool domain (toolMutex_)
     std::unordered_map<std::string, std::function<std::unique_ptr<Tool>()>> toolFactories_;
     std::unordered_map<std::string, std::string> toolSchemas_;
     std::unordered_map<std::string, SessionToolFactory> sessionToolFactories_;
     std::unordered_map<std::string, std::string> sessionToolSchemas_;
-
-    // Structured (native function-calling) schema cache, built once per tool
-    // and evicted when a tool is registered / unregistered.
     std::unordered_map<std::string, ToolSchema> toolSchemaCache_;
     std::unordered_set<std::string> mcpToolNames_;
+
+    // Model domain (modelMutex_)
     std::unordered_map<ModelFormatType, std::function<std::unique_ptr<Model>(const ModelConfig&)>> modelFactories_;
     std::unordered_map<std::string, std::function<std::unique_ptr<Model>(const ModelConfig&)>> providerModelFactories_;
+
+    // Memory domain (memoryMutex_)
     std::unordered_map<std::string, std::function<std::unique_ptr<MemoryRuntime>(const MemoryConfig&)>> memoryFactories_;
+
+    // MCP server domain (mcpMutex_)
     std::unordered_map<std::string, std::shared_ptr<MCPConnection>> mcpServers_;
 };
 

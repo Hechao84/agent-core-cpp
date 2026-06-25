@@ -217,11 +217,13 @@ DreamProcessor::Run(model, historyStore)
   │
   ▼
 对象级互斥 (各模块内部 mutex)
-  │  ResourceManager::mutex_ — 注册表操作
-  │  ContextEngine::memoryMutex_ — 内存缓冲区
-  │  AskUserDispatcher::slotsMu_ — 答复槽位
-  │  Agent::sessionTodosMutex_ — 任务列表
-  │  MCPConnection::stateMutex_ / callMutex_ — 连接状态
+   │  ResourceManager::toolMutex_ — 工具注册表 + schema 缓存 + MCP 工具名
+   │  ResourceManager::modelMutex_ — 模型注册表
+   │  ResourceManager::memoryMutex_ — MemoryRuntime 注册表
+   │  ResourceManager::mcpMutex_ — MCP 连接实例
+   │  ContextEngine::memoryMutex_ — 内存缓冲区
+   │  AskUserDispatcher::slotsMu_ — 答复槽位
+   │  MCPConnection::stateMutex_ / callMutex_ — 连接状态
 ```
 
 ### 5.3 取消机制

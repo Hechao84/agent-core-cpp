@@ -115,39 +115,43 @@ void ResourceManager::RegisterBuiltinModels()
 
 void ResourceManager::RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(toolMutex_);
     toolFactories_[name] = std::move(factory);
     toolSchemas_.erase(name);
-    toolSchemaCache_.erase(name);   // structured schema cache invalidated
+    toolSchemaCache_.erase(name);
 }
 
 void ResourceManager::RegisterSessionTool(const std::string& name, SessionToolFactory factory)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(toolMutex_);
     sessionToolFactories_[name] = std::move(factory);
     sessionToolSchemas_.erase(name);
-    toolSchemaCache_.erase(name);   // structured schema cache invalidated
+    toolSchemaCache_.erase(name);
 }
 
 std::unique_ptr<Tool> ResourceManager::CreateSessionTool(const std::string& name, const ToolBuildContext& ctx)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = sessionToolFactories_.find(name);
-    if (it == sessionToolFactories_.end()) {
-        throw std::runtime_error("Session tool not found: " + name);
+    SessionToolFactory factory;
+    {
+        std::lock_guard<std::mutex> lock(toolMutex_);
+        auto it = sessionToolFactories_.find(name);
+        if (it == sessionToolFactories_.end()) {
+            throw std::runtime_error("Session tool not found: " + name);
+        }
+        factory = it->second;
     }
-    return it->second(ctx);
+    return factory(ctx);
 }
 
 bool ResourceManager::HasSessionTool(const std::string& name) const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(toolMutex_);
     return sessionToolFactories_.count(name) > 0;
 }
 
 std::vector<std::string> ResourceManager::GetAvailableSessionToolNames() const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(toolMutex_);
     std::vector<std::string> out;
     out.reserve(sessionToolFactories_.size());
     for (const auto& p : sessionToolFactories_) {
@@ -159,26 +163,25 @@ std::vector<std::string> ResourceManager::GetAvailableSessionToolNames() const
 std::string ResourceManager::GetSessionToolSchema(const std::string& name)
 {
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(toolMutex_);
         auto it = sessionToolSchemas_.find(name);
         if (it != sessionToolSchemas_.end()) {
             return it->second;
         }
     }
-    // Build a probe instance with an empty context to query the schema. Tool
-    // schemas must not depend on ToolBuildContext values.
-    ToolBuildContext probeCtx;
-    std::unique_ptr<Tool> probe;
+    SessionToolFactory factory;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(toolMutex_);
         auto it = sessionToolFactories_.find(name);
         if (it == sessionToolFactories_.end()) {
             throw std::runtime_error("Session tool not found: " + name);
         }
-        probe = it->second(probeCtx);
+        factory = it->second;
     }
+    ToolBuildContext probeCtx;
+    auto probe = factory(probeCtx);
     std::string schema = probe->GetSchema();
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(toolMutex_);
     sessionToolSchemas_[name] = schema;
     return schema;
 }
@@ -188,28 +191,52 @@ std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std:
 {
     std::vector<ToolSchema> schemas;
     schemas.reserve(toolNames.size());
-    // Session tool schemas are independent of ToolBuildContext fields (see
-    // GetSessionToolSchema invariant), so a single cache keyed by tool name
-    // is sufficient. We still need a probe instance the first time a tool
-    // is encountered; afterwards every iteration reuses the cached schema.
+
     for (const auto& name : toolNames) {
+        // Step 1: check cache + determine tool kind in one lock acquisition
+        ToolSchema cachedSchema;
+        bool hasCache = false;
+        bool isSession = false;
+        bool isStateless = false;
+        SessionToolFactory sessionFactory;
+        std::function<std::unique_ptr<Tool>()> statelessFactory;
+
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lock(toolMutex_);
             auto cached = toolSchemaCache_.find(name);
             if (cached != toolSchemaCache_.end()) {
-                schemas.push_back(cached->second);
-                continue;
+                cachedSchema = cached->second;
+                hasCache = true;
+            } else {
+                auto sit = sessionToolFactories_.find(name);
+                if (sit != sessionToolFactories_.end()) {
+                    isSession = true;
+                    sessionFactory = sit->second;
+                } else {
+                    auto tit = toolFactories_.find(name);
+                    if (tit != toolFactories_.end()) {
+                        isStateless = true;
+                        statelessFactory = tit->second;
+                    }
+                }
             }
         }
 
+        if (hasCache) {
+            schemas.push_back(std::move(cachedSchema));
+            continue;
+        }
+        if (!isSession && !isStateless) {
+            continue;
+        }
+
+        // Step 2: create probe outside the lock
         std::unique_ptr<Tool> probe;
         try {
-            if (HasSessionTool(name)) {
-                probe = CreateSessionTool(name, ctx);
-            } else if (HasTool(name)) {
-                probe = CreateTool(name);
+            if (isSession) {
+                probe = sessionFactory(ctx);
             } else {
-                continue;
+                probe = statelessFactory();
             }
         } catch (const std::exception&) {
             continue;
@@ -220,8 +247,10 @@ std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std:
         s.name = probe->GetName();
         s.description = probe->GetDescription();
         s.parameters = probe->GetJsonSchema();
+
+        // Step 3: write to cache under the lock
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lock(toolMutex_);
             toolSchemaCache_[name] = s;
         }
         schemas.push_back(std::move(s));
@@ -232,21 +261,21 @@ std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std:
 void ResourceManager::RegisterModel(
     ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(modelMutex_);
     modelFactories_[type] = std::move(factory);
 }
 
 void ResourceManager::RegisterModel(
     const std::string& provider, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(modelMutex_);
     providerModelFactories_[provider] = std::move(factory);
 }
 
 void ResourceManager::RegisterMemoryRuntime(
     const std::string& provider, std::function<std::unique_ptr<MemoryRuntime>(const MemoryConfig&)> factory)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(memoryMutex_);
     memoryFactories_[provider] = std::move(factory);
 }
 
@@ -285,7 +314,7 @@ void ResourceManager::LoadMemoryPlugins(const std::string& pluginDir)
         void* handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!handle) {
             LOG(WARN) << "[ResourceManager] Failed to load memory plugin: " << path
-                      << " (" << (dlerror() ? dlerror() : "unknown") << ")";
+                       << " (" << (dlerror() ? dlerror() : "unknown") << ")";
             continue;
         }
         auto fn = reinterpret_cast<RegisterFn>(dlsym(handle, kEntry));
@@ -303,7 +332,7 @@ void ResourceManager::RegisterMCPServer(const McpServerConfig& config)
 {
     std::shared_ptr<MCPConnection> oldServer;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(mcpMutex_);
         auto it = mcpServers_.find(config.id);
         if (it != mcpServers_.end()) {
             oldServer = it->second;
@@ -327,7 +356,6 @@ void ResourceManager::RegisterMCPServer(const McpServerConfig& config)
     }
     endpointCfg.url = baseUrl;
 
-    // Determine transport type
     if (!endpointCfg.url.empty()) {
         if (config.type == "sse" ||
             (config.type.empty() && endpointCfg.url.find("/sse") != std::string::npos)) {
@@ -335,7 +363,6 @@ void ResourceManager::RegisterMCPServer(const McpServerConfig& config)
         } else {
             endpointCfg.transportType = MCPTransportType::STREAMABLE_HTTP;
         }
-        // Copy headers (std::map -> std::unordered_map)
         for (const auto& kv : config.headers) {
             endpointCfg.headers[kv.first] = kv.second;
         }
@@ -353,52 +380,48 @@ void ResourceManager::RegisterMCPServer(const McpServerConfig& config)
 
     auto server = std::make_shared<MCPConnection>(config.id, endpointCfg);
 
-    // Connect immediately to initialize handshake and discover tools.
-    // Connect() catches its own exceptions and leaves the connection in a
-    // disconnected state on failure, so an unreachable MCP server cannot
-    // prevent the rest of the framework from starting.
     server->Connect();
 
-    // Register after connection attempt so subsequent reconnects or
-    // status queries work uniformly for both connected and failed servers.
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mcpMutex_);
     mcpServers_[config.id] = server;
 }
 
 void ResourceManager::RegisterMcpTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory)
 {
     RegisterTool(name, factory);
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        mcpToolNames_.insert(name);
-    }
+    std::lock_guard<std::mutex> lock(toolMutex_);
+    mcpToolNames_.insert(name);
 }
 
 void ResourceManager::UnregisterMcpTool(const std::string& name)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(toolMutex_);
     mcpToolNames_.erase(name);
     toolFactories_.erase(name);
     toolSchemas_.erase(name);
-    toolSchemaCache_.erase(name);   // structured schema cache invalidated
+    toolSchemaCache_.erase(name);
 }
 
 std::unique_ptr<Tool> ResourceManager::CreateTool(const std::string& name)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    LOG(INFO) << "Creating tool instance: " << name;
-    auto it = toolFactories_.find(name);
-    if (it != toolFactories_.end()) {
-        return it->second();
+    std::function<std::unique_ptr<Tool>()> factory;
+    {
+        std::lock_guard<std::mutex> lock(toolMutex_);
+        LOG(INFO) << "Creating tool instance: " << name;
+        auto it = toolFactories_.find(name);
+        if (it == toolFactories_.end()) {
+            LOG(INFO) << "Tool not found in factories: " << name;
+            throw std::runtime_error("Tool not found: " + name);
+        }
+        factory = it->second;
     }
-    LOG(INFO) << "Tool not found in factories: " << name;
-    throw std::runtime_error("Tool not found: " + name);
+    return factory();
 }
 
 std::string ResourceManager::GetToolSchema(const std::string& name)
 {
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(toolMutex_);
         auto it = toolSchemas_.find(name);
         if (it != toolSchemas_.end()) {
             return it->second;
@@ -407,47 +430,59 @@ std::string ResourceManager::GetToolSchema(const std::string& name)
 
     auto tool = CreateTool(name);
     std::string schema = tool->GetSchema();
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(toolMutex_);
     toolSchemas_[name] = schema;
     return schema;
 }
 
 std::unique_ptr<Model> ResourceManager::CreateModel(const ModelConfig& config)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    // 1. First match custom provider implementation (for vendor-specific behavior)
-    if (!config.provider.empty()) {
-        auto it = providerModelFactories_.find(config.provider);
-        if (it != providerModelFactories_.end()) {
-            return it->second(config);
+    std::function<std::unique_ptr<Model>(const ModelConfig&)> factory;
+    {
+        std::lock_guard<std::mutex> lock(modelMutex_);
+
+        if (!config.provider.empty()) {
+            auto it = providerModelFactories_.find(config.provider);
+            if (it != providerModelFactories_.end()) {
+                factory = it->second;
+            } else {
+                LOG(WARN) << "[ResourceManager] Provider '" << config.provider
+                           << "' not registered; falling back to standard format type "
+                           << static_cast<int>(config.formatType);
+            }
         }
-        LOG(WARN) << "[ResourceManager] Provider '" << config.provider
-                  << "' not registered; falling back to standard format type "
-                  << static_cast<int>(config.formatType);
+
+        if (!factory) {
+            auto it = modelFactories_.find(config.formatType);
+            if (it != modelFactories_.end()) {
+                factory = it->second;
+            }
+        }
+
+        if (!factory) {
+            throw std::runtime_error("Model format not registered: use ModelFormatType or register custom provider");
+        }
     }
-    
-    // 2. Fall back to standard format implementation
-    auto it = modelFactories_.find(config.formatType);
-    if (it != modelFactories_.end()) {
-        return it->second(config);
-    }
-    throw std::runtime_error("Model format not registered: use ModelFormatType or register custom provider");
+    return factory(config);
 }
 
 std::unique_ptr<MemoryRuntime> ResourceManager::CreateMemoryRuntime(const MemoryConfig& config)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = memoryFactories_.find(config.provider);
-    if (it != memoryFactories_.end()) {
-        return it->second(config);
+    std::function<std::unique_ptr<MemoryRuntime>(const MemoryConfig&)> factory;
+    {
+        std::lock_guard<std::mutex> lock(memoryMutex_);
+        auto it = memoryFactories_.find(config.provider);
+        if (it == memoryFactories_.end()) {
+            throw std::runtime_error("Memory runtime provider not registered: " + config.provider);
+        }
+        factory = it->second;
     }
-    throw std::runtime_error("Memory runtime provider not registered: " + config.provider);
+    return factory(config);
 }
 
 std::shared_ptr<MCPConnection> ResourceManager::GetMCPServer(const std::string& name)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mcpMutex_);
     auto it = mcpServers_.find(name);
     if (it != mcpServers_.end()) {
         return it->second;
@@ -457,7 +492,7 @@ std::shared_ptr<MCPConnection> ResourceManager::GetMCPServer(const std::string& 
 
 std::vector<std::string> ResourceManager::GetAvailableTools() const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(toolMutex_);
     std::vector<std::string> names;
     names.reserve(toolFactories_.size() + sessionToolFactories_.size());
     for (const auto& p : toolFactories_) {
@@ -471,7 +506,7 @@ std::vector<std::string> ResourceManager::GetAvailableTools() const
 
 std::vector<std::string> ResourceManager::GetAvailableModels() const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(modelMutex_);
     std::vector<std::string> names;
     std::unordered_map<ModelFormatType, std::string> typeMap = {
         {ModelFormatType::OPENAI, "openai"},
@@ -490,7 +525,7 @@ std::vector<std::string> ResourceManager::GetAvailableModels() const
 
 std::vector<std::string> ResourceManager::GetAvailableMemoryRuntimes() const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(memoryMutex_);
     std::vector<std::string> names;
     names.reserve(memoryFactories_.size());
     for (const auto& p : memoryFactories_) {
@@ -501,7 +536,7 @@ std::vector<std::string> ResourceManager::GetAvailableMemoryRuntimes() const
 
 std::vector<std::string> ResourceManager::GetAvailableMCPServers() const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mcpMutex_);
     std::vector<std::string> names;
     for (const auto& p : mcpServers_) {
         names.push_back(p.first);
@@ -511,31 +546,31 @@ std::vector<std::string> ResourceManager::GetAvailableMCPServers() const
 
 bool ResourceManager::HasTool(const std::string& name) const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(toolMutex_);
     return toolFactories_.count(name) > 0;
 }
 
 bool ResourceManager::HasModel(ModelFormatType type) const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(modelMutex_);
     return modelFactories_.count(type) > 0;
 }
 
 bool ResourceManager::HasModel(const std::string& provider) const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(modelMutex_);
     return providerModelFactories_.count(provider) > 0;
 }
 
 bool ResourceManager::HasMemoryRuntime(const std::string& provider) const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(memoryMutex_);
     return memoryFactories_.count(provider) > 0;
 }
 
 bool ResourceManager::HasMCPServer(const std::string& name) const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mcpMutex_);
     return mcpServers_.count(name) > 0;
 }
 
@@ -551,7 +586,7 @@ void ResourceManager::UnregisterMCPServer(const std::string& id)
 
 void ResourceManager::RemoveMCPServerRecord(const std::string& id)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(mcpMutex_);
     mcpServers_.erase(id);
 }
 
@@ -567,7 +602,7 @@ std::vector<std::string> ResourceManager::GetConnectedMCPServerIds() const
 
 std::vector<std::string> ResourceManager::GetMcpToolNames() const
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(toolMutex_);
     std::vector<std::string> out;
     out.reserve(mcpToolNames_.size());
     for (const auto& name : mcpToolNames_) {
