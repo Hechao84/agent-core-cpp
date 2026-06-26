@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -24,12 +25,32 @@ public:
     MemoryStats GetStats() const override;
 
 private:
+    struct CircuitState {
+        std::atomic<int> consecutiveFailures{0};
+        std::atomic<long long> openUntilMs{0};
+        std::atomic<int> appendFailures{0};
+        std::atomic<int> writeFailures{0};
+        std::atomic<int> buildContextFailures{0};
+    };
+
+    struct HttpResponse {
+        long status;
+        std::string body;
+        bool isRetryable{false};
+        bool isCurlError{false};
+    };
+
     std::string serverUrl_;
     std::string apiKey_;
     int timeoutSeconds_;
+    int maxRetries_;
+    int circuitThreshold_;
+    int circuitCooldownMs_;
+    mutable CircuitState circuit_;
 
-    struct HttpResponse { long status; std::string body; };
+    HttpResponse DoHttpPostOnce(const std::string& path, const std::string& jsonBody) const;
     HttpResponse HttpPost(const std::string& path, const std::string& jsonBody) const;
+    HttpResponse DoHttpGetOnce(const std::string& path) const;
     HttpResponse HttpGet(const std::string& path) const;
 
     nlohmann::json SerializeEvent(const MemoryEvent& event) const;

@@ -1,11 +1,14 @@
 #include "src/memory/http_memory_runtime.h"
 
+#include <atomic>
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <utility>
 
 #include "src/utils/logger.h"
+#include "src/utils/retry_helper.h"
 
 namespace jiuwen {
 
@@ -79,7 +82,10 @@ HttpMemoryRuntime::HttpMemoryRuntime(MemoryConfig config)
     : MemoryRuntime(std::move(config)),
       serverUrl_(config_.serverUrl),
       apiKey_(config_.serverApiKey),
-      timeoutSeconds_(config_.serverTimeoutSeconds)
+      timeoutSeconds_(config_.serverTimeoutSeconds),
+      maxRetries_(config_.serverMaxRetries),
+      circuitThreshold_(config_.serverCircuitThreshold),
+      circuitCooldownMs_(config_.serverCircuitCooldownSeconds * 1000)
 {
     if (!serverUrl_.empty() && serverUrl_.back() == '/') {
         serverUrl_.pop_back();
@@ -88,7 +94,7 @@ HttpMemoryRuntime::HttpMemoryRuntime(MemoryConfig config)
 
 HttpMemoryRuntime::~HttpMemoryRuntime() = default;
 
-HttpMemoryRuntime::HttpResponse HttpMemoryRuntime::HttpPost(const std::string& path, const std::string& jsonBody) const
+HttpMemoryRuntime::HttpResponse HttpMemoryRuntime::DoHttpPostOnce(const std::string& path, const std::string& jsonBody) const
 {
     HttpResponse response{0, ""};
     CURL* curl = curl_easy_init();
@@ -120,15 +126,78 @@ HttpMemoryRuntime::HttpResponse HttpMemoryRuntime::HttpPost(const std::string& p
     CURLcode result = curl_easy_perform(curl);
     if (result != CURLE_OK) {
         LOG(WARN) << "[HttpMemoryRuntime] CURL error for " << path << ": " << curl_easy_strerror(result);
+        response.isRetryable = IsRetryableCurlError(result);
+        response.isCurlError = true;
     }
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.status);
+    if (response.status >= 400 && !response.isCurlError) {
+        response.isRetryable = IsRetryableHttpStatus(response.status);
+    }
 
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     return response;
 }
 
-HttpMemoryRuntime::HttpResponse HttpMemoryRuntime::HttpGet(const std::string& path) const
+HttpMemoryRuntime::HttpResponse HttpMemoryRuntime::HttpPost(const std::string& path, const std::string& jsonBody) const
+{
+    auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    if (circuit_.openUntilMs.load() > nowMs) {
+        LOG(WARN) << "[HttpMemoryRuntime] Circuit open, skipping POST " << path;
+        return {0, ""};
+    }
+
+    RetryPolicy policy;
+    policy.maxRetries = maxRetries_;
+    policy.baseDelayMs = 400;
+    policy.maxDelayMs = 3000;
+    policy.withJitter = true;
+
+    int totalAttempts = 1 + policy.maxRetries;
+    for (int attempt = 0; attempt < totalAttempts; ++attempt) {
+        HttpResponse resp = DoHttpPostOnce(path, jsonBody);
+
+        if (resp.status >= 200 && resp.status < 400 && !resp.isCurlError) {
+            circuit_.consecutiveFailures.store(0);
+            return resp;
+        }
+
+        if (!resp.isRetryable) {
+            ++circuit_.consecutiveFailures;
+            if (circuit_.consecutiveFailures.load() >= circuitThreshold_) {
+                auto cooldownMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() + circuitCooldownMs_;
+                circuit_.openUntilMs.store(cooldownMs);
+                LOG(WARN) << "[HttpMemoryRuntime] Circuit opened after " << circuitThreshold_
+                          << " consecutive failures, cooldown " << (circuitCooldownMs_ / 1000) << "s";
+            }
+            return resp;
+        }
+
+        if (attempt == totalAttempts - 1) {
+            ++circuit_.consecutiveFailures;
+            if (circuit_.consecutiveFailures.load() >= circuitThreshold_) {
+                auto cooldownMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() + circuitCooldownMs_;
+                circuit_.openUntilMs.store(cooldownMs);
+                LOG(WARN) << "[HttpMemoryRuntime] Circuit opened, final retry still failed";
+            }
+            LOG(WARN) << "[HttpMemoryRuntime] POST " << path << " final attempt still failed"
+                      << " (httpCode=" << resp.status << ")";
+            return resp;
+        }
+
+        LOG(INFO) << "[HttpMemoryRuntime] POST " << path << " retry attempt " << (attempt + 1)
+                  << "/" << policy.maxRetries << " after " << ComputeBackoffDelayMs(attempt, policy) << "ms"
+                  << " (httpCode=" << resp.status << ")";
+        SleepBackoff(attempt, policy);
+    }
+
+    return {0, ""};
+}
+
+HttpMemoryRuntime::HttpResponse HttpMemoryRuntime::DoHttpGetOnce(const std::string& path) const
 {
     HttpResponse response{0, ""};
     CURL* curl = curl_easy_init();
@@ -156,12 +225,74 @@ HttpMemoryRuntime::HttpResponse HttpMemoryRuntime::HttpGet(const std::string& pa
     CURLcode result = curl_easy_perform(curl);
     if (result != CURLE_OK) {
         LOG(WARN) << "[HttpMemoryRuntime] CURL error for " << path << ": " << curl_easy_strerror(result);
+        response.isRetryable = IsRetryableCurlError(result);
+        response.isCurlError = true;
     }
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.status);
+    if (response.status >= 400 && !response.isCurlError) {
+        response.isRetryable = IsRetryableHttpStatus(response.status);
+    }
 
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     return response;
+}
+
+HttpMemoryRuntime::HttpResponse HttpMemoryRuntime::HttpGet(const std::string& path) const
+{
+    auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    if (circuit_.openUntilMs.load() > nowMs) {
+        LOG(WARN) << "[HttpMemoryRuntime] Circuit open, skipping GET " << path;
+        return {0, ""};
+    }
+
+    RetryPolicy policy;
+    policy.maxRetries = maxRetries_;
+    policy.baseDelayMs = 400;
+    policy.maxDelayMs = 3000;
+    policy.withJitter = true;
+
+    int totalAttempts = 1 + policy.maxRetries;
+    for (int attempt = 0; attempt < totalAttempts; ++attempt) {
+        HttpResponse resp = DoHttpGetOnce(path);
+
+        if (resp.status >= 200 && resp.status < 400 && !resp.isCurlError) {
+            circuit_.consecutiveFailures.store(0);
+            return resp;
+        }
+
+        if (!resp.isRetryable) {
+            ++circuit_.consecutiveFailures;
+            if (circuit_.consecutiveFailures.load() >= circuitThreshold_) {
+                auto cooldownMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() + circuitCooldownMs_;
+                circuit_.openUntilMs.store(cooldownMs);
+                LOG(WARN) << "[HttpMemoryRuntime] Circuit opened after " << circuitThreshold_
+                          << " consecutive failures, cooldown " << (circuitCooldownMs_ / 1000) << "s";
+            }
+            return resp;
+        }
+
+        if (attempt == totalAttempts - 1) {
+            ++circuit_.consecutiveFailures;
+            if (circuit_.consecutiveFailures.load() >= circuitThreshold_) {
+                auto cooldownMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() + circuitCooldownMs_;
+                circuit_.openUntilMs.store(cooldownMs);
+            }
+            LOG(WARN) << "[HttpMemoryRuntime] GET " << path << " final attempt still failed"
+                      << " (httpCode=" << resp.status << ")";
+            return resp;
+        }
+
+        LOG(INFO) << "[HttpMemoryRuntime] GET " << path << " retry attempt " << (attempt + 1)
+                  << "/" << policy.maxRetries << " after " << ComputeBackoffDelayMs(attempt, policy) << "ms"
+                  << " (httpCode=" << resp.status << ")";
+        SleepBackoff(attempt, policy);
+    }
+
+    return {0, ""};
 }
 
 nlohmann::json HttpMemoryRuntime::SerializeEvent(const MemoryEvent& event) const
@@ -367,17 +498,20 @@ bool HttpMemoryRuntime::AppendEvent(const MemoryEvent& event)
     auto resp = HttpPost("/v1/events", body.dump());
     if (resp.status != 200) {
         LOG(WARN) << "[HttpMemoryRuntime] AppendEvent HTTP " << resp.status << ": " << resp.body;
+        ++circuit_.appendFailures;
         return false;
     }
     try {
         nlohmann::json j = nlohmann::json::parse(resp.body);
         if (!IsSuccessEnvelope(j)) {
             LOG(WARN) << "[HttpMemoryRuntime] AppendEvent failed: " << ExtractError(j);
+            ++circuit_.appendFailures;
             return false;
         }
         return true;
     } catch (const std::exception& e) {
         LOG(WARN) << "[HttpMemoryRuntime] AppendEvent parse error: " << e.what();
+        ++circuit_.appendFailures;
         return false;
     }
 }
@@ -388,17 +522,20 @@ MemoryContextPackage HttpMemoryRuntime::BuildContext(const MemoryContextRequest&
     auto resp = HttpPost("/v1/context", body.dump());
     if (resp.status != 200) {
         LOG(WARN) << "[HttpMemoryRuntime] BuildContext HTTP " << resp.status << ": " << resp.body;
+        ++circuit_.buildContextFailures;
         return {};
     }
     try {
         nlohmann::json j = nlohmann::json::parse(resp.body);
         if (!IsSuccessEnvelope(j)) {
             LOG(WARN) << "[HttpMemoryRuntime] BuildContext failed: " << ExtractError(j);
+            ++circuit_.buildContextFailures;
             return {};
         }
         return DeserializeContextPackage(j);
     } catch (const std::exception& e) {
         LOG(WARN) << "[HttpMemoryRuntime] BuildContext parse error: " << e.what();
+        ++circuit_.buildContextFailures;
         return {};
     }
 }
@@ -410,17 +547,20 @@ MemoryPayloadWriteResult HttpMemoryRuntime::WritePayload(const MemoryPayloadWrit
     MemoryPayloadWriteResult result;
     if (resp.status != 200) {
         LOG(WARN) << "[HttpMemoryRuntime] WritePayload HTTP " << resp.status << ": " << resp.body;
+        ++circuit_.writeFailures;
         return result;
     }
     try {
         nlohmann::json j = nlohmann::json::parse(resp.body);
         if (!IsSuccessEnvelope(j)) {
             LOG(WARN) << "[HttpMemoryRuntime] WritePayload failed: " << ExtractError(j);
+            ++circuit_.writeFailures;
             return result;
         }
         return DeserializePayloadWriteResult(j);
     } catch (const std::exception& e) {
         LOG(WARN) << "[HttpMemoryRuntime] WritePayload parse error: " << e.what();
+        ++circuit_.writeFailures;
         return result;
     }
 }
@@ -512,18 +652,34 @@ MemoryStats HttpMemoryRuntime::GetStats() const
     auto resp = HttpGet("/v1/stats");
     if (resp.status != 200) {
         LOG(WARN) << "[HttpMemoryRuntime] GetStats HTTP " << resp.status << ": " << resp.body;
-        return {};
+        MemoryStats local;
+        local.appendFailures = circuit_.appendFailures.load();
+        local.writeFailures = circuit_.writeFailures.load();
+        local.buildContextFailures = circuit_.buildContextFailures.load();
+        return local;
     }
     try {
         nlohmann::json j = nlohmann::json::parse(resp.body);
         if (!IsSuccessEnvelope(j)) {
             LOG(WARN) << "[HttpMemoryRuntime] GetStats failed: " << ExtractError(j);
-            return {};
+            MemoryStats local;
+            local.appendFailures = circuit_.appendFailures.load();
+            local.writeFailures = circuit_.writeFailures.load();
+            local.buildContextFailures = circuit_.buildContextFailures.load();
+            return local;
         }
-        return DeserializeStats(j);
+        MemoryStats stats = DeserializeStats(j);
+        stats.appendFailures += circuit_.appendFailures.load();
+        stats.writeFailures += circuit_.writeFailures.load();
+        stats.buildContextFailures += circuit_.buildContextFailures.load();
+        return stats;
     } catch (const std::exception& e) {
         LOG(WARN) << "[HttpMemoryRuntime] GetStats parse error: " << e.what();
-        return {};
+        MemoryStats local;
+        local.appendFailures = circuit_.appendFailures.load();
+        local.writeFailures = circuit_.writeFailures.load();
+        local.buildContextFailures = circuit_.buildContextFailures.load();
+        return local;
     }
 }
 

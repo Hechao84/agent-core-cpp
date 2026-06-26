@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,6 +29,9 @@ public:
 
 private:
     std::unique_ptr<agent_memory::BuiltinMemoryRuntime> impl_;
+    mutable std::atomic<int> appendFailures_{0};
+    mutable std::atomic<int> writeFailures_{0};
+    mutable std::atomic<int> buildContextFailures_{0};
 };
 
 } // namespace jiuwen

@@ -376,7 +376,10 @@ std::shared_ptr<SessionEntry> SessionManager::FindOrCreateEntry(const std::strin
         entry->contextEngine->SetMemoryEventSink([memoryRuntime, agentId = config_.id](const MemoryEvent& event) {
             MemoryEvent copied = event;
             copied.agentId = agentId;
-            memoryRuntime->AppendEvent(copied);
+            if (!memoryRuntime->AppendEvent(copied)) {
+                LOG(WARN) << "[SessionManager] Memory AppendEvent lost: agentId=" << agentId
+                          << " sessionId=" << copied.sessionId << " eventType=" << static_cast<int>(copied.type);
+            }
         });
     }
 

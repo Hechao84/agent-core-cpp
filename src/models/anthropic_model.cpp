@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "src/models/retry_helper.h"
+#include "src/utils/retry_helper.h"
 #include "src/utils/encoding.h"
 #include "src/utils/logger.h"
 #include "third_party/include/curl/curl.h"

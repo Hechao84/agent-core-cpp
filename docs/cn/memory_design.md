@@ -284,11 +284,15 @@ HttpMemoryRuntime
 | SearchMemory | POST | `/memory/search` | 搜索记忆 |
 | GetStats | GET | `/memory/stats` | 获取统计 |
 
-### 5.4 错误处理
+### 5.4 错误处理与容错
 
-- HTTP 非成功状态码 → 方法返回失败结果
-- 连接超时 → 使用 `config_.serverTimeoutSeconds`
-- 网络错误 → 日志记录，返回空/失败结果
+HttpMemoryRuntime 实现三层容错机制：
+
+1. **自动重试**：HttpPost / HttpGet 对瞬态错误（HTTP 5xx / 429、curl timeout / connection）自动重试，复用 `retry_helper.h` 的 exponential backoff + jitter。重试次数由 `serverMaxRetries` 配置（默认 2）。不可重试错误（HTTP 4xx / auth failure）不重试。
+
+2. **Circuit breaker 熔断**：连续失败达到 `serverCircuitThreshold`（默认 5）次后打开熔断，`serverCircuitCooldownSeconds`（默认 30s）内所有请求直接返回失败而不发起 HTTP 连接，避免雪崩。成功一次自动关闭熔断。Circuit breaker 状态由 `mutable CircuitState` 结构体维护（含 `atomic<int>` 计数和 `atomic<long long>` 时间戳），在 const 方法内通过 mutable 访问。
+
+3. **失败计数指标**：MemoryStats 新增 `appendFailures` / `writeFailures` / `buildContextFailures` 字段，两个 Runtime 实现各自维护 `atomic<int>` 计数器，在 `GetStats()` 中合并到返回值，使"系统故障"与"无数据"可区分。
 
 ## 6. Payload Offloading 设计
 
@@ -491,6 +495,9 @@ extern "C" AGENT_PLUGIN_API void RegisterMemoryPlugin(ResourceManager& rm);
 | `serverUrl` | string | - | 远程服务器 URL（server 模式） |
 | `serverApiKey` | string | - | 远程服务器认证密钥 |
 | `serverTimeoutSeconds` | int | 10 | HTTP 请求超时 |
+| `serverMaxRetries` | int | 2 | HTTP 瞬态错误重试次数 |
+| `serverCircuitThreshold` | int | 5 | 连续失败达到此数打开熔断 |
+| `serverCircuitCooldownSeconds` | int | 30 | 熔断冷却时间 |
 | `tokenBudget` | int | 4096 | BuildContext 的 token 预算 |
 | `offloadToolResultChars` | int | 8000 | Payload offload 触发阈值 |
 | `enablePayloadOffload` | bool | true | 是否启用 payload offload |

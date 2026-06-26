@@ -19,6 +19,9 @@ struct MemoryConfig
     std::string serverUrl;
     std::string serverApiKey;
     int serverTimeoutSeconds{10};
+    int serverMaxRetries{2};                 // HTTP 瞬态错误（5xx/timeout）重试次数
+    int serverCircuitThreshold{5};           // 连续失败达到此数打开熔断
+    int serverCircuitCooldownSeconds{30};    // 熔断打开后冷却时间
 
     int tokenBudget{4096};
     int offloadToolResultChars{8000};

@@ -55,20 +55,22 @@ BuiltinMemoryRuntime::~BuiltinMemoryRuntime() = default;
 bool BuiltinMemoryRuntime::AppendEvent(const MemoryEvent& event)
 {
     auto r = impl_->AppendEvent(ToAgentEvent(event));
-    if (!r.succeeded) { LOG(WARN) << "[MemoryRuntime] AppendEvent failed: " << r.error.message; }
+    if (!r.succeeded) { LOG(WARN) << "[MemoryRuntime] AppendEvent failed: " << r.error.message; ++appendFailures_; }
     return r.succeeded;
 }
 
 MemoryContextPackage BuiltinMemoryRuntime::BuildContext(const MemoryContextRequest& request)
 {
     auto r = impl_->BuildContext(ToAgentContextRequest(request));
-    if (!r) { LOG(WARN) << "[MemoryRuntime] BuildContext failed: " << r.error.message; return {}; }
+    if (!r) { LOG(WARN) << "[MemoryRuntime] BuildContext failed: " << r.error.message; ++buildContextFailures_; return {}; }
     return FromAgentContextPackage(r.context);
 }
 
 MemoryPayloadWriteResult BuiltinMemoryRuntime::WritePayload(const MemoryPayloadWriteRequest& request)
 {
-    return FromAgentPayloadWriteResult(impl_->WritePayload(ToAgentPayloadWriteRequest(request)));
+    auto result = FromAgentPayloadWriteResult(impl_->WritePayload(ToAgentPayloadWriteRequest(request)));
+    if (!result.succeeded) { ++writeFailures_; }
+    return result;
 }
 
 std::string BuiltinMemoryRuntime::ReadPayload(const std::string& uri)
@@ -116,7 +118,11 @@ MemoryStats BuiltinMemoryRuntime::GetStats() const
 {
     auto r = impl_->GetStats();
     if (!r) { LOG(WARN) << "[MemoryRuntime] GetStats failed: " << r.error.message; return {}; }
-    return FromAgentStats(r.stats);
+    MemoryStats stats = FromAgentStats(r.stats);
+    stats.appendFailures += appendFailures_.load();
+    stats.writeFailures += writeFailures_.load();
+    stats.buildContextFailures += buildContextFailures_.load();
+    return stats;
 }
 
 } // namespace jiuwen

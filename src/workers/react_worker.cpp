@@ -183,6 +183,10 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
                     if (payloadResult.offloaded) {
                         tool.content = payloadResult.replacementContent;
                         tool.payloadRef = payloadResult.payload.uri;
+                    } else if (!payloadResult.succeeded) {
+                        LOG(WARN) << "[ReactWorker] WritePayload failed for tool=" << tc.name
+                                  << " sessionId=" << contextEngine->GetSessionId()
+                                  << " (large content not offloaded)";
                     }
                 }
             }

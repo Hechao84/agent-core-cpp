@@ -256,6 +256,9 @@ static void MergeMemoryConfig(const nlohmann::json& j, MemoryConfig& out)
     if (j.contains("serverUrl"))              out.serverUrl              = j["serverUrl"].get<std::string>();
     if (j.contains("serverApiKey"))           out.serverApiKey           = j["serverApiKey"].get<std::string>();
     if (j.contains("serverTimeoutSeconds"))   out.serverTimeoutSeconds   = j["serverTimeoutSeconds"].get<int>();
+    if (j.contains("serverMaxRetries"))       out.serverMaxRetries       = j["serverMaxRetries"].get<int>();
+    if (j.contains("serverCircuitThreshold")) out.serverCircuitThreshold  = j["serverCircuitThreshold"].get<int>();
+    if (j.contains("serverCircuitCooldownSeconds")) out.serverCircuitCooldownSeconds = j["serverCircuitCooldownSeconds"].get<int>();
     if (j.contains("tokenBudget"))            out.tokenBudget            = j["tokenBudget"].get<int>();
     if (j.contains("offloadToolResultChars")) out.offloadToolResultChars = j["offloadToolResultChars"].get<int>();
     if (j.contains("enablePayloadOffload"))   out.enablePayloadOffload   = j["enablePayloadOffload"].get<bool>();
@@ -285,6 +288,9 @@ static nlohmann::json MemoryConfigToJson(const MemoryConfig& cfg)
     j["serverUrl"]                  = cfg.serverUrl;
     j["serverApiKey"]               = cfg.serverApiKey;
     j["serverTimeoutSeconds"]       = cfg.serverTimeoutSeconds;
+    j["serverMaxRetries"]           = cfg.serverMaxRetries;
+    j["serverCircuitThreshold"]     = cfg.serverCircuitThreshold;
+    j["serverCircuitCooldownSeconds"] = cfg.serverCircuitCooldownSeconds;
     j["tokenBudget"]                = cfg.tokenBudget;
     j["offloadToolResultChars"]     = cfg.offloadToolResultChars;
     j["enablePayloadOffload"]       = cfg.enablePayloadOffload;

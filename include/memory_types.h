@@ -188,6 +188,9 @@ struct MemoryStats
     int summaries{0};
     int entities{0};
     int relations{0};
+    int appendFailures{0};
+    int writeFailures{0};
+    int buildContextFailures{0};
     nlohmann::json metadata = nlohmann::json::object();
 };
 
