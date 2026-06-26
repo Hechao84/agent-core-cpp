@@ -18,6 +18,14 @@ enum class ModelFormatType
     ANTHROPIC,
 };
 
+struct RetryPolicy
+{
+    int maxRetries{2};       // Number of retries after the first attempt (total attempts = 1 + maxRetries)
+    int baseDelayMs{400};    // Base delay for exponential backoff (milliseconds)
+    int maxDelayMs{3000};    // Maximum backoff delay cap (milliseconds)
+    bool withJitter{true};   // Add random jitter to backoff delay to avoid thundering herd
+};
+
 struct ModelConfig 
 {
     std::string baseUrl;      // API endpoint address
@@ -45,6 +53,12 @@ struct ModelConfig
     // Extended parameters supporting hierarchy (e.g., "model.temperature")
     // Uses std::variant instead of std::any for type safety.
     ConfigNode extraParams;
+
+    // Retry policy for transient model invocation errors (HTTP 429/5xx,
+    // curl timeout/connection failure). Not applied to permanent errors
+    // (HTTP 4xx except 429, auth failure, parse errors). The retry loop
+    // runs inside Model::Invoke; CallModelStream does not retry on its own.
+    RetryPolicy retryPolicy;
 };
 
 enum class AgentWorkMode 

@@ -355,6 +355,7 @@ add_executable(unittest
     unittest/test_openai_format.cpp
     unittest/test_anthropic_format.cpp
     unittest/test_session_tools.cpp
+    unittest/test_retry_helper.cpp
 )
 target_include_directories(unittest PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 

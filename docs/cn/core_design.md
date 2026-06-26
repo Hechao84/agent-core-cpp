@@ -119,10 +119,12 @@ AgentWorker
 
 1. 通过 `BuildToolSchemas()` 构建原生 function-calling 工具 schema
 2. 调用 `Model::Format()` 生成请求体
-3. 调用 `Model::Invoke()` 获取流式响应
-4. 返回 `ModelResponse`（包含文本内容 + tool_calls + isFinished 标志）
+3. 调用 `Model::Invoke()` 获取流式响应（`Invoke` 内部自动重试瞬态错误）
+4. 返回 `ModelResponse`（包含文本内容 + tool_calls + isFinished 标志 + isRetryable + statusCode）
 
 此方法支持 `generation` 参数，在流式回调中检查取消状态。
+
+**重试职责**：瞬态错误（HTTP 429/5xx、curl timeout/connection）的自动重试由 `Model::Invoke` 内部承担，`CallModelStream` 不做重试。`ModelResponse.isRetryable` 标识该错误是否为瞬态可重试（仅供诊断，`CallModelStream` 不据此重试）。默认重试策略：maxRetries=2, baseDelayMs=400ms, maxDelayMs=3000ms, withJitter=true，最坏额外延迟约 1.2s。
 
 ### 3.4 BuildPrompt
 

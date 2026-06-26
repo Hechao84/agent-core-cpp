@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 #include "include/agent_export.h"
@@ -47,7 +48,19 @@ struct ModelResponse {
     std::string content;
     std::vector<ToolCall> toolCalls;
     bool isFinished{false};
-    std::string finishReason;  // "stop" | "tool_calls" | "length" | provider-specific
+    std::string finishReason;  // "stop" | "tool_calls" | "length" | "error" | provider-specific
+
+    // isRetryable: true only when finishReason == "error" and the underlying
+    // cause is transient (HTTP 429/5xx or curl timeout/connection failure).
+    // When true the model implementation will attempt automatic retry with
+    // exponential backoff; the caller should not retry on its own.
+    bool isRetryable{false};
+
+    // statusCode: HTTP response status code, if available. Filled by HTTP-based
+    // Model implementations for diagnostic logging only — retry decisions use
+    // isRetryable, not statusCode. Empty when the error is at the transport
+    // level (curl failure, no HTTP response received) or for non-HTTP models.
+    std::optional<int> statusCode;
 };
 
 class AGENT_API Model {

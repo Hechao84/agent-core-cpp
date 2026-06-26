@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "src/models/retry_helper.h"
 #include "src/utils/encoding.h"
 #include "src/utils/logger.h"
 #include "third_party/include/curl/curl.h"
@@ -318,13 +319,15 @@ std::string OpenAIModel::Format(const std::string& systemPrompt,
     return payload.dump();
 }
 
-ModelResponse OpenAIModel::Invoke(const std::string& formattedInput,
-                                   std::function<void(const std::string&)> onChunk)
+ModelResponse OpenAIModel::DoInvokeOnce(const std::string& formattedInput,
+                                          std::function<void(const std::string&)> onChunk)
 {
     ModelResponse out;
     CURL* curl = curl_easy_init();
     if (!curl) {
         out.content = "Error: CURL init failed";
+        out.finishReason = "error";
+        out.isFinished = true;
         return out;
     }
 
@@ -343,24 +346,38 @@ ModelResponse OpenAIModel::Invoke(const std::string& formattedInput,
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
 
     CURLcode res = curl_easy_perform(curl);
+
     if (res != CURLE_OK) {
         out.content = std::string("Error: ") + curl_easy_strerror(res);
         out.finishReason = "error";
         out.isFinished = true;
+        out.isRetryable = IsRetryableCurlError(res);
         curl_easy_cleanup(curl);
         curl_slist_free_all(headers);
         return out;
     }
+
+    long httpCode = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
+
+    out.statusCode = static_cast<int>(httpCode);
+
+    if (httpCode >= 400) {
+        out.content = ctx.fullText.empty()
+            ? "Error: HTTP " + std::to_string(httpCode)
+            : ctx.fullText;
+        out.finishReason = "error";
+        out.isFinished = true;
+        out.isRetryable = IsRetryableHttpStatus(httpCode);
+        return out;
+    }
 
     out.content = ctx.fullText;
     out.finishReason = ctx.finishReason.empty() ? "stop" : ctx.finishReason;
     out.isFinished = true;
 
-    // Assemble structured tool calls (server gives us id + name + arguments
-    // already; for fallback mode we just leave this empty and let the worker
-    // parse content downstream).
     if (config_.useNativeFunctionCalling) {
         for (auto& kv : ctx.partialToolCalls) {
             ToolCall tc;
@@ -370,6 +387,46 @@ ModelResponse OpenAIModel::Invoke(const std::string& formattedInput,
             out.toolCalls.push_back(std::move(tc));
         }
     }
+    return out;
+}
+
+ModelResponse OpenAIModel::Invoke(const std::string& formattedInput,
+                                   std::function<void(const std::string&)> onChunk)
+{
+    const auto& policy = config_.retryPolicy;
+    int totalAttempts = 1 + policy.maxRetries;
+
+    for (int attempt = 0; attempt < totalAttempts; ++attempt) {
+        bool isFinalAttempt = (attempt == totalAttempts - 1);
+
+        ModelResponse out = DoInvokeOnce(formattedInput, isFinalAttempt ? onChunk : nullptr);
+
+        if (!out.isRetryable) {
+            return out;
+        }
+
+        if (isFinalAttempt) {
+            LOG(WARN) << "[OpenAI] Final attempt still failed: "
+                      << out.content
+                      << " (httpCode=" << (out.statusCode ? std::to_string(*out.statusCode) : "none") << ")";
+            return out;
+        }
+
+        std::string errDetail;
+        if (out.statusCode) errDetail = "httpCode=" + std::to_string(*out.statusCode);
+        else errDetail = "curlErr=" + out.content;
+
+        LOG(INFO) << "[OpenAI] Retry attempt " << (attempt + 1) << "/" << policy.maxRetries
+                  << " after " << ComputeBackoffDelayMs(attempt, policy) << "ms"
+                  << " (" << errDetail << ")";
+
+        SleepBackoff(attempt, policy);
+    }
+
+    ModelResponse out;
+    out.content = "Error: retry loop exhausted";
+    out.finishReason = "error";
+    out.isFinished = true;
     return out;
 }
 

@@ -94,13 +94,27 @@ struct ModelResponse {
     std::string content;              // 文本内容
     std::vector<ToolCall> toolCalls;  // 工具调用列表
     bool isFinished{false};           // 是否完成（无更多工具调用）
-    std::string finishReason;         // "stop" / "tool_calls" / "length" / ...
+    std::string finishReason;         // "stop" / "tool_calls" / "length" / "error"
+    bool isRetryable{false};          // 仅 finishReason=="error" 时有效：瞬态错误可重试
+    std::optional<int> statusCode;    // HTTP 状态码（诊断用途）；连接层失败/非HTTP Model 留空
 };
 ```
+
+`isRetryable` 与 `finishReason` 的联动约定：
+- `isRetryable=true` ⟹ `finishReason` 必为 `"error"`
+- `isRetryable=false` ⟹ 可能是成功（`"stop"`/`"tool_calls"`/`"length"`）或不可重试错误（`"error"`）
+- `statusCode` 仅作诊断日志用途，重试决策不依赖它；非 HTTP Model 实现（如本地推理）statusCode 留空
 
 ### 3.5 ModelConfig
 
 ```cpp
+struct RetryPolicy {
+    int maxRetries{2};       // 重试次数（总尝试 = 1 + maxRetries）
+    int baseDelayMs{400};    // exponential backoff 基础延迟
+    int maxDelayMs{3000};    // 退避上限
+    bool withJitter{true};   // 随机抖动避免 thundering herd
+};
+
 struct ModelConfig {
     std::string baseUrl;              // API 端点地址
     std::string apiKey;               // API 认证密钥
@@ -109,6 +123,7 @@ struct ModelConfig {
     ModelFormatType formatType;       // API 协议格式（OPENAI / ANTHROPIC）
     bool useNativeFunctionCalling;    // 是否使用原生 function calling
     ConfigNode extraParams;           // 扩展参数（temperature, max_tokens 等）
+    RetryPolicy retryPolicy;          // 瞬态错误自动重试策略
 };
 ```
 
@@ -143,17 +158,37 @@ struct ModelConfig {
 - **extraParams**：将 `ConfigNode` 中的扩展参数合并到请求体顶层（如 `max_tokens`、`temperature`）
 - **空 tools**：当工具列表为空时不包含 `tools` 字段
 
-### 4.2 Invoke
+### 4.2 Invoke（含自动重试）
 
-通过 libcurl 发送 HTTP POST 请求到 `${baseUrl}/chat/completions`：
+`Invoke` 方法内部实现重试循环，不修改 `Model::Invoke` 接口签名。流程：
 
-1. 设置请求头（`Authorization: Bearer ${apiKey}`、`Content-Type: application/json`）
-2. 启用流式接收（curl write callback）
-3. 解析 SSE（Server-Sent Events）数据流：
-   - `data: {"choices":[{"delta":{"content":"..."}}]}` → 调用 `onChunk`
-   - `data: {"choices":[{"delta":{"tool_calls":[...]}}]}` → 缓存 tool_calls
-   - `data: [DONE]` → 结束流
-4. 组装 `ModelResponse`
+1. **重试循环**：`attempt` 从 0 到 `1 + maxRetries`
+   - 前几次探测尝试传 `nullptr` onChunk（避免碎片内容泄露给前端）
+   - 最后一次尝试传真实 onChunk（保留逐字流式体验）
+2. **单次调用**：委托 `DoInvokeOnce(formattedInput, onChunk)` 执行 HTTP 请求
+   - curl 失败 → 按 `IsRetryableCurlError` 判定 `isRetryable`
+   - curl 成功但 HTTP ≥ 400 → 提取状态码，按 `IsRetryableHttpStatus` 判定 `isRetryable`
+   - curl 成功且 HTTP < 400 → 正常返回 ModelResponse（`isRetryable = false`）
+3. **退避策略**：exponential backoff + jitter
+   - `delay = min(baseDelayMs * 2^attempt + jitter, maxDelayMs)`
+   - 默认 maxRetries=2, baseDelayMs=400, maxDelayMs=3000 → 最坏额外延迟 ~1.2s
+4. **日志**：每次重试记录 `[OpenAI/Anthropic] Retry attempt N/M after Xms (httpCode=... / curlErr=...)`
+
+可重试错误分类：
+
+| 类别 | 可重试 | 示例 |
+|------|--------|------|
+| HTTP 429 (rate-limit) | ✅ | 请求频率过高 |
+| HTTP 5xx (server error) | ✅ | 502/503/504 |
+| curl timeout / connection | ✅ | CURLE_OPERATION_TIMEDOUT / COULDNT_CONNECT |
+| HTTP 4xx (auth/bad request) | ❌ | 400/401/403 |
+| curl init failure | ❌ | 内存不足 |
+| JSON parse error | ❌ | 响应格式异常 |
+
+**设计选择**：重试在 Model 实现内部完成而非 `CallModelStream` 层，原因：
+1. 不修改 `Model::Invoke` 接口签名，自定义 Model 适配成本不变
+2. Model 实现最了解自身错误类型（HTTP 状态码 / curl 错误码）
+3. 保持 `CallModelStream` → `ReactWorker` 的交互契约不变
 
 ### 4.3 流式解析细节
 
@@ -208,17 +243,9 @@ OpenAI 流式响应中的 tool_calls 是增量式的：
 | 工具 Schema | `{"type":"function","function":{...}}` | `{"name":..., "input_schema":{...}}` |
 | 调用标识 | `call_xxx` | `toolu_xxx` |
 
-### 5.2 Invoke
+### 5.2 Invoke（含自动重试）
 
-通过 libcurl 发送 HTTP POST 到 `${baseUrl}/v1/messages`：
-
-1. 设置请求头（`x-api-key: ${apiKey}`、`anthropic-version: 2023-06-01`）
-2. 解析 SSE 数据流：
-   - `event: content_block_start` → 开始内容块
-   - `event: content_block_delta` → 文本增量或工具参数增量
-   - `event: content_block_stop` → 结束内容块
-   - `event: message_stop` → 结束消息
-3. 组装 `ModelResponse`
+与 OpenAI 对称：`Invoke` 内部重试循环 + `DoInvokeOnce` 单次调用。唯一差异是请求端点（`${baseUrl}/v1/messages`）和 SSE 解析格式。重试逻辑完全复用 `retry_helper.h` 的共享函数。
 
 ### 5.3 特殊处理
 
@@ -327,6 +354,10 @@ ReactAgentWorker::ReactLoop (回退模式)
 | `formatType` | ModelFormatType | OPENAI | API 协议格式 |
 | `useNativeFunctionCalling` | bool | true | 是否使用原生 function calling |
 | `extraParams` | ConfigNode | - | 扩展参数 |
+| `retryPolicy.maxRetries` | int | 2 | 瞬态错误重试次数 |
+| `retryPolicy.baseDelayMs` | int | 400 | exponential backoff 基础延迟（ms） |
+| `retryPolicy.maxDelayMs` | int | 3000 | 退避上限（ms） |
+| `retryPolicy.withJitter` | bool | true | 随机抖动避免 thundering herd |
 
 ### 9.2 常用 extraParams
 

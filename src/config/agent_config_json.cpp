@@ -144,9 +144,17 @@ static void MergeModelConfig(const nlohmann::json& j, ModelConfig& out)
             out.formatType = ft;
         }
     }
+    if (j.contains("useNativeFunctionCalling")) out.useNativeFunctionCalling = j["useNativeFunctionCalling"].get<bool>();
     if (j.contains("extraParams") && j["extraParams"].is_object()) {
         out.extraParams = ConfigNode{};
         ConfigNodeFromJson(j["extraParams"], out.extraParams);
+    }
+    if (j.contains("retryPolicy") && j["retryPolicy"].is_object()) {
+        const auto& rp = j["retryPolicy"];
+        if (rp.contains("maxRetries"))    out.retryPolicy.maxRetries    = rp["maxRetries"].get<int>();
+        if (rp.contains("baseDelayMs"))   out.retryPolicy.baseDelayMs   = rp["baseDelayMs"].get<int>();
+        if (rp.contains("maxDelayMs"))    out.retryPolicy.maxDelayMs    = rp["maxDelayMs"].get<int>();
+        if (rp.contains("withJitter"))    out.retryPolicy.withJitter    = rp["withJitter"].get<bool>();
     }
 }
 
@@ -158,7 +166,14 @@ static nlohmann::json ModelConfigToJson(const ModelConfig& cfg)
     j["modelName"]  = cfg.modelName;
     j["provider"]   = cfg.provider;
     j["formatType"] = FormatTypeToString(cfg.formatType);
+    j["useNativeFunctionCalling"] = cfg.useNativeFunctionCalling;
     j["extraParams"] = ConfigNodeToJson(cfg.extraParams);
+    nlohmann::json rp;
+    rp["maxRetries"]  = cfg.retryPolicy.maxRetries;
+    rp["baseDelayMs"] = cfg.retryPolicy.baseDelayMs;
+    rp["maxDelayMs"]  = cfg.retryPolicy.maxDelayMs;
+    rp["withJitter"]  = cfg.retryPolicy.withJitter;
+    j["retryPolicy"] = rp;
     return j;
 }
 

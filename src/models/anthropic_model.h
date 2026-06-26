@@ -18,6 +18,10 @@ public:
 
     ModelResponse Invoke(const std::string& formattedInput,
                           std::function<void(const std::string&)> onChunk) override;
+
+private:
+    ModelResponse DoInvokeOnce(const std::string& formattedInput,
+                                std::function<void(const std::string&)> onChunk);
 };
 
 } // namespace jiuwen
