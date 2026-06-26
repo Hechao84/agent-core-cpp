@@ -137,9 +137,15 @@ bool ContextEngine::CanMerge(const Message& prev, const Message& cur)
 
 int ContextEngine::CalculateMessagesTokens(const std::vector<Message>& messages) const
 {
+    return CalculateMessagesTokens(messages.begin(), messages.end());
+}
+
+int ContextEngine::CalculateMessagesTokens(std::vector<Message>::const_iterator begin,
+                                            std::vector<Message>::const_iterator end) const
+{
     int total = 0;
-    for (const auto& message : messages) {
-        total += CalculateMessageTokens(message);
+    for (auto it = begin; it != end; ++it) {
+        total += CalculateMessageTokens(*it);
     }
     return total;
 }
@@ -156,7 +162,7 @@ std::vector<ContextEngine::MessageSegment> ContextEngine::BuildMessageSegments(c
             segment.start = start;
             segment.end = i;
             segment.startsWithUser = messages[start].role == "user";
-            segment.tokens = CalculateMessagesTokens(std::vector<Message>(messages.begin() + start, messages.begin() + i));
+            segment.tokens = CalculateMessagesTokens(messages.begin() + static_cast<std::ptrdiff_t>(start), messages.begin() + static_cast<std::ptrdiff_t>(i));
             segments.push_back(segment);
             start = i;
         }
@@ -166,7 +172,7 @@ std::vector<ContextEngine::MessageSegment> ContextEngine::BuildMessageSegments(c
     segment.start = start;
     segment.end = messages.size();
     segment.startsWithUser = messages[start].role == "user";
-    segment.tokens = CalculateMessagesTokens(std::vector<Message>(messages.begin() + start, messages.end()));
+    segment.tokens = CalculateMessagesTokens(messages.begin() + static_cast<std::ptrdiff_t>(start), messages.end());
     segments.push_back(segment);
     return segments;
 }
@@ -295,8 +301,10 @@ std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message
         result.insert(result.end(), it->begin(), it->end());
     }
 
-    while (static_cast<int>(result.size()) > config_.maxMessages && result.size() > 1) {
-        result.erase(result.begin());
+    if (static_cast<int>(result.size()) > config_.maxMessages && result.size() > 1) {
+        size_t target = std::max(static_cast<size_t>(config_.maxMessages), static_cast<size_t>(1));
+        size_t excess = result.size() - target;
+        result.erase(result.begin(), result.begin() + static_cast<std::ptrdiff_t>(excess));
     }
 
     int droppedUnpairedToolMessages = DropUnpairedToolMessages(result);

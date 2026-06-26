@@ -52,6 +52,8 @@ private:
     static int EstimateTokens(const std::string& text);
     int CalculateMessageTokens(const Message& msg) const;
     int CalculateMessagesTokens(const std::vector<Message>& messages) const;
+    int CalculateMessagesTokens(std::vector<Message>::const_iterator begin,
+                                std::vector<Message>::const_iterator end) const;
     std::vector<Message> ApplyContextLimits(const std::vector<Message>& messages) const;
     std::vector<MessageSegment> BuildMessageSegments(const std::vector<Message>& messages) const;
     std::vector<Message> CompressSegment(const std::vector<Message>& messages, const MessageSegment& segment, int tokenBudget) const;
