@@ -329,11 +329,66 @@ void ResourceManager::LoadMemoryPlugins(const std::string& pluginDir)
 #endif
         if (!fn) {
             LOG(WARN) << "[ResourceManager] Memory plugin missing " << kEntry << ": " << path;
+            // dlopen/LoadLibraryA succeeded but the entry point is absent;
+            // close the handle so a bad plugin does not leak.
+#if defined(_WIN32)
+            FreeLibrary(handle);
+#else
+            dlclose(handle);
+#endif
             continue;
         }
+
+        // Snapshot existing provider names so we can tell which providers this
+        // plugin registers. fn(*this) is called OUTSIDE memoryMutex_ because it
+        // calls RegisterMemoryRuntime which locks the same mutex (would deadlock).
+        std::vector<std::string> before;
+        {
+            std::lock_guard<std::mutex> lock(memoryMutex_);
+            before.reserve(memoryFactories_.size());
+            for (const auto& kv : memoryFactories_) before.push_back(kv.first);
+        }
+
         fn(*this);
+
+        {
+            std::lock_guard<std::mutex> lock(memoryMutex_);
+            for (const auto& kv : memoryFactories_) {
+                if (std::find(before.begin(), before.end(), kv.first) == before.end()) {
+                    pluginProviders_.push_back(kv.first);
+                }
+            }
+            pluginHandles_.push_back(static_cast<void*>(handle));
+        }
         LOG(INFO) << "[ResourceManager] Loaded memory plugin: " << path;
     }
+}
+
+void ResourceManager::UnloadMemoryPlugins()
+{
+    std::lock_guard<std::mutex> lock(memoryMutex_);
+    // 1. Erase plugin-registered providers first (their factory lambdas live in
+    //    the plugin .so); built-in factories are preserved. This must happen
+    //    BEFORE dlclose so no surviving lambda references unloaded code.
+    for (const auto& p : pluginProviders_) {
+        memoryFactories_.erase(p);
+    }
+    pluginProviders_.clear();
+    // 2. Close the handles.
+    for (void* h : pluginHandles_) {
+        if (!h) continue;
+#if defined(_WIN32)
+        FreeLibrary(static_cast<HMODULE>(h));
+#else
+        dlclose(h);
+#endif
+    }
+    pluginHandles_.clear();
+}
+
+ResourceManager::~ResourceManager()
+{
+    UnloadMemoryPlugins();
 }
 
 void ResourceManager::RegisterMCPServer(const McpServerConfig& config)

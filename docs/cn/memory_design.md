@@ -455,10 +455,14 @@ ResourceManager::LoadMemoryPlugins(pluginDir)
   │  ├── 扫描目录下的 .so / .dll 文件
   │  ├── dlopen / LoadLibrary 加载
   │  ├── dlsym /GetProcAddress 查找 "RegisterMemoryPlugin" 符号
-  │  ├── 调用 RegisterMemoryPlugin(resourceManager)
+  │  │   └── 符号缺失 → 关闭 handle（避免坏插件泄漏），跳过
+  │  ├── 调用 RegisterMemoryPlugin(resourceManager)（锁外调用，避免死锁）
   │  │   → 插件注册自己的 MemoryRuntime provider
+  │  ├── 保存 handle 到 pluginHandles_，记录新增 provider 到 pluginProviders_
   │  └── 错误处理: 日志记录，跳过坏插件
 ```
+
+插件 handle 由 `pluginHandles_` 持有，`UnloadMemoryPlugins()`（析构函数自动调用）按"先 erase 插件 provider、再 dlclose handle"的顺序关闭，避免析构残留工厂 lambda 时访问已卸载代码。详见 `resource_manager_design.md` 6.4 节。
 
 ### 9.2 插件接口
 

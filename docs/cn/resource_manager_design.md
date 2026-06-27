@@ -237,8 +237,25 @@ extern "C" AGENT_PLUGIN_API void RegisterMemoryPlugin(ResourceManager& rm) {
 
 - 目录不存在 → 忽略，不报错
 - 加载失败（`dlopen`/`LoadLibrary` 错误） → 日志记录，跳过
-- 符号查找失败 → 日志记录，跳过
+- 符号查找失败 → 日志记录，关闭已打开的 handle（避免坏插件泄漏），跳过
 - 一个坏插件不会中断整个启动流程
+
+### 6.4 插件 handle 生命周期
+
+成功加载的插件 handle 保存在 `pluginHandles_`，插件注册的 provider 名记录在 `pluginProviders_`（通过加载前后对 `memoryFactories_` 键集合做快照差集得到）。`UnloadMemoryPlugins()` 关闭所有 handle：
+
+```cpp
+void UnloadMemoryPlugins();   // 公开方法，析构函数也会调用
+```
+
+清理顺序严格保证正确性：
+
+1. **先 erase 插件注册的 provider**（其工厂 lambda 代码驻留在插件 `.so`），保留内建工厂（`builtin.compat` / `http.server`）
+2. **再 `dlclose`/`FreeLibrary` 关闭 handle**
+
+顺序不可颠倒：若先 `dlclose` 再析构残留的工厂 lambda，会访问已卸载代码导致崩溃。
+
+`UnloadMemoryPlugins()` 幂等，可重复调用。`~ResourceManager()` 自动调用它确保进程退出时关闭所有 handle。`fn(*this)`（插件入口）在 `memoryMutex_` 锁外调用——因为它内部会调 `RegisterMemoryRuntime` 抢同一把锁，持锁调用会死锁；仅快照和 handle 记录在锁内完成。
 
 ## 7. MCP 服务器生命周期管理
 

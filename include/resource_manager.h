@@ -31,6 +31,8 @@ class AGENT_API ResourceManager {
 public:
     static ResourceManager& GetInstance();
 
+    ~ResourceManager();
+
     void RegisterTool(const std::string& name, std::function<std::unique_ptr<Tool>()> factory);
     void RegisterModel(const std::string& provider, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory);
     void RegisterMemoryRuntime(const std::string& provider,
@@ -42,6 +44,12 @@ public:
     // Missing directories are ignored; load/symbol failures are logged and
     // skipped so one bad plugin cannot abort startup.
     void LoadMemoryPlugins(const std::string& pluginDir);
+
+    // Close all loaded memory plugin handles. Erases only plugin-registered
+    // providers (built-in factories are preserved) before dlclose/FreeLibrary
+    // to avoid calling into unloaded code. Idempotent; also called by the
+    // destructor.
+    void UnloadMemoryPlugins();
 
     // Session-scoped tool registry (X-3): factory receives a ToolBuildContext
     // carrying the per-session dependencies the tool needs. Stateless tools
@@ -121,6 +129,13 @@ private:
 
     // Memory domain (memoryMutex_)
     std::unordered_map<std::string, std::function<std::unique_ptr<MemoryRuntime>(const MemoryConfig&)>> memoryFactories_;
+
+    // Handles from dlopen/LoadLibraryA, closed on destruction. Stored as
+    // void* (HMODULE is pointer-sized) to avoid including windows.h here.
+    std::vector<void*> pluginHandles_;
+    // Provider names registered by plugins (vs built-in), so
+    // UnloadMemoryPlugins can erase only plugin factories.
+    std::vector<std::string> pluginProviders_;
 
     // MCP server domain (mcpMutex_)
     std::unordered_map<std::string, std::shared_ptr<MCPConnection>> mcpServers_;
