@@ -59,6 +59,11 @@ public:
     void NotifySessionIdle(const std::string& sessionId);
     void NotifySessionActive(const std::string& sessionId);
 
+    // Erase session-scoped state from Agent::sessionActivity_ after the
+    // session is removed from SessionManager. Called by RemoveSession
+    // outside sessionMutex_ to avoid lock-ordering violations.
+    void CleanupSession(const std::string& sessionId);
+
     // Non-owning memory runtime shared across sessions. Ownership lives in
     // SessionManager so the runtime (and the ContextEngine callbacks that
     // capture it) survive an Agent hot-reload.

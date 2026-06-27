@@ -228,6 +228,12 @@ bool Agent::IsSessionBusy(const std::string& sessionId) const
     return it->second.isBusy;
 }
 
+void Agent::CleanupSession(const std::string& sessionId)
+{
+    std::lock_guard<std::mutex> lock(sessionActivityMutex_);
+    sessionActivity_.erase(sessionId);
+}
+
 void Agent::Cancel()
 {
     if (worker_) {

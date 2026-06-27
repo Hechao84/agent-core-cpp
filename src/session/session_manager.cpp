@@ -572,6 +572,13 @@ void SessionManager::RemoveSession(const std::string& sessionId)
     }
     // 'removed' is destroyed here; if an in-flight Invoke still references the
     // SessionEntry, actual destruction is deferred until that reference drops.
+
+    // Clean up Agent::sessionActivity_ for the removed session. Called outside
+    // sessionMutex_ to avoid lock-ordering violation (session > activity).
+    std::shared_ptr<Agent> agent = agent_;
+    if (agent) {
+        agent->CleanupSession(sessionId);
+    }
 }
 
 std::shared_ptr<ContextEngine> SessionManager::GetOrCreateSession(

@@ -156,6 +156,8 @@ RemoveSession(sessionId)   // 软删除
   │     ├── 成功（无 in-flight Invoke）→ remove_all(sessionDir)
   │     └── 失败（正忙）→ 跳过磁盘删除，避免与在途 ContextEngine 写并发
   │  3. 局部 shared_ptr 析构：若仍有 in-flight Invoke 持引用，真正析构延后到引用归零
+  │  4. 释放 sessionMutex_ 后调用 agent->CleanupSession(sessionId)
+  │     清理 Agent::sessionActivity_ 中对应条目（避免 stale 状态残留和 ConsolidationLoop 误触发）
 ```
 
 > **删除语义（软删除）**：删除操作总是立即从 map 移除并返回成功，不会因会话忙碌而

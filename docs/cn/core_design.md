@@ -49,6 +49,10 @@ Agent
 5. 通知会话空闲（`NotifySessionIdle`），触发后台整合条件变量
 6. 返回最终回答字符串
 
+#### `Agent::CleanupSession(sessionId)`
+
+清理 `sessionActivity_` 中指定会话的条目。由 `SessionManager::RemoveSession` 在删除 SessionEntry 后调用（在 `sessionMutex_` 临界区外，避免锁排序违规）。确保已删除会话的 stale 状态不残留在 `sessionActivity_`，防止内存泄漏和 ConsolidationLoop 误触发。
+
 #### `Agent::ConsolidationLoop()`
 
 后台线程方法，在构造时启动：
