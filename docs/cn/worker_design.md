@@ -467,9 +467,9 @@ std::unique_ptr<AgentWorker> CreateAgentWorker(AgentConfig config);
 ```
 CreateAgentWorker(config)
   │  ├── config.mode == REACT → make_unique<ReactAgentWorker>(config)
-  │  ├── config.mode == PLAN_AND_EXECUTE → 未实现，返回 nullptr
-  │  ├── config.mode == WORKFLOW → 未实现，返回 nullptr
-  │  └── 默认 → make_unique<ReactAgentWorker>(config)
+  │  ├── config.mode == PLAN_AND_EXECUTE → 未实现，throw invalid_argument
+  │  ├── config.mode == WORKFLOW → 未实现，throw invalid_argument
+  │  └── 默认 → throw invalid_argument (unknown mode)
 ```
 
 `PLAN_AND_EXECUTE` 和 `WORKFLOW` 模式预留但未实现，是未来扩展的方向。

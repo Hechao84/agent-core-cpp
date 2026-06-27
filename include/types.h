@@ -63,9 +63,9 @@ struct ModelConfig
 
 enum class AgentWorkMode 
 {
-    REACT,
-    PLAN_AND_EXECUTE,
-    WORKFLOW,
+    REACT,             // Implemented
+    PLAN_AND_EXECUTE,  // Reserved, not implemented (factory throws)
+    WORKFLOW,          // Reserved, not implemented (factory throws)
 };
 
 // Prompt Resource Type

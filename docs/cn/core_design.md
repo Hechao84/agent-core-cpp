@@ -54,9 +54,10 @@ Agent
 后台线程方法，在构造时启动：
 
 1. 等待条件变量（`cv_`），直到有会话变为空闲
-2. 若 `MemoryRuntime` 已启用，调用 `MemoryRuntime::Consolidate(request, modelClient)`
-3. 否则，调用 `longTermConsolidator_->Run(model, historyStore)`
-4. 循环继续，直到 `running_` 标志变为 false
+2. 创建 Model 实例一次（`CreateModel`），供两条整合路径共享
+3. 若 `MemoryRuntime` 已启用，调用 `MemoryRuntime::Consolidate(request, modelClient)`
+4. 若 `MemoryRuntime` 未处理，调用 `longTermConsolidator_->Run(model, historyStore)`
+5. 循环继续，直到 `running_` 标志变为 false
 
 #### `SessionManager::ProvideUserResponse(requestId, answer)` （原 `Agent::ProvideUserResponse`）
 

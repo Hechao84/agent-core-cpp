@@ -329,12 +329,12 @@ void Agent::ConsolidationLoop()
         }
 
         try {
+            auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
             bool handledByMemoryRuntime = false;
             if (memoryRuntime_) {
                 MemoryConsolidationRequest request;
                 request.agentId = config_.id;
                 request.forceReprocess = false;
-                auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
                 HostMemoryModelClient hostClient(model.get());
                 handledByMemoryRuntime = memoryRuntime_->Consolidate(request, &hostClient);
                 if (handledByMemoryRuntime) {
@@ -343,7 +343,6 @@ void Agent::ConsolidationLoop()
             }
 
             if (!handledByMemoryRuntime) {
-                auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
                 bool didWork = longTermConsolidator_->Run(model.get(), historyStore_.get());
                 if (didWork) {
                     LOG(INFO) << "[Dream] Memory consolidation completed";
