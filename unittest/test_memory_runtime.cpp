@@ -320,6 +320,42 @@ TEST(memory_runtime, ConsolidateWritesSessionSummary)
     fs::remove_all(base);
 }
 
+TEST(memory_runtime, ConsolidateRuntimeDecidesOverload)
+{
+    // The no-arg Consolidate(request) overload lets the runtime decide the
+    // model source. With no model configured it falls back to rule-based
+    // extraction, mirroring the agent-memory-cpp runtime-decides semantics.
+    fs::path base = fs::temp_directory_path() / "jiuwen_memory_consolidate_noarg_test";
+    fs::remove_all(base);
+
+    MemoryConfig config;
+    config.dataPath = base.string();
+    BuiltinMemoryRuntime runtime(config);
+
+    MemoryEvent event;
+    event.type = MemoryEventType::MESSAGE_APPENDED;
+    event.agentId = "agent";
+    event.sessionId = "session";
+    event.role = "user";
+    event.content = "remember this important fact";
+    TestRunner::AssertTrue(runtime.AppendEvent(event));
+
+    MemoryConsolidationRequest request;
+    request.agentId = "agent";
+    request.sessionId = "session";
+    request.maxEvents = 10;
+    TestRunner::AssertTrue(runtime.Consolidate(request));
+
+    MemoryContextRequest contextRequest;
+    contextRequest.agentId = "agent";
+    contextRequest.sessionId = "session";
+    MemoryContextPackage context = runtime.BuildContext(contextRequest);
+    TestRunner::AssertContains(context.memoryText, "## Long-term Summaries");
+    TestRunner::AssertContains(context.memoryText, "remember this important fact");
+
+    fs::remove_all(base);
+}
+
 TEST(memory_runtime, ConsolidateExtractsTopicPreferenceEntityRelation)
 {
     fs::path base = fs::temp_directory_path() / "jiuwen_memory_processor_test";

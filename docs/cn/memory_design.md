@@ -31,6 +31,7 @@ public:
     virtual MemoryContextPackage BuildContext(const MemoryContextRequest& request) = 0;
     virtual MemoryPayloadWriteResult WritePayload(const MemoryPayloadWriteRequest& request) = 0;
     virtual std::string ReadPayload(const std::string& uri) = 0;
+    virtual bool Consolidate(const MemoryConsolidationRequest& request) = 0;
     virtual bool Consolidate(const MemoryConsolidationRequest& request,
                              MemoryModelClient* modelClient) = 0;
     virtual std::vector<MemorySearchHit> SearchMemory(const MemorySearchRequest& request) = 0;
@@ -46,7 +47,7 @@ public:
 | `BuildContext` | AgentWorker::BuildPrompt | 为当前查询构建长期记忆上下文 |
 | `WritePayload` | ReactWorker (工具结果 offload) | 将大型工具结果写入外部存储 |
 | `ReadPayload` | MemoryReadPayloadTool | 按需读取 offloaded payload |
-| `Consolidate` | Agent::ConsolidationLoop | 将短期事件整合为长期记忆 |
+| `Consolidate` | Agent::ConsolidationLoop | 将短期事件整合为长期记忆。双重载：无参版让 runtime 自决模型来源；带参版用显式提供的 modelClient（对 HTTP 模式无效，server 用自己的模型） |
 | `SearchMemory` | 搜索查询 | 搜索长期记忆中的实体和关系 |
 | `GetStats` | 管理界面 | 获取运行时统计信息 |
 
@@ -404,6 +405,11 @@ memoryText 注入系统提示
 
 ### 7.3 整合流程
 
+`Consolidate` 有两个重载，镜像 agent-memory-cpp 的接口设计：
+
+- **`Consolidate(request)`**：runtime 自决模型来源。Builtin 用配置的内建模型（否则规则提取）；HTTP 整合在 server 端用 server 的模型。
+- **`Consolidate(request, modelClient)`**：显式指定模型。Builtin 用宿主注入的 modelClient；HTTP 忽略此参数（client 进程内的模型无法给远端 server 使用）。
+
 ```
 Agent::ConsolidationLoop (后台线程)
   │  ├── 等待会话空闲
@@ -423,6 +429,7 @@ MemoryRuntime::Consolidate(request, modelClient)
   │  │
   │  ├── HttpMemoryRuntime:
   │  │   ├── HTTP POST /memory/consolidate
+  │  │   └── modelClient 不使用（server 有自己的模型），WARN 提示后调用无参重载
 ```
 
 ## 8. 双记忆架构

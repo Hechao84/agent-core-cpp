@@ -20,6 +20,7 @@ public:
     MemoryContextPackage BuildContext(const MemoryContextRequest& request) override;
     MemoryPayloadWriteResult WritePayload(const MemoryPayloadWriteRequest& request) override;
     std::string ReadPayload(const std::string& uri) override;
+    bool Consolidate(const MemoryConsolidationRequest& request) override;
     bool Consolidate(const MemoryConsolidationRequest& request, MemoryModelClient* modelClient) override;
     std::vector<MemorySearchHit> SearchMemory(const MemorySearchRequest& request) override;
     MemoryStats GetStats() const override;

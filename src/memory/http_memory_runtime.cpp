@@ -593,12 +593,10 @@ std::string HttpMemoryRuntime::ReadPayload(const std::string& uri)
     }
 }
 
-bool HttpMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request, MemoryModelClient* modelClient)
+bool HttpMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request)
 {
-    if (modelClient) {
-        LOG(WARN) << "[HttpMemoryRuntime] modelClient is not used in server mode. "
-                  << "Remote server uses its own model.";
-    }
+    // HTTP mode: consolidation runs on the server using the server's own
+    // configured model. There is no client-side model involved.
     nlohmann::json body = SerializeConsolidationRequest(request);
     auto resp = HttpPost("/v1/consolidate", body.dump());
     if (resp.status != 200) {
@@ -624,6 +622,18 @@ bool HttpMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request, M
         LOG(WARN) << "[HttpMemoryRuntime] Consolidate parse error: " << e.what();
         return false;
     }
+}
+
+bool HttpMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request, MemoryModelClient* modelClient)
+{
+    // The model lives in the client process and cannot be used by the remote
+    // server, so the explicit-model overload behaves like the runtime-decides
+    // overload. Warn so callers know the model was ignored.
+    if (modelClient) {
+        LOG(WARN) << "[HttpMemoryRuntime] modelClient is not used in server mode. "
+                  << "Remote server uses its own model.";
+    }
+    return Consolidate(request);
 }
 
 std::vector<MemorySearchHit> HttpMemoryRuntime::SearchMemory(const MemorySearchRequest& request)

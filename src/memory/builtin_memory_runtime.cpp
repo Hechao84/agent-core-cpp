@@ -80,14 +80,30 @@ std::string BuiltinMemoryRuntime::ReadPayload(const std::string& uri)
     return r.content;
 }
 
+bool BuiltinMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request)
+{
+    // Runtime decides the model source: uses the configured built-in model
+    // when available, otherwise rule-based extraction.
+    agent_memory::MemoryConsolidationRequest agentRequest = ToAgentConsolidationRequest(request);
+    agent_memory::MemoryConsolidationResult r = impl_->Consolidate(agentRequest);
+    if (!r) {
+        LOG(WARN) << "[MemoryRuntime] Consolidate failed: " << r.error.message;
+    } else {
+        LOG(INFO) << "[MemoryRuntime] Consolidate ok: processed=" << r.processedEvents
+                  << " summaries=" << r.savedSummaries << " entities=" << r.savedEntities
+                  << " relations=" << r.savedRelations;
+    }
+    return r.succeeded;
+}
+
 bool BuiltinMemoryRuntime::Consolidate(const MemoryConsolidationRequest& request, MemoryModelClient* modelClient)
 {
+    // Explicit-model overload: nullptr disables model use entirely (rule-based
+    // only); a non-null client is wrapped and used for this call.
     agent_memory::MemoryConsolidationRequest agentRequest = ToAgentConsolidationRequest(request);
     agent_memory::MemoryConsolidationResult r;
     if (modelClient == nullptr) {
-        // nullptr -> runtime decides: use the configured built-in model when
-        // available, otherwise rule-based extraction.
-        r = impl_->Consolidate(agentRequest);
+        r = impl_->Consolidate(agentRequest, static_cast<agent_memory::MemoryModelClient*>(nullptr));
     } else {
         AgentMemoryModelClientAdapter adapter(modelClient);
         r = impl_->Consolidate(agentRequest, &adapter);
