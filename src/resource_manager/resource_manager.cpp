@@ -197,8 +197,7 @@ std::string ResourceManager::GetToolSchema(const std::string& name)
     return schema;
 }
 
-std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std::string>& toolNames,
-                                                           const ToolBuildContext& ctx)
+std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std::string>& toolNames)
 {
     std::vector<ToolSchema> schemas;
     schemas.reserve(toolNames.size());
@@ -240,10 +239,19 @@ std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std:
             continue;
         }
 
+        // Schema extraction probes always use a default-constructed
+        // ToolBuildContext (all-null pointers). Tool constructors must
+        // not dereference these pointers — the schema is determined
+        // entirely by the Tool base constructor (name/description/params),
+        // never by runtime context. This fail-fast contract ensures that
+        // any future tool which accidentally depends on context in its
+        // constructor will immediately crash in the probe path rather
+        // than silently working with real ctx and breaking with null ctx.
+        ToolBuildContext probeCtx;
         std::unique_ptr<Tool> probe;
         try {
             if (isSession) {
-                probe = sessionFactory(ctx);
+                probe = sessionFactory(probeCtx);
             } else {
                 probe = statelessFactory();
             }

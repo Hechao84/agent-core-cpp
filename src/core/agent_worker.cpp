@@ -81,13 +81,7 @@ std::vector<ToolSchema> AgentWorker::BuildToolSchemas() const
         std::lock_guard<std::mutex> lock(toolMutex_);
         names = toolNames_;
     }
-    ToolBuildContext ctx;
-    ctx.sessionId = config_.contextConfig.sessionId;
-    if (workerEnv_ != nullptr) {
-        ctx.todoList = workerEnv_->GetOrCreateSessionTodoList(ctx.sessionId);
-        ctx.askUser = workerEnv_->GetAskUserDispatcher(ctx.sessionId);
-    }
-    return ResourceManager::GetInstance().BuildToolSchemas(names, ctx);
+    return ResourceManager::GetInstance().BuildToolSchemas(names);
 }
 
 ModelResponse AgentWorker::CallModelStream(const std::string& systemPrompt,

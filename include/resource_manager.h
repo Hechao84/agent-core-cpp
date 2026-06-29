@@ -19,6 +19,14 @@ class MCPConnection;
 class SessionTodoList;
 class AskUserDispatcher;
 
+// Context for session-scoped tool construction. When a tool instance is
+// created for actual execution (via CreateSessionTool), the pointers are
+// populated from WorkerEnv. When a probe instance is created for schema
+// extraction only (via GetToolSchema or BuildToolSchemas), all pointer
+// fields are nullptr — tool constructors must not dereference these
+// pointers, as the schema is determined entirely by name/description/params
+// which are set in the Tool base constructor and never depend on runtime
+// context.
 struct ToolBuildContext {
     SessionTodoList* todoList{nullptr};
     AskUserDispatcher* askUser{nullptr};
@@ -66,12 +74,8 @@ public:
     std::shared_ptr<MCPConnection> GetMCPServer(const std::string& name);
 
     // Build native function-calling tool schemas for the requested tools.
-    // Stateless tools use a fresh CreateTool instance; session-scoped tools
-    // use the provided ToolBuildContext to construct a probe. Unknown tool
-    // names are silently skipped (matches the schema-rendering helpers used
-    // by Worker).
-    std::vector<ToolSchema> BuildToolSchemas(const std::vector<std::string>& toolNames,
-                                              const ToolBuildContext& ctx);
+    // Unknown tool names are silently skipped.
+    std::vector<ToolSchema> BuildToolSchemas(const std::vector<std::string>& toolNames);
 
     std::vector<std::string> GetAvailableTools() const;
     std::vector<std::string> GetAvailableModels() const;
