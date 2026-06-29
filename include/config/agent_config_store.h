@@ -69,7 +69,7 @@ private:
     void SaveLocked();
     nlohmann::json ReadFileLocked();
 
-    mutable std::mutex mutex_;
+    mutable std::mutex mutex_;  // Lock layer L5 (config persistence, not on Invoke thread)
     std::filesystem::path path_{"./data/agents.json"};
     std::unordered_map<std::string, AgentConfig> defaults_;
     std::unordered_map<std::string, AgentConfig> current_;

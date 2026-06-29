@@ -34,7 +34,7 @@ public:
 
 protected:
     AgentConfig config_;
-    mutable std::mutex toolMutex_;
+    mutable std::mutex toolMutex_;  // Lock layer L5 (tool names + selector)
     std::atomic<uint64_t> cancelGeneration_{0};
     std::vector<std::string> toolNames_;
     std::unique_ptr<ToolSelector> toolSelector_;

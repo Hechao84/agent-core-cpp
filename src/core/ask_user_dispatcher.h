@@ -51,7 +51,7 @@ public:
 
 private:
     struct Slot {
-        std::mutex m;
+        std::mutex m;  // Lock layer L8 (per-slot CV wait)
         std::condition_variable cv;
         std::optional<std::string> answer;
         bool done{false};
@@ -60,7 +60,7 @@ private:
     std::shared_ptr<Slot> GetOrCreateSlot(const std::string& requestId);
     std::shared_ptr<Slot> TakeSlot(const std::string& requestId);
 
-    mutable std::mutex slotsMu_;
+    mutable std::mutex slotsMu_;  // Lock layer L6 (pending ask_user slots)
     std::unordered_map<std::string, std::shared_ptr<Slot>> slots_;
 
     std::string sessionId_;

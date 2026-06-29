@@ -26,7 +26,7 @@ public:
     std::string Render() const;
 
 private:
-    mutable std::mutex mu_;
+    mutable std::mutex mu_;  // Lock layer L6 (todo list operations)
     std::vector<TodoItem> items_;
 };
 

@@ -46,11 +46,11 @@ public:
 private:
     std::string name_;
     MCPEndpointConfig config_;
-    mutable std::mutex stateMutex_;
+    mutable std::mutex stateMutex_;  // Lock layer L6 (connection state)
     bool connected_{false};
     std::vector<MCPToolInfo> availableTools_;
     std::shared_ptr<MCPClient> client_;
-    mutable std::mutex callMutex_;
+    mutable std::mutex callMutex_;  // Lock layer L7 (call serialization)
 
     void CreateClient();
 };

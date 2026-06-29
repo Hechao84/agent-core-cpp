@@ -20,7 +20,7 @@ namespace jiuwen {
 
 namespace {
     std::atomic<SessionManager*> g_sessionManager{nullptr};
-    std::mutex g_initMutex;
+    std::mutex g_initMutex;  // Lock layer L0 (singleton init)
 }
 
 // WorkerEnv adapter that resolves session-scoped resources through
@@ -32,8 +32,22 @@ class SmWorkerEnv : public WorkerEnv {
 public:
     explicit SmWorkerEnv(SessionManager* sm) : sm_(sm) {}
 
+    std::shared_ptr<ContextEngine> GetContextEngine(const std::string& sessionId) override
+    {
+        if (tlCurrentEntry_) {
+            return tlCurrentEntry_->contextEngine;
+        }
+        return sm_->GetContextEngine(sessionId);
+    }
+
     SessionTodoList* GetOrCreateSessionTodoList(const std::string& sessionId) override
     {
+        if (tlCurrentEntry_) {
+            if (!tlCurrentEntry_->todoList) {
+                tlCurrentEntry_->todoList = std::make_unique<SessionTodoList>();
+            }
+            return tlCurrentEntry_->todoList.get();
+        }
         std::lock_guard<std::mutex> lock(sm_->sessionMutex_);
         auto it = sm_->sessions_.find(sessionId);
         if (it == sm_->sessions_.end() || !it->second) {
@@ -47,6 +61,9 @@ public:
 
     AskUserDispatcher* GetAskUserDispatcher(const std::string& sessionId) override
     {
+        if (tlCurrentEntry_) {
+            return tlCurrentEntry_->askUser.get();
+        }
         std::lock_guard<std::mutex> lock(sm_->sessionMutex_);
         auto it = sm_->sessions_.find(sessionId);
         if (it == sm_->sessions_.end() || !it->second) {
@@ -60,9 +77,27 @@ public:
         return sm_->memoryRuntime_.get();
     }
 
+    // Per-thread pre-caching: the Invoke flow is SetCurrentEntry →
+    // acquire invokeMutex → Invoke → ClearCurrentEntry, all on the
+    // same thread. thread_local ensures each thread's cached entry
+    // is independent, eliminating the data race that would exist
+    // with a plain member (shared across all Invoke threads).
+    void SetCurrentEntry(std::shared_ptr<SessionEntry> entry) override
+    {
+        tlCurrentEntry_ = std::move(entry);
+    }
+
+    void ClearCurrentEntry() override
+    {
+        tlCurrentEntry_.reset();
+    }
+
 private:
     SessionManager* sm_;
+    static thread_local std::shared_ptr<SessionEntry> tlCurrentEntry_;
 };
+
+thread_local std::shared_ptr<SessionEntry> SmWorkerEnv::tlCurrentEntry_;
 
 // AskUserRouter adapter: routes registration calls from AskUserDispatcher
 // into SessionManager's requestId→sessionId index.
@@ -318,11 +353,15 @@ void SessionManager::InitMemoryRuntime()
 
 void SessionManager::SetupAgentContextRouting()
 {
-    // Use a raw pointer to "this" since SessionManager outlives Agent
-    SessionManager* self = this;
+    // Use workerEnv_ to resolve ContextEngine by sessionId. During an
+    // Invoke, SmWorkerEnv has the current entry cached (set via
+    // SetCurrentEntry before invokeMutex acquisition), so no
+    // sessionMutex_ acquisition is needed — eliminating the
+    // invokeMutex→sessionMutex_ lock-ordering violation. Outside
+    // Invoke, the fallback path acquires sessionMutex_.
     agent_->SetContextEngineGetter(
-        [self](const std::string& sessionId) -> std::shared_ptr<ContextEngine> {
-            return self->GetContextEngine(sessionId);
+        [this](const std::string& sessionId) -> std::shared_ptr<ContextEngine> {
+            return workerEnv_->GetContextEngine(sessionId);
         }
     );
 }
@@ -443,6 +482,13 @@ SessionInvokeResult SessionManager::Invoke(
         return SessionInvokeResult{"[ERROR] Failed to create session", false, "Create failed", sessionId};
     }
 
+    // Cache the session entry in SmWorkerEnv so that subsequent
+    // ContextEngine/todoList/askUser lookups during Invoke can access
+    // them directly without acquiring sessionMutex_ (eliminating the
+    // invokeMutex→sessionMutex_ lock-ordering violation per the
+    // lock ordering protocol).
+    workerEnv_->SetCurrentEntry(entry);
+
     // Per-session lock (serializes calls within same session)
     std::unique_lock<std::mutex> lock(entry->invokeMutex);
     entry->isBusy = true;
@@ -452,6 +498,7 @@ SessionInvokeResult SessionManager::Invoke(
         result = agentPtr->Invoke(sessionId, message, callback);
     } catch (const std::exception& e) {
         entry->isBusy = false;
+        workerEnv_->ClearCurrentEntry();
         releaseGate();
 
         std::string err = "Invoke failed: " + std::string(e.what());
@@ -461,6 +508,7 @@ SessionInvokeResult SessionManager::Invoke(
     }
 
     entry->isBusy = false;
+    workerEnv_->ClearCurrentEntry();
     releaseGate();
 
     return SessionInvokeResult{result, true, "", sessionId};
@@ -498,11 +546,16 @@ void SessionManager::Shutdown()
 
 bool SessionManager::IsSessionBusy(const std::string& sessionId) const
 {
-    std::lock_guard<std::mutex> lock(sessionMutex_);
-    auto it = sessions_.find(sessionId);
-    if (it == sessions_.end()) return false;
+    // Release sessionMutex_ before calling agent_->IsSessionBusy (which
+    // acquires sessionActivityMutex_) to avoid lock-ordering violation:
+    // the protocol requires sessionMutex_ (L2) to be released before
+    // acquiring sessionActivityMutex_ (L4).
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        auto it = sessions_.find(sessionId);
+        if (it == sessions_.end()) return false;
+    }
 
-    // Use agent's activity tracking
     auto amu = agent_.get();
     if (amu) return amu->IsSessionBusy(sessionId);
     return false;
@@ -604,12 +657,19 @@ std::vector<std::string> SessionManager::GetSessionIds() const
 
 std::vector<Message> SessionManager::GetSessionMessages(const std::string& sessionId) const
 {
-    std::lock_guard<std::mutex> lock(sessionMutex_);
-    auto it = sessions_.find(sessionId);
-    if (it == sessions_.end() || !it->second || !it->second->contextEngine) {
-        return {};
+    // Release sessionMutex_ (L2) before calling GetAllMessages (which
+    // acquires ContextEngine::memoryMutex_ at L6) to avoid lock-ordering
+    // violation: L2 locks must be released before L6.
+    std::shared_ptr<ContextEngine> ce;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        auto it = sessions_.find(sessionId);
+        if (it == sessions_.end() || !it->second || !it->second->contextEngine) {
+            return {};
+        }
+        ce = it->second->contextEngine;
     }
-    return it->second->contextEngine->GetAllMessages();
+    return ce->GetAllMessages();
 }
 
 std::map<std::string, std::string> SessionManager::GetSessionMetadata(const std::string& sessionId) const

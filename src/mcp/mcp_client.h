@@ -44,7 +44,7 @@ private:
     std::string name_;
     std::string version_;
     std::string endpoint_;
-    mutable std::mutex sessionMutex_;
+    mutable std::mutex sessionMutex_;  // Lock layer L7 (MCP client session ID)
     std::string sessionId_;
     bool isInitialized_{false};
     std::vector<std::string> headers_;

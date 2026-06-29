@@ -44,7 +44,7 @@ private:
 
     void Loop();
 
-    std::mutex mutex_;
+    std::mutex mutex_;  // Lock layer L5 (watch entries, not on Invoke thread)
     std::condition_variable cv_;
     std::atomic<bool> running_{false};
     int pollSeconds_{3};

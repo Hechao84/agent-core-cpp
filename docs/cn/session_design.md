@@ -116,9 +116,7 @@ struct SessionEntry {
 持有 `invokeMutex` 执行：即便 `RemoveSession` 在此期间把条目移出 map，`SessionEntry`
 （连同其 `invokeMutex`）也不会被销毁，从而消除并发删除导致的 use-after-free。
 
-`isBusy` 为 `std::atomic<bool>`：写发生在持 `invokeMutex` 的 `Invoke` 路径，读发生在
-持 `sessionMutex_` 的 `RemoveSession`/`IsSessionBusy`——读写用不同的锁，故必须用原子
-类型保证可见性，避免数据竞争。
+`isBusy` 为 `std::atomic<bool>`：写发生在持 `invokeMutex` 的 `Invoke` 路径，读发生在持 `sessionMutex_` 的 `RemoveSession` 和 `IsSessionBusy`。在 `IsSessionBusy` 中，`sessionMutex_`（L2）先释放，再获取 `sessionActivityMutex_`（L4）查询 `sessionActivity_`——遵循锁排序协议（L2 总是释放后才获取 L4+ 锁）。读写用不同的锁，故必须用原子类型保证可见性，避免数据竞争。
 
 ### 3.2 会话隔离原则
 
@@ -144,7 +142,7 @@ FindOrCreateEntry(sessionId)   // 返回 shared_ptr<SessionEntry>
   ▼
 会话使用期间
   │  ├── Invoke → 锁内取 shared_ptr<SessionEntry> 拷贝 → 释放 sessionMutex_
-  │  │            → acquire invokeMutex → 执行 → release invokeMutex
+  │  │            → WorkerEnv::SetCurrentEntry(entry) 预缓存 → acquire invokeMutex → 执行 → release invokeMutex → WorkerEnv::ClearCurrentEntry()
   │  ├── ContextEngine 独立管理上下文窗口
   │  └── MemoryRuntime 共享但通过 sessionId 区分数据
   │
@@ -158,6 +156,7 @@ RemoveSession(sessionId)   // 软删除
   │  3. 局部 shared_ptr 析构：若仍有 in-flight Invoke 持引用，真正析构延后到引用归零
   │  4. 释放 sessionMutex_ 后调用 agent->CleanupSession(sessionId)
   │     清理 Agent::sessionActivity_ 中对应条目（避免 stale 状态残留和 ConsolidationLoop 误触发）
+  │     CleanupSession 在 sessionActivityMutex_（L4）保护下执行 erase，遵循锁排序协议
 ```
 
 > **删除语义（软删除）**：删除操作总是立即从 map 移除并返回成功，不会因会话忙碌而
@@ -383,9 +382,11 @@ SetupAgentContextRouting()
 
 | 共享状态 | 保护机制 | 访问模式 |
 |---------|---------|---------|
-| `sessions_` | `sessionMutex_` | 读多写少 |
-| `concurrentCount_` | `concurrencyMutex_` + `concurrencyCv_` | Invoke 加减 |
-| `reloading_` | `concurrencyMutex_` + `reloadCv_` | 热重载专用 |
+| `sessions_` | `sessionMutex_` (L2) | 读多写少 |
+| `concurrentCount_` | `concurrencyMutex_` (L1) + `concurrencyCv_` | Invoke 加减 |
+| `reloading_` | `concurrencyMutex_` (L1) + `reloadCv_` | 热重载专用 |
 | `agent_` (shared_ptr) | 原子替换 + shared_ptr 引用计数 | 读多写极少 |
 | `memoryRuntime_` | 构造时设置，之后只读；声明早于 agent_/sessions_ 保证最后析构 | 一次写入 |
-| SessionEntry::invokeMutex | 每会话独立锁 | 同会话串行 |
+| SessionEntry::invokeMutex | 每会话独立锁 (L3) | 同会话串行 |
+| `sessionActivity_` | `sessionActivityMutex_` (L4, Agent 拥有) | ConsolidationLoop/IsSessionBusy/CleanupSession |
+| `askRequestToSession_` | `askIndexMutex_` (L4) | ask_user 请求路由 |

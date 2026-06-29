@@ -347,7 +347,7 @@ config.defaultTools = {"read_file", "write_file", "exec", "web_search"};
 
 - **无状态工具**：每次 `CreateTool` 创建新实例，无并发问题
 - **会话级工具**：每次 `CreateSessionTool` 创建新实例，注入当前会话的依赖指针
-- **`SessionTodoList*`**：由 `Agent` 拥有，`sessionTodosMutex_` 保护创建操作，使用时由 `invokeMutex` 保证串行
-- **`AskUserDispatcher*`**：由 `Agent` 拥有，内部有 `slotsMu_` 保护
+- **`SessionTodoList*`**：由 `SessionEntry` 拥有（随会话存活、跨热重载保留），通过 WorkerEnv 预缓存访问，使用时由 `invokeMutex` 保证串行
+- **`AskUserDispatcher*`**：由 `SessionEntry` 拥有（随会话存活、跨热重载保留），内部有 `slotsMu_`（L6）保护
 - **`MemoryRuntime*`**：由 `SessionManager` 拥有，各方法内部有锁保护
 - **MCPTool**：持有 `shared_ptr<MCPConnection>`，连接内部有 `callMutex_` 保护并发调用

@@ -100,12 +100,13 @@ private:
     void RegisterBuiltinModels();
     void RegisterModel(ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory);
 
-    // Domain-level mutexes: tool, model, memory, and MCP server registries
-    // are independently protected so they do not block each other.
-    mutable std::mutex toolMutex_;
-    mutable std::mutex modelMutex_;
-    mutable std::mutex memoryMutex_;
-    mutable std::mutex mcpMutex_;
+    // Domain-level mutexes (Lock layer L5): tool, model, memory, and MCP
+    // server registries are independently protected so they do not block
+    // each other. These four locks are NEVER nested with each other.
+    mutable std::mutex toolMutex_;    // Lock layer L5 (tool domain)
+    mutable std::mutex modelMutex_;   // Lock layer L5 (model domain)
+    mutable std::mutex memoryMutex_;  // Lock layer L5 (memory domain)
+    mutable std::mutex mcpMutex_;     // Lock layer L5 (MCP domain)
 
     // Tool domain (toolMutex_)
     std::unordered_map<std::string, std::function<std::unique_ptr<Tool>()>> toolFactories_;

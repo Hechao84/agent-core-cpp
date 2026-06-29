@@ -87,7 +87,7 @@ private:
     friend class SessionManager;
 
     std::thread consolidationThread_;
-    mutable std::mutex consolidationMutex_;
+    mutable std::mutex consolidationMutex_;  // Lock layer L3 (consolidation thread CV)
     std::condition_variable cv_;
     std::atomic<bool> running_{true};
 
@@ -105,7 +105,7 @@ private:
     // Agent (cycle elimination).
     WorkerEnv* workerEnv_{nullptr};
 
-    mutable std::mutex sessionActivityMutex_;
+    mutable std::mutex sessionActivityMutex_;  // Lock layer L4 (session activity tracking)
     std::unordered_map<std::string, SessionActivity> sessionActivity_;
 
     void ConsolidationLoop();

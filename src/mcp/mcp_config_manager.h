@@ -32,7 +32,7 @@ private:
     void StartServerLocked(const McpServerConfig& config);
     void StopServerLocked(const std::string& id);
 
-    mutable std::mutex mutex_;
+    mutable std::mutex mutex_;  // Lock layer L5 (MCP config, not on Invoke thread)
     std::unordered_map<std::string, McpServerConfig> lastConfigs_;
     std::unordered_map<std::string, std::shared_ptr<MCPConnection>> servers_;
 };

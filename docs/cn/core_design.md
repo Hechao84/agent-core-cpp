@@ -32,8 +32,9 @@ Agent
   ├── memoryRuntime_ (MemoryRuntime*)               ← 非拥有，来自 SessionManager（跨热重载存活）
   ├── workerEnv_ (WorkerEnv*)                      ← 非拥有，来自 SessionManager（消环）
  ├── consolidationThread_ (std::thread)      ← 后台整合线程
- ├── contextEngineGetter_ (function)         ← 从 SessionManager 获取 ContextEngine
- └── sessionActivity_ (map<sid, SessionActivity>) ← 会话活跃状态
+  ├── contextEngineGetter_ (function)         ← 通过 WorkerEnv 预缓存获取 ContextEngine（不再获取 sessionMutex_）
+  ├── sessionActivityMutex_ (mutex, L4)       ← 保护 sessionActivity_
+  └── sessionActivity_ (map<sid, SessionActivity>) ← 会话活跃状态
 ```
 
 ### 2.2 核心方法
@@ -43,7 +44,7 @@ Agent
 主要入口方法，执行流程：
 
 1. 通知会话活跃（`NotifySessionActive`）
-2. 通过 `contextEngineGetter_` 获取会话的 `ContextEngine`
+2. 通过 `contextEngineGetter_` 获取会话的 `ContextEngine`（从 WorkerEnv 预缓存读取，不获取 sessionMutex_）
 3. 将用户消息添加到 `ContextEngine::AddMessage`
 4. 调用 `worker_->Invoke(query, contextEngine, callback)` 执行推理循环
 5. 通知会话空闲（`NotifySessionIdle`），触发后台整合条件变量
@@ -51,13 +52,13 @@ Agent
 
 #### `Agent::CleanupSession(sessionId)`
 
-清理 `sessionActivity_` 中指定会话的条目。由 `SessionManager::RemoveSession` 在删除 SessionEntry 后调用（在 `sessionMutex_` 临界区外，避免锁排序违规）。确保已删除会话的 stale 状态不残留在 `sessionActivity_`，防止内存泄漏和 ConsolidationLoop 误触发。
+清理 `sessionActivity_` 中指定会话的条目。由 `SessionManager::RemoveSession` 在删除 SessionEntry 后调用（在 `sessionMutex_`（L2）临界区外，避免锁排序违规：L2 必须释放后才获取 `sessionActivityMutex_`（L4））。`CleanupSession` 在 `sessionActivityMutex_` 保护下执行 `erase(sessionId)`。确保已删除会话的 stale 状态不残留在 `sessionActivity_`，防止内存泄漏和 ConsolidationLoop 误触发。
 
 #### `Agent::ConsolidationLoop()`
 
 后台线程方法，在构造时启动。存在两个重载：**无参重载**让 runtime 自行决定模型来源，可用于 runtime 自决场景；**带参重载**接收显式提供的 `modelClient`，意图明确。当前调用带参重载（意图明确），无参重载可用于 runtime 自决场景。流程如下：
 
-1. 等待条件变量（`cv_`），直到有会话变为空闲
+1. 等待条件变量（`cv_`），直到有会话变为空闲（在 `sessionActivityMutex_`（L4）保护下检查 `sessionActivity_`）
 2. 创建 Model 实例一次（`CreateModel`），供两条整合路径共享
 3. 若 `MemoryRuntime` 已启用，调用 `MemoryRuntime::Consolidate(request, modelClient)`
 4. 若 `MemoryRuntime` 未处理，调用 `longTermConsolidator_->Run(model, historyStore)`
@@ -180,20 +181,33 @@ public:
 
 ### 4.3 实现
 
-`SmWorkerEnv`（定义在 `session_manager.cpp`）通过 `SessionManager` 按 sessionId 查找 `SessionEntry`，获取其 `todoList`、`askUser`，以及全局 `memoryRuntime_`。Agent 持有非拥有 `WorkerEnv*`，由 SessionManager 在 Initialize/ReloadAgent 时通过 `Agent::SetWorkerEnv` 注入。
+`SmWorkerEnv`（定义在 `session_manager.cpp`）通过预缓存的 `shared_ptr<SessionEntry>` 直接获取 `todoList`、`askUser`、`contextEngine`，以及全局 `memoryRuntime_`。在 Invoke 入口处，SessionManager 调用 `WorkerEnv::SetCurrentEntry(entry)` 预缓存当前会话条目；Invoke 完成后调用 `ClearCurrentEntry()` 清除缓存。这种预缓存模式消除了 SmWorkerEnv 在 Invoke 期间获取 `sessionMutex_` 的需要，遵循锁排序协议（避免 invokeMutex（L3）→ sessionMutex_（L2）反向嵌套）。
 
 ```cpp
 class SmWorkerEnv : public WorkerEnv {
     SessionManager* sm_;
+    static thread_local std::shared_ptr<SessionEntry> tlCurrentEntry_;
 public:
+    std::shared_ptr<ContextEngine> GetContextEngine(const std::string& sessionId) override {
+        // Invoke 期间：从 tlCurrentEntry_ 直接返回（不获取 sessionMutex_）
+        // 非 Invoke：回退到 sm_->GetContextEngine(sessionId)
+    }
     SessionTodoList* GetOrCreateSessionTodoList(const std::string& sessionId) override {
-        // 通过 sm_->sessionMutex_ 查找 SessionEntry->todoList
+        // Invoke 期间：从 tlCurrentEntry_->todoList 直接返回
+        // 非 Invoke：回退到 sm_->sessionMutex_ 查找
     }
     AskUserDispatcher* GetAskUserDispatcher(const std::string& sessionId) override {
-        // 通过 sm_->sessionMutex_ 查找 SessionEntry->askUser
+        // Invoke 期间：从 tlCurrentEntry_->askUser 直接返回
+        // 非 Invoke：回退到 sm_->sessionMutex_ 查找
     }
     MemoryRuntime* GetMemoryRuntime() override {
         return sm_->memoryRuntime_.get();
+    }
+    void SetCurrentEntry(std::shared_ptr<SessionEntry> entry) override {
+        tlCurrentEntry_ = std::move(entry);
+    }
+    void ClearCurrentEntry() override {
+        tlCurrentEntry_.reset();
     }
 };
 ```

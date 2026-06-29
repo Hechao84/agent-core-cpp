@@ -45,7 +45,7 @@ private:
     std::unique_ptr<ContextStorageBase> storage_;
     std::function<std::string()> memoryContextProvider_;
     std::function<void(const MemoryEvent&)> memoryEventSink_;
-    mutable std::mutex memoryMutex_;
+    mutable std::mutex memoryMutex_;  // Lock layer L6 (message buffer + storage)
 
     struct MessageSegment;
 

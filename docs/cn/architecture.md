@@ -226,7 +226,50 @@ DreamProcessor::Run(model, historyStore)
    │  MCPConnection::stateMutex_ / callMutex_ — 连接状态
 ```
 
-### 5.3 取消机制
+### 5.3 锁排序协议
+
+系统中所有 mutex 按层级编号（Lock layer），**低层号锁必须先获取、后释放；高层号锁在低层号锁仍被持有时才可获取**。禁止反向获取（高层号先、低层号后），以防止死锁。
+
+| 层号 | Mutex | 所属对象 | 保护范围 |
+|------|-------|----------|----------|
+| L0 | `g_initMutex` | anonymous namespace | SessionManager 单例初始化（启动时单线程） |
+| L1 | `concurrencyMutex_` | SessionManager | 全局并发门控 + reload barrier |
+| L2 | `sessionMutex_` | SessionManager | 会话注册表 (`sessions_`) |
+| L3 | `invokeMutex` | SessionEntry | 每会话调用串行化 |
+| L3 | `consolidationMutex_` | Agent | 整合线程条件变量（与 invokeMutex 独立同层） |
+| L4 | `sessionActivityMutex_` | Agent | 会话忙闲追踪 (`sessionActivity_`) |
+| L4 | `askIndexMutex_` | SessionManager | ask_user 请求路由 (`askRequestToSession_`) |
+| L5 | `ResourceManager::toolMutex_` | ResourceManager | 工具注册表 + schema 缓存 |
+| L5 | `ResourceManager::modelMutex_` | ResourceManager | 模型注册表 |
+| L5 | `ResourceManager::memoryMutex_` | ResourceManager | 记忆运行时工厂 + 插件 handle |
+| L5 | `ResourceManager::mcpMutex_` | ResourceManager | MCP 连接实例 |
+| L5 | `AgentWorker::toolMutex_` | AgentWorker | 工具名列表 + 选择器 |
+| L5 | `ConfigWatcher::mutex_` | ConfigWatcher | watch 条目（不在 Invoke 线程） |
+| L5 | `AgentConfigStore::mutex_` | AgentConfigStore | 配置持久化（不在 Invoke 线程） |
+| L5 | `MCPConfigManager::mutex_` | MCPConfigManager | MCP 配置（不在 Invoke 线程） |
+| L6 | `ContextEngine::memoryMutex_` | ContextEngine | 消息缓冲区 + 存储后端 |
+| L6 | `AskUserDispatcher::slotsMu_` | AskUserDispatcher | pending ask_user slots |
+| L6 | `MCPConnection::stateMutex_` | MCPConnection | 连接状态 + 自动重连 |
+| L6 | `SessionTodoList::mu_` | SessionTodoList | todo 列表操作 |
+| L7 | `MCPConnection::callMutex_` | MCPConnection | 工具调用串行化 |
+| L7 | `MCPClient::sessionMutex_` | MCPClient | JSON-RPC session ID |
+| L8 | `AskUserDispatcher::Slot::m` | Slot | 每请求条件变量等待 |
+
+**关键约束**：
+
+1. **L2 `sessionMutex_` 总是释放后才获取 L4+ 锁**——绝不与 L4 及以上锁同时持有。所有需同时访问 `sessions_` 和 `sessionActivity_` 的方法（如 `IsSessionBusy`、`CleanupSession`、`RemoveSession`）均在释放 `sessionMutex_` 后才获取 `sessionActivityMutex_`。
+
+2. **L5 ResourceManager 四把域锁互不嵌套**——同一线程绝不会同时持两把域锁。它们保护不同的注册表，各域独立并发。
+
+3. **L5 配置锁（ConfigWatcher/AgentConfigStore/MCPConfigManager）不在 Invoke 线程上获取**，与 Invoke 路径的锁无交叉嵌套风险。但 `MCPConfigManager::mutex_` 在配置管理线程上嵌套 L5 `mcpMutex_` 和 L6 `stateMutex_`。
+
+4. **Invoke 期间 SmWorkerEnv 预缓存 SessionEntry**——在 Invoke 入口处，SessionManager 通过 `WorkerEnv::SetCurrentEntry` 缓存 `shared_ptr<SessionEntry>`，SmWorkerEnv 的 `GetContextEngine`/`GetOrCreateSessionTodoList`/`GetAskUserDispatcher` 直接从缓存 entry 返回资源，不再获取 `sessionMutex_`，消除了 invokeMutex→sessionMutex_ 嵌套。Invoke 完成后调用 `ClearCurrentEntry` 清除缓存。
+
+5. **L0 `g_initMutex` 仅在启动时单线程持有**——`InitSessionManager` 中可嵌套 `sessionMutex_`、`ResourceManager::memoryMutex_`、`AgentWorker::toolMutex_` 等，但此时无并发访问，不存在死锁风险。
+
+**层号标注**：每个 mutex 声明旁均有 `// Lock layer L<n>` 注释，开发者在头文件中即可看到排序约束。
+
+### 5.4 取消机制
 
 `AgentWorker::Cancel()` 通过递增 `cancelGeneration_` 实现：
 

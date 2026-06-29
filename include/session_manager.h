@@ -34,7 +34,7 @@ struct SessionEntry
     std::shared_ptr<ContextEngine> contextEngine;
     std::unique_ptr<SessionTodoList> todoList;
     std::unique_ptr<AskUserDispatcher> askUser;
-    std::mutex invokeMutex; // Per-session lock (serializes same-session calls)
+    std::mutex invokeMutex; // Lock layer L3 (per-session call serialization)
     std::atomic<bool> isBusy{false};
     std::map<std::string, std::string> metadata; // channel, sender, etc.
 };
@@ -171,11 +171,11 @@ private:
     std::shared_ptr<Agent> agent_;
 
     // Per-session ContextEngine instances
-    mutable std::mutex sessionMutex_;
+    mutable std::mutex sessionMutex_;  // Lock layer L2 (session registry)
     std::unordered_map<std::string, std::shared_ptr<SessionEntry>> sessions_;
 
     // Global concurrency gate
-    mutable std::mutex concurrencyMutex_;
+    mutable std::mutex concurrencyMutex_;  // Lock layer L1 (global concurrency gate + reload barrier)
     std::condition_variable concurrencyCv_;
     int concurrentCount_{0};
     int maxConcurrent_{0};
@@ -187,7 +187,7 @@ private:
     // requestId → sessionId index for routing ask_user responses.
     // Populated when AskUserDispatcher::EmitAskUser fires, cleared on
     // ProvideResponse or timeout (WaitForResponse cleanup).
-    mutable std::mutex askIndexMutex_;
+    mutable std::mutex askIndexMutex_;  // Lock layer L4 (ask_user request routing)
     std::unordered_map<std::string, std::string> askRequestToSession_;
 
     // WorkerEnv implementation that resolves session-scoped resources
