@@ -27,6 +27,9 @@ struct McpServerEntry
     std::vector<std::string> args;
     std::map<std::string, std::string> env;
     std::map<std::string, std::string> headers;
+    // HTTP timeouts in seconds (Streamable HTTP / SSE). 0 = curl defaults.
+    int connectTimeoutSeconds{3};
+    int requestTimeoutSeconds{10};
 };
 
 // McpServerManager: application-layer persistent registry for MCP servers.

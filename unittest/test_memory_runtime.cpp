@@ -39,7 +39,8 @@ public:
     }
 
     ModelResponse Invoke(const std::string& formattedInput,
-                         std::function<void(const std::string&)> onChunk) override
+                         std::function<void(const std::string&)> onChunk,
+                         std::function<bool()> /*shouldCancel*/) override
     {
         (void)formattedInput;
         (void)onChunk;

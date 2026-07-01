@@ -759,6 +759,8 @@ void HttpServer::Start(const HttpServerConfig& config)
             entry["endpoint"] = e.endpoint;
             entry["command"] = e.command;
             entry["args"] = e.args;
+            entry["connectTimeoutSeconds"] = e.connectTimeoutSeconds;
+            entry["requestTimeoutSeconds"] = e.requestTimeoutSeconds;
             nlohmann::json env = nlohmann::json::object();
             for (const auto& kv : e.env) {
                 env[kv.first] = kv.second;
@@ -788,6 +790,8 @@ void HttpServer::Start(const HttpServerConfig& config)
             entry.url = j.value("url", "");
             entry.endpoint = j.value("endpoint", "");
             entry.command = j.value("command", "");
+            entry.connectTimeoutSeconds = j.value("connectTimeoutSeconds", 3);
+            entry.requestTimeoutSeconds = j.value("requestTimeoutSeconds", 10);
             if (j.contains("args") && j["args"].is_array()) {
                 for (const auto& a : j["args"]) {
                     if (a.is_string()) {
@@ -856,6 +860,8 @@ void HttpServer::Start(const HttpServerConfig& config)
             entry.url = j.value("url", "");
             entry.endpoint = j.value("endpoint", "");
             entry.command = j.value("command", "");
+            entry.connectTimeoutSeconds = j.value("connectTimeoutSeconds", 3);
+            entry.requestTimeoutSeconds = j.value("requestTimeoutSeconds", 10);
             if (j.contains("args") && j["args"].is_array()) {
                 for (const auto& a : j["args"]) {
                     if (a.is_string()) {

@@ -49,6 +49,8 @@ void McpServerManager::SaveToFile()
             item["endpoint"]    = e.endpoint;
             item["command"]     = e.command;
             item["args"]        = e.args;
+            item["connectTimeoutSeconds"] = e.connectTimeoutSeconds;
+            item["requestTimeoutSeconds"] = e.requestTimeoutSeconds;
 
             nlohmann::json env = nlohmann::json::object();
             for (const auto& kv : e.env) {
@@ -119,6 +121,8 @@ bool McpServerManager::Load()
             e.url         = item.value("url", "");
             e.endpoint    = item.value("endpoint", "");
             e.command     = item.value("command", "");
+            e.connectTimeoutSeconds = item.value("connectTimeoutSeconds", 3);
+            e.requestTimeoutSeconds = item.value("requestTimeoutSeconds", 10);
 
             if (item.contains("args") && item["args"].is_array()) {
                 for (const auto& a : item["args"]) {
@@ -226,6 +230,8 @@ jiuwen::McpServerConfig McpServerManager::EntryToConfig(const McpServerEntry& e)
     c.args        = e.args;
     c.env         = e.env;
     c.headers     = e.headers;
+    c.connectTimeoutSeconds = e.connectTimeoutSeconds;
+    c.requestTimeoutSeconds = e.requestTimeoutSeconds;
     return c;
 }
 

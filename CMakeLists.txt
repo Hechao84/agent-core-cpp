@@ -178,6 +178,7 @@ add_library(agent_framework SHARED
     src/utils/prompt_utils.cpp
     src/utils/encoding.cpp
     src/utils/tool_parser.cpp
+    src/utils/curl_client.cpp
     src/session/session_manager.cpp
     src/config/agent_config_json.cpp
     src/config/agent_config_store.cpp

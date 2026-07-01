@@ -25,7 +25,9 @@ void MCPConnection::CreateClient()
 {
     if (config_.transportType == MCPTransportType::SSE ||
         config_.transportType == MCPTransportType::STREAMABLE_HTTP) {
-        client_ = std::make_shared<MCPClient>(name_, "1.0.0", config_.url);
+        client_ = std::make_shared<MCPClient>(name_, "1.0.0", config_.url,
+                                              config_.connectTimeoutSeconds,
+                                              config_.requestTimeoutSeconds);
     } else {
         std::cerr << "Warning: Only Streamable HTTP/SSE is supported by the custom MCP client" << std::endl;
     }

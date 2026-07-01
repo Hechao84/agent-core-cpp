@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "third_party/include/curl/curl.h"
+#include "src/utils/curl_client.h"
 #include "third_party/include/nlohmann/json.hpp"
 
 namespace jiuwen {
@@ -18,12 +18,6 @@ constexpr const char* kChromeUserAgent =
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36";
 
-size_t SearchWriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
-{
-    ((std::string*)userp)->append((char*)contents, size * nmemb);
-    return size * nmemb;
-}
-
 struct HttpResponse {
     long status{0};
     std::string body;
@@ -33,45 +27,23 @@ struct HttpResponse {
 HttpResponse HttpGet(const std::string& url, int timeoutSec)
 {
     HttpResponse out;
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        out.err = "curl init failed";
-        return out;
+    CurlRequest req;
+    req.url = url;
+    req.headers = {
+        "User-Agent: " + std::string(kChromeUserAgent),
+        "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language: en-US,en;q=0.9,zh-CN;q=0.8"};
+    req.followLocation = true;
+    req.requestTimeout = static_cast<long>(timeoutSec);
+    req.connectTimeout = 10;
+    req.sslVerify = false;
+
+    CurlResponse resp = CurlClient::Get(req);
+    out.status = resp.statusCode;
+    out.body = std::move(resp.body);
+    if (resp.isCurlError) {
+        out.err = resp.curlErrorStr;
     }
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, ("User-Agent: " + std::string(kChromeUserAgent)).c_str());
-    headers = curl_slist_append(headers, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-    headers = curl_slist_append(headers, "Accept-Language: en-US,en;q=0.9,zh-CN;q=0.8");
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, SearchWriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &out.body);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(timeoutSec));
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-        out.err = curl_easy_strerror(res);
-    } else {
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &out.status);
-    }
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-    return out;
-}
-
-std::string UrlEncode(const std::string& s)
-{
-    CURL* c = curl_easy_init();
-    if (!c) return s;
-    char* esc = curl_easy_escape(c, s.c_str(), static_cast<int>(s.length()));
-    std::string out = esc ? esc : s;
-    if (esc) curl_free(esc);
-    curl_easy_cleanup(c);
     return out;
 }
 
@@ -153,14 +125,7 @@ std::string WebSearchTool::DecodeDDGRedirect(const std::string& href)
     auto end = href.find('&', pos);
     std::string encoded = href.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
 
-    CURL* c = curl_easy_init();
-    if (!c) return encoded;
-    int outLen = 0;
-    char* dec = curl_easy_unescape(c, encoded.c_str(), static_cast<int>(encoded.length()), &outLen);
-    std::string result = dec ? std::string(dec, outLen) : encoded;
-    if (dec) curl_free(dec);
-    curl_easy_cleanup(c);
-    return result;
+    return CurlClient::UrlDecode(encoded);
 }
 
 WebSearchTool::EngineOutcome WebSearchTool::SearchDuckDuckGo(const std::string& query,
@@ -168,7 +133,7 @@ WebSearchTool::EngineOutcome WebSearchTool::SearchDuckDuckGo(const std::string& 
 {
     EngineOutcome out;
     out.engine = "duckduckgo";
-    std::string url = "https://html.duckduckgo.com/html/?q=" + UrlEncode(query);
+    std::string url = "https://html.duckduckgo.com/html/?q=" + CurlClient::UrlEncode(query);
     auto resp = HttpGet(url, timeoutSec);
     if (!resp.err.empty()) {
         out.errMsg = "ddg http error: " + resp.err;
@@ -228,7 +193,7 @@ WebSearchTool::EngineOutcome WebSearchTool::SearchBing(const std::string& query,
 {
     EngineOutcome out;
     out.engine = "bing";
-    std::string url = "https://www.bing.com/search?q=" + UrlEncode(query);
+    std::string url = "https://www.bing.com/search?q=" + CurlClient::UrlEncode(query);
     auto resp = HttpGet(url, timeoutSec);
     if (!resp.err.empty()) {
         out.errMsg = "bing http error: " + resp.err;

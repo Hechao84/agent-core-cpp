@@ -1,36 +1,18 @@
 #include "src/memory/http_memory_runtime.h"
 
 #include <atomic>
-#include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <utility>
 
+#include "src/utils/curl_client.h"
 #include "src/utils/logger.h"
 #include "src/utils/retry_helper.h"
 
 namespace jiuwen {
 
 namespace {
-
-size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output)
-{
-    size_t totalSize = size * nmemb;
-    output->append(static_cast<char*>(contents), totalSize);
-    return totalSize;
-}
-
-std::string UrlEncode(const std::string& value)
-{
-    CURL* curl = curl_easy_init();
-    if (!curl) { return value; }
-    char* encoded = curl_easy_escape(curl, value.c_str(), static_cast<int>(value.size()));
-    std::string result = encoded ? encoded : value;
-    curl_free(encoded);
-    curl_easy_cleanup(curl);
-    return result;
-}
 
 bool IsSuccessEnvelope(const nlohmann::json& j)
 {
@@ -96,46 +78,26 @@ HttpMemoryRuntime::~HttpMemoryRuntime() = default;
 
 HttpMemoryRuntime::HttpResponse HttpMemoryRuntime::DoHttpPostOnce(const std::string& path, const std::string& jsonBody) const
 {
-    HttpResponse response{0, ""};
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        LOG(WARN) << "[HttpMemoryRuntime] Failed to initialize curl";
-        return response;
-    }
-
-    std::string url = serverUrl_ + path;
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonBody.c_str());
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(jsonBody.size()));
-
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    headers = curl_slist_append(headers, "Accept: application/json");
+    CurlRequest req;
+    req.url = serverUrl_ + path;
+    req.body = jsonBody;
+    req.headers = {"Content-Type: application/json", "Accept: application/json"};
     if (!apiKey_.empty()) {
-        std::string authHeader = "Authorization: Bearer " + apiKey_;
-        headers = curl_slist_append(headers, authHeader.c_str());
+        req.headers.push_back("Authorization: Bearer " + apiKey_);
     }
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    req.connectTimeout = timeoutSeconds_;
+    req.requestTimeout = timeoutSeconds_;
 
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, timeoutSeconds_);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeoutSeconds_);
+    CurlResponse resp = CurlClient::Post(req);
 
-    CURLcode result = curl_easy_perform(curl);
-    if (result != CURLE_OK) {
-        LOG(WARN) << "[HttpMemoryRuntime] CURL error for " << path << ": " << curl_easy_strerror(result);
-        response.isRetryable = IsRetryableCurlError(result);
+    HttpResponse response{resp.statusCode, std::move(resp.body)};
+    if (resp.isCurlError) {
+        // CurlClient::Perform already logged the curl error string + url.
+        response.isRetryable = IsRetryableCurlError(resp.curlCode);
         response.isCurlError = true;
-    }
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.status);
-    if (response.status >= 400 && !response.isCurlError) {
+    } else if (response.status >= 400) {
         response.isRetryable = IsRetryableHttpStatus(response.status);
     }
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
     return response;
 }
 
@@ -199,42 +161,24 @@ HttpMemoryRuntime::HttpResponse HttpMemoryRuntime::HttpPost(const std::string& p
 
 HttpMemoryRuntime::HttpResponse HttpMemoryRuntime::DoHttpGetOnce(const std::string& path) const
 {
-    HttpResponse response{0, ""};
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        LOG(WARN) << "[HttpMemoryRuntime] Failed to initialize curl";
-        return response;
-    }
-
-    std::string url = serverUrl_ + path;
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "Accept: application/json");
+    CurlRequest req;
+    req.url = serverUrl_ + path;
+    req.headers = {"Accept: application/json"};
     if (!apiKey_.empty()) {
-        std::string authHeader = "Authorization: Bearer " + apiKey_;
-        headers = curl_slist_append(headers, authHeader.c_str());
+        req.headers.push_back("Authorization: Bearer " + apiKey_);
     }
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    req.connectTimeout = timeoutSeconds_;
+    req.requestTimeout = timeoutSeconds_;
 
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, timeoutSeconds_);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeoutSeconds_);
+    CurlResponse resp = CurlClient::Get(req);
 
-    CURLcode result = curl_easy_perform(curl);
-    if (result != CURLE_OK) {
-        LOG(WARN) << "[HttpMemoryRuntime] CURL error for " << path << ": " << curl_easy_strerror(result);
-        response.isRetryable = IsRetryableCurlError(result);
+    HttpResponse response{resp.statusCode, std::move(resp.body)};
+    if (resp.isCurlError) {
+        response.isRetryable = IsRetryableCurlError(resp.curlCode);
         response.isCurlError = true;
-    }
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.status);
-    if (response.status >= 400 && !response.isCurlError) {
+    } else if (response.status >= 400) {
         response.isRetryable = IsRetryableHttpStatus(response.status);
     }
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
     return response;
 }
 
@@ -571,7 +515,7 @@ std::string HttpMemoryRuntime::ReadPayload(const std::string& uri)
     if (pathPart.find("file://") == 0) {
         pathPart = pathPart.substr(7);
     }
-    std::string encodedPath = UrlEncode(pathPart);
+    std::string encodedPath = CurlClient::UrlEncode(pathPart);
     auto resp = HttpGet("/v1/payloads/" + encodedPath);
     if (resp.status != 200) {
         LOG(WARN) << "[HttpMemoryRuntime] ReadPayload HTTP " << resp.status << ": " << resp.body;

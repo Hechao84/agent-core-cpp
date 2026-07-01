@@ -297,47 +297,121 @@ ModelResponse CallModelStream(
     uint64_t generation = 0);
 ```
 
+> 注：`shouldCancel` 取消回调不暴露在 `CallModelStream` 签名上——它在内部由 `generation` 派生（`[this,gen]{ return IsCancelled(gen); }`）传给 `Model::Invoke`。详见 5.3。
+
 ### 5.2 执行流程
 
 ```
 CallModelStream(systemPrompt, messages, onChunk, generation)
-  │  1. 构建 ToolSchema 列表:
+  │  0. 前置取消门控:
+  │     ├── IsCancelled(generation) → 直接返回 ModelResponse{finishReason="cancelled", isFinished=true}
+  │     └── 否则继续
+  │
+  │  1. 创建 Model 实例 (每次调用新建, 生命周期见 5.4):
+  │     └── ResourceManager::CreateModel(config_.modelConfig) → unique_ptr<Model>
+  │
+  │  2. 构建 ToolSchema 列表:
   │     ├── BuildToolSchemas() → vector<ToolSchema>
   │     └── 若 useNativeFunctionCalling → 包含在 Format 中
   │     └── 若 !useNativeFunctionCalling → 不包含（回退模式在提示词中说明）
-  │
-  │  2. 创建 Model 实例:
-  │     ├── ResourceManager::CreateModel(config_.modelConfig)
-  │     └── 若失败 → 返回空 ModelResponse
   │
   │  3. 格式化请求:
   │     ├── model->Format(systemPrompt, messages, toolSchemas)
   │     └── → formattedBody (JSON 字符串)
   │
-  │  4. 流式调用:
-  │     ├── model->Invoke(formattedBody, onChunk)
-  │     │   ├── 发送 HTTP 请求
-  │     │   ├── 接收流式响应
+  │  4. 流式调用 (传 shouldCancel 回调, 见 5.3):
+  │     ├── model->Invoke(formattedBody, onChunk, shouldCancel)
+  │     │   ├── CurlClient::PostStream 发送 HTTP 请求 (thread_local CURL handle 复用)
+  │     │   ├── 接收 SSE 流式响应
   │     │   ├── 文本增量 → onChunk → 外部 callback
-  │     │   ├── tool_calls → 缓存到内部
-  │     │   └── 取消检查: 若 IsCancelled(generation) → 停止处理
+  │     │   ├── tool_calls → 缓存到 StreamContext
+  │     │   └── 取消检查: shouldCancel() → 中止传输 (见 5.3)
   │     └── → ModelResponse
   │
   │  5. 返回 ModelResponse
+  │
+  │  注: 步骤 1-4 全部包裹在 try/catch 中, 异常处理见 5.5
 ```
+
+> 步骤顺序按代码实际：CreateModel → BuildToolSchemas → Format → Invoke（早期文档把 BuildToolSchemas 放在 CreateModel 之前，与代码不符，已更正）。
 
 ### 5.3 取消集成
 
-在流式回调中，每收到一个 chunk 时检查取消状态：
+取消在三个层面检查，覆盖"调用前"、"流式中"、"重试间"三种场景：
 
 ```
-onChunk(token)
-  │  ├── 若 IsCancelled(generation):
-  │  │   → 停止处理，不再转发到外部 callback
-  │  │   → 返回空 ModelResponse
-  │  └── 否则:
-  │  │   → 正常转发到外部 callback
+(0) 前置门控 (CallModelStream 入口):
+    └── IsCancelled(generation) → 返回 {finishReason="cancelled", isFinished=true}
+        （廉价早退，避免无谓的 CreateModel/Format/Invoke）
+
+(1) mid-stream 取消 (流式输出途中, 真正中止 HTTP 传输):
+    shouldCancel = [this,generation]{ return IsCancelled(generation); }
+    model->Invoke(formatted, onChunk, shouldCancel)
+      └── DoInvokeOnce 的 PostStream chunk callback:
+          ├── ProcessSSEChunk(ctx, data, len)   // 先解析这批 chunk
+          ├── if (ctx.shouldCancel && ctx.shouldCancel()):
+          │     ├── ctx.cancelled = true
+          │     └── return false                // curl WRITEFUNCTION 返回 0
+          │         → curl_easy_perform 返回 CURLE_WRITE_ERROR, 中止传输
+          └── else: return true                 // 继续接收
+      └── 返回后 DoInvokeOnce 检查 ctx.cancelled:
+          └── 返回 {finishReason="cancelled", isFinished=true, isRetryable=false,
+                   content=ctx.fullText}        // 已生成的 token 已经过 onChunk 推出
+
+(2) 重试循环边界 (Model::Invoke retry loop):
+    每次 attempt 开头检查 shouldCancel() → 返回 cancelled
+    （覆盖上一次 attempt 的 backoff 窗口 + 首次调用前）
+    若 DoInvokeOnce 返回 finishReason=="cancelled" → 不重试, 直接返回
 ```
+
+**关键设计**：
+- mid-stream 取消是**物理中止**（curl 传输真正停止），非逻辑抑制——通过 PostStream 的 bool 返回 callback 实现（`CurlClient::PostStream` 的 onChunk 返回 false → WRITEFUNCTION 返回 0 → curl 中止）
+- 用 `ctx.cancelled` 标志区分"主动中止"（应返回 cancelled）与"真 write 错误"（应返回 error + isRetryable）——两者都会让 curl 返回 `CURLE_WRITE_ERROR`，但只有前者置 `cancelled=true`
+- 取消响应 `{finishReason="cancelled", isFinished=true, isRetryable=false}`，上层 ReactLoop 已有 `if (resp.finishReason == "cancelled")` 处理（react_worker.cpp）
+- `shouldCancel` 检查在每批 chunk **解析之后**：已收到的 token 先经 onChunk 推出再中止，避免丢失已生成内容
+
+> 注：完全异步化（HTTP 阻塞期间响应取消、退避 sleep 期间可中断）仍是 TODO（P2 Model::Invoke 异步化剩余项）。当前 shouldCancel 只能在 chunk 边界 + attempt 边界检查。
+
+### 5.4 Model 实例生命周期与连接复用
+
+每次 `CallModelStream` 调用都通过 `ResourceManager::CreateModel` 新建一个 `Model` 实例，实例仅在该次调用作用域内存活，函数返回时析构。在 `ReactLoop` 中每个 iteration 调用一次 `CallModelStream`，因此每次迭代都创建一个新的 `Model` 对象。
+
+**为何 per-call 新建是可接受的**：
+
+`Model` 对象本身是**轻量配置持有者**——只持有 `ModelConfig`（几个 string + RetryPolicy），无连接状态、无可变运行时数据。创建/析构开销可忽略。
+
+真正的连接状态（CURL handle、TCP 连接、TLS session、DNS cache）不在 `Model` 对象内，而在 `CurlClient` 的 **thread_local 持久化 handle** 中（`src/utils/curl_client.cpp` 的 `ThreadCurlHandle`）。因此：
+
+- 每次 `CallModelStream` 新建 `Model` 对象 → 不会触发 `curl_easy_init`（仅 `ModelConfig` 拷贝）
+- 同一线程内连续的模型调用 → 复用同一个 thread_local CURL handle（`curl_easy_reset` 清选项、保留连接缓存）
+- 跨 iteration 的连接复用 → 由 CurlClient 的 thread_local 机制保证，与 `Model` 对象是否缓存无关
+
+**与第二轮 review #2 的关系**：#2 指出"每次迭代新建 Model + 新 CURL handle"是性能浪费。CurlClient 重构（Phase 5）后，"新 CURL handle"部分已消除（thread_local 复用），per-call 新建 `Model` 对象本身开销可忽略。因此**缓存 `Model` 对象不再有性能价值**——会引入生命周期/配置热重载/线程安全的额外复杂度，收益却微乎其微。#2 的性能关切由 CurlClient 的 thread_local handle 解决，无需再缓存 `Model` 对象。
+
+### 5.5 异常处理
+
+`CallModelStream` 的步骤 1-4（CreateModel / BuildToolSchemas / Format / Invoke）全部包裹在 `try { ... } catch (const std::exception&) { ... }` 中：
+
+```
+try {
+    auto model = ResourceManager::CreateModel(...);   // 步骤 1
+    auto tools = BuildToolSchemas();                  // 步骤 2
+    auto formatted = model->Format(...);              // 步骤 3
+    out = model->Invoke(formatted, onChunk, shouldCancel);  // 步骤 4
+} catch (const std::exception& e) {
+    out.content = "Model Error: " + e.what();
+    out.finishReason = "error";
+    out.isFinished = true;
+    if (onChunk) onChunk(out.content);   // 将错误文本作为 chunk 推给外部 callback
+}
+return out;  // 步骤 5
+```
+
+**语义**：
+- **任何异常都转为终止性 ModelResponse**：`finishReason="error"`、`isFinished=true`，避免上层 ReactLoop 在异常态继续迭代
+- **错误文本经 onChunk 推送**：使流式调用方（如 HTTP SSE）能在异常时收到错误消息，而非静默失败
+- **无"CreateModel 失败 → 返回空 ModelResponse"分支**：`CreateModel` 失败会抛异常，由本 catch 统一处理（早期文档"若失败 → 返回空 ModelResponse"的描述不准确，已更正）
+- **Model::Invoke 内部的可重试错误**（HTTP 5xx / curl 临时错误）已在 Invoke 的 retry loop 内消耗并重试，不会冒泡到本 try/catch；只有不可重试或耗尽重试的最终错误才作为正常 `ModelResponse` 返回（非异常）
 
 ## 6. BuildToolSchemas 详细设计
 

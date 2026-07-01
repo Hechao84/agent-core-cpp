@@ -27,6 +27,10 @@ struct MCPEndpointConfig
     MCPTransportType transportType{MCPTransportType::STREAMABLE_HTTP};
     std::unordered_map<std::string, std::string> env;
     std::unordered_map<std::string, std::string> headers;
+    // HTTP timeouts in seconds (Streamable HTTP / SSE transport). 0 = leave
+    // curl defaults. Defaults preserve the previous hardcoded 3s/10s behavior.
+    long connectTimeoutSeconds{3};
+    long requestTimeoutSeconds{10};
 };
 
 class MCPTool;

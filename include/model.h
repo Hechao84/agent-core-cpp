@@ -76,8 +76,16 @@ public:
     // Invoke the provider with the pre-built body. onChunk receives streamed
     // text deltas (content tokens only); tool_calls / tool_use are buffered
     // and returned through ModelResponse.toolCalls.
+    //
+    // shouldCancel is an optional poll callback the model checks while
+    // streaming: returning true asks the model to abort the in-flight transfer
+    // mid-stream (the model returns a ModelResponse with finishReason="cancelled",
+    // isFinished=true, isRetryable=false). When empty/absent the call is not
+    // cancellable. Used by AgentWorker::CallModelStream to propagate the
+    // session's IsCancelled(generation) state into the streaming HTTP transfer.
     virtual ModelResponse Invoke(const std::string& formattedInput,
-                                  std::function<void(const std::string&)> onChunk) = 0;
+                                  std::function<void(const std::string&)> onChunk,
+                                  std::function<bool()> shouldCancel = {}) = 0;
 
     ModelConfig GetConfig() const;
 

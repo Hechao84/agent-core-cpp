@@ -26,7 +26,10 @@ struct MCPToolResult
 class MCPClient
 {
 public:
-    MCPClient(const std::string& name, const std::string& version, const std::string& endpoint);
+    // connectTimeoutSeconds / requestTimeoutSeconds: 0 = leave curl defaults.
+    // Defaults preserve the previous hardcoded 3s/10s behavior.
+    MCPClient(const std::string& name, const std::string& version, const std::string& endpoint,
+              long connectTimeoutSeconds = 3, long requestTimeoutSeconds = 10);
     ~MCPClient();
 
     bool Initialize();
@@ -44,6 +47,8 @@ private:
     std::string name_;
     std::string version_;
     std::string endpoint_;
+    long connectTimeoutSeconds_{3};
+    long requestTimeoutSeconds_{10};
     mutable std::mutex sessionMutex_;  // Lock layer L7 (MCP client session ID)
     std::string sessionId_;
     bool isInitialized_{false};

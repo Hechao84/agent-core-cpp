@@ -17,11 +17,13 @@ public:
                        const std::vector<ToolSchema>& tools) override;
 
     ModelResponse Invoke(const std::string& formattedInput,
-                          std::function<void(const std::string&)> onChunk) override;
+                          std::function<void(const std::string&)> onChunk,
+                          std::function<bool()> shouldCancel) override;
 
 private:
     ModelResponse DoInvokeOnce(const std::string& formattedInput,
-                                std::function<void(const std::string&)> onChunk);
+                                std::function<void(const std::string&)> onChunk,
+                                std::function<bool()> shouldCancel);
 };
 
 } // namespace jiuwen

@@ -45,6 +45,8 @@ protected:
 
 `Model` 使用**策略模式**：不同提供商实现不同的 `Format` 和 `Invoke` 策略。`ResourceManager` 根据配置选择合适的策略实例。
 
+**实例生命周期**：`Model` 对象是**轻量配置持有者**（仅持有 `ModelConfig` + `RetryPolicy`，无连接状态、无可变运行时数据）。`AgentWorker::CallModelStream` 每次调用通过 `ResourceManager::CreateModel` 新建一个 `Model` 实例，函数返回时析构——`Model` 是 per-call 短生命周期对象。这是合理的：真正的连接状态（CURL handle、TCP/TLS/DNS 缓存）不在 `Model` 内，而在 `CurlClient` 的 thread_local 持久化 handle 中（见 `docs/cn/curl_client_design.md`），因此 per-call 新建 `Model` 不会触发 `curl_easy_init`，同线程连续调用复用同一连接。故无需缓存 `Model` 对象（详见 `worker_design.md` §5.4）。
+
 ## 3. 核心数据结构
 
 ### 3.1 ToolCall

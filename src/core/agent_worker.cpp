@@ -100,7 +100,15 @@ ModelResponse AgentWorker::CallModelStream(const std::string& systemPrompt,
         auto tools = BuildToolSchemas();
         std::string formatted = model->Format(systemPrompt, messages, tools);
         LOG(INFO) << "Request Model Prompt:\n" << formatted;
-        out = model->Invoke(formatted, onChunk);
+        // Propagate the session's cancel state into the streaming HTTP transfer
+        // so a Cancel() aborts the in-flight model call mid-stream, not just
+        // between iterations. The front-gate IsCancelled above already covers
+        // the "cancelled before any work" case; this covers "cancelled while
+        // the model is still streaming".
+        auto shouldCancel = [this, generation]() -> bool {
+            return IsCancelled(generation);
+        };
+        out = model->Invoke(formatted, onChunk, shouldCancel);
         LOG(INFO) << "Model returned " << out.content.length() << " content chars; "
                   << out.toolCalls.size() << " tool_calls; finish_reason=" << out.finishReason
                   << "; content=[" << out.content << "]";

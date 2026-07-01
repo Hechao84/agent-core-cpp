@@ -67,8 +67,8 @@ Agent ─── 拥有 AgentWorker                                  │
   │  ├── 拥有 SkillEngine                                   │
   │  ├── 拥有 HistoryStore                                  │
   │  ├── 拁有 LongTermConsolidator                          │
-  │  ├── 管理 per-session SessionTodoList                   │
-  │  ├── 管理 AskUserDispatcher                             │
+  │  ├── 非拥有 SessionTodoList* (per-session, 由 SessionEntry 拥有, 经 WorkerEnv 访问) │
+  │  ├── 非拥有 AskUserDispatcher* (per-session, 由 SessionEntry 拥有, 经 WorkerEnv 访问) │
   │  ├── 非拥有 MemoryRuntime* (来自 SessionManager)        │
   │  └── ConsolidationLoop 后台线程                         │
   │                                                         │

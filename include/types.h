@@ -148,6 +148,10 @@ struct McpServerConfig
     std::vector<std::string> args;  // for stdio
     std::map<std::string, std::string> env;
     std::map<std::string, std::string> headers;
+    // HTTP timeouts in seconds (Streamable HTTP / SSE transport). 0 = leave
+    // curl defaults. Defaults preserve the previous hardcoded 3s/10s behavior.
+    int connectTimeoutSeconds{3};
+    int requestTimeoutSeconds{10};
 };
 
 struct AgentConfig 

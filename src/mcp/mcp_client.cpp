@@ -4,24 +4,17 @@
 #include <string>
 #include <vector>
 
-#include "third_party/include/curl/curl.h"
+#include "src/utils/curl_client.h"
+#include "src/utils/logger.h"
 #include "third_party/include/nlohmann/json.hpp"
-
-namespace {
-
-size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output)
-{
-    size_t totalSize = size * nmemb;
-    output->append(static_cast<char*>(contents), totalSize);
-    return totalSize;
-}
-
-} // namespace
 
 namespace jiuwen {
 
-MCPClient::MCPClient(const std::string& name, const std::string& version, const std::string& endpoint)
-    : name_(name), version_(version), endpoint_(endpoint)
+MCPClient::MCPClient(const std::string& name, const std::string& version, const std::string& endpoint,
+                     long connectTimeoutSeconds, long requestTimeoutSeconds)
+    : name_(name), version_(version), endpoint_(endpoint),
+      connectTimeoutSeconds_(connectTimeoutSeconds),
+      requestTimeoutSeconds_(requestTimeoutSeconds)
 {
     if (endpoint_.empty()) {
         lastError_ = "MCP endpoint must not be empty";
@@ -44,22 +37,18 @@ nlohmann::json MCPClient::SendRequest(const nlohmann::json& request)
         return MakeErrorResponse("MCP endpoint must not be empty");
     }
 
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        return MakeErrorResponse("Failed to initialize curl");
+    CurlRequest req;
+    req.url = endpoint_;
+    req.body = request.dump();
+    req.headers = {
+        "Content-Type: application/json",
+        "Accept: application/json, text/event-stream"};
+    if (connectTimeoutSeconds_ > 0) {
+        req.connectTimeout = connectTimeoutSeconds_;
     }
-
-    std::string requestBody = request.dump();
-    std::string responseBody;
-
-    curl_easy_setopt(curl, CURLOPT_URL, endpoint_.c_str());
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, requestBody.c_str());
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(requestBody.size()));
-
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    headers = curl_slist_append(headers, "Accept: application/json, text/event-stream");
+    if (requestTimeoutSeconds_ > 0) {
+        req.requestTimeout = requestTimeoutSeconds_;
+    }
 
     std::string sessionSnapshot;
     {
@@ -67,48 +56,31 @@ nlohmann::json MCPClient::SendRequest(const nlohmann::json& request)
         sessionSnapshot = sessionId_;
     }
     if (!sessionSnapshot.empty()) {
-        std::string sessionHeader = "Mcp-Session-Id: " + sessionSnapshot;
-        headers = curl_slist_append(headers, sessionHeader.c_str());
+        req.headers.push_back("Mcp-Session-Id: " + sessionSnapshot);
     }
-
     for (const auto& header : headers_) {
-        headers = curl_slist_append(headers, header.c_str());
+        req.headers.push_back(header);
     }
 
-    if (headers) {
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    CurlResponse resp = CurlClient::Post(req);
+
+    if (resp.isCurlError) {
+        return MakeErrorResponse("CURL error: " + resp.curlErrorStr);
     }
 
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-
-    CURLcode curlResult = curl_easy_perform(curl);
-
-    long httpCode = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
-    if (curlResult != CURLE_OK) {
-        return MakeErrorResponse("CURL error: " + std::string(curl_easy_strerror(curlResult)));
-    }
-
-    if (httpCode != 200 && httpCode != 202) {
-        std::string error = "HTTP error " + std::to_string(httpCode);
-        if (!responseBody.empty()) {
-            error += ": " + responseBody;
+    if (resp.statusCode != 200 && resp.statusCode != 202) {
+        std::string error = "HTTP error " + std::to_string(resp.statusCode);
+        if (!resp.body.empty()) {
+            error += ": " + resp.body;
         }
         return MakeErrorResponse(error);
     }
 
-    if (responseBody.empty()) {
+    if (resp.body.empty()) {
         return nlohmann::json();
     }
 
-    nlohmann::json response = nlohmann::json::parse(responseBody, nullptr, false);
+    nlohmann::json response = nlohmann::json::parse(resp.body, nullptr, false);
     if (response.is_discarded()) {
         return MakeErrorResponse("JSON parse error");
     }

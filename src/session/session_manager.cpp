@@ -13,6 +13,7 @@
 #include "src/core/worker_env.h"
 #include "src/utils/data_dir.h"
 #include "src/utils/logger.h"
+#include "src/utils/curl_client.h"
 
 namespace fs = std::filesystem;
 
@@ -147,6 +148,10 @@ void InitSessionManager(const AgentConfig& config)
     // reference. A repeat call (not expected in practice) simply
     // re-Initialize()s the same instance.
     std::lock_guard<std::mutex> lock(g_initMutex);
+    // curl_global_init must run on the main thread before any curl_easy_init
+    // and before worker threads start. Idempotent (call_once). Registering it
+    // here keeps the curl lifecycle tied to SessionManager bootstrap.
+    CurlClient::GlobalInit();
     SessionManager* sm = g_sessionManager.load(std::memory_order_relaxed);
     if (!sm) {
         sm = new SessionManager();
@@ -542,6 +547,22 @@ void SessionManager::Shutdown()
     if (agent) {
         agent->Shutdown();
     }
+    // GlobalCleanup contract: curl_global_cleanup must run AFTER all
+    // thread_local CURL handles are destroyed (i.e. after all curl-using
+    // threads exit). SessionManager only owns the Agent consolidation
+    // thread (joined above); the caller MUST stop all other curl-using
+    // threads (heartbeat, cron, channels, HTTP) BEFORE invoking Shutdown —
+    // see main.cpp's stop order (ConfigWatcher/Channels/HttpServer/cron/
+    // heartbeat all stopped before Shutdown). GlobalCleanup is idempotent
+    // (call_once). The atexit fallback registered in GlobalInit covers the
+    // "Shutdown never called" case (runs at process exit, after all
+    // thread_local destruction); it does NOT defend against the contract
+    // violation of calling Shutdown while curl threads are still running —
+    // that case needs explicit thread joining by the caller.
+    // TODO(future hardening): consider switching GlobalCleanup to atexit-only
+    // (drop the explicit call here) to remove the caller contract entirely,
+    // or add an active-handle counter assert. Tracked in round2 reply.
+    CurlClient::GlobalCleanup();
 }
 
 bool SessionManager::IsSessionBusy(const std::string& sessionId) const

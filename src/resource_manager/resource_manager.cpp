@@ -437,6 +437,8 @@ void ResourceManager::RegisterMCPServer(const McpServerConfig& config)
         for (const auto& kv : config.headers) {
             endpointCfg.headers[kv.first] = kv.second;
         }
+        endpointCfg.connectTimeoutSeconds = config.connectTimeoutSeconds;
+        endpointCfg.requestTimeoutSeconds = config.requestTimeoutSeconds;
     } else if (!config.command.empty()) {
         endpointCfg.transportType = MCPTransportType::STDIO;
         endpointCfg.command = config.command;

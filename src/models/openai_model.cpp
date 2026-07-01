@@ -8,10 +8,10 @@
 #include <unordered_set>
 #include <vector>
 
+#include "src/utils/curl_client.h"
 #include "src/utils/retry_helper.h"
 #include "src/utils/encoding.h"
 #include "src/utils/logger.h"
-#include "third_party/include/curl/curl.h"
 #include "third_party/include/nlohmann/json.hpp"
 
 using json = nlohmann::json;
@@ -33,6 +33,12 @@ struct StreamContext {
     std::string buffer;
     std::string finishReason;
     bool finished{false};
+    // Mid-stream cancel hook: polled after each chunk is parsed. When it
+    // returns true the PostStream callback aborts the transfer (returns false)
+    // and `cancelled` is set so DoInvokeOnce can distinguish an intentional
+    // abort (CURLE_WRITE_ERROR) from a real write failure.
+    std::function<bool()> shouldCancel;
+    bool cancelled{false};
 
     struct PartialToolCall {
         std::string id;
@@ -43,21 +49,23 @@ struct StreamContext {
     std::map<int, PartialToolCall> partialToolCalls;
 };
 
-size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
+// SSE chunk parser. Appends raw bytes to ctx.buffer and consumes complete
+// "data: ..." lines, dispatching content deltas to ctx.onChunk and assembling
+// tool_calls into ctx.partialToolCalls. Split out from the curl write callback
+// so it can be called from CurlClient::PostStream's chunk lambda.
+void ProcessSSEChunk(StreamContext& ctx, const char* data, size_t len)
 {
-    size_t totalSize = size * nmemb;
-    auto* ctx = static_cast<StreamContext*>(userp);
-    ctx->buffer.append(static_cast<char*>(contents), totalSize);
+    ctx.buffer.append(data, len);
 
     while (true) {
-        size_t pos = ctx->buffer.find('\n');
+        size_t pos = ctx.buffer.find('\n');
         if (pos == std::string::npos) break;
-        std::string line = ctx->buffer.substr(0, pos);
-        ctx->buffer.erase(0, pos + 1);
+        std::string line = ctx.buffer.substr(0, pos);
+        ctx.buffer.erase(0, pos + 1);
         if (line.rfind("data: ", 0) != 0) continue;
         std::string dataStr = line.substr(6);
         if (dataStr == "[DONE]") {
-            ctx->finished = true;
+            ctx.finished = true;
             continue;
         }
         try {
@@ -71,14 +79,14 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
                 if (delta.contains("content") && !delta["content"].is_null() && delta["content"].is_string()) {
                     std::string content = delta["content"].get<std::string>();
                     if (!content.empty()) {
-                        ctx->fullText += content;
-                        if (ctx->onChunk) ctx->onChunk(content);
+                        ctx.fullText += content;
+                        if (ctx.onChunk) ctx.onChunk(content);
                     }
                 }
                 if (delta.contains("tool_calls") && delta["tool_calls"].is_array()) {
                     for (const auto& tc : delta["tool_calls"]) {
                         int idx = tc.value("index", 0);
-                        auto& slot = ctx->partialToolCalls[idx];
+                        auto& slot = ctx.partialToolCalls[idx];
                         if (tc.contains("id") && tc["id"].is_string()) {
                             slot.id = tc["id"].get<std::string>();
                         }
@@ -95,14 +103,13 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
                 }
             }
             if (choice.contains("finish_reason") && !choice["finish_reason"].is_null()) {
-                ctx->finishReason = choice["finish_reason"].get<std::string>();
-                ctx->finished = true;
+                ctx.finishReason = choice["finish_reason"].get<std::string>();
+                ctx.finished = true;
             }
         } catch (const std::exception& e) {
             std::cerr << "[OpenAI] JSON parse error on line: " << e.what() << std::endl;
         }
     }
-    return totalSize;
 }
 
 // Build the openai-style tools array from ToolSchema list.
@@ -320,57 +327,59 @@ std::string OpenAIModel::Format(const std::string& systemPrompt,
 }
 
 ModelResponse OpenAIModel::DoInvokeOnce(const std::string& formattedInput,
-                                          std::function<void(const std::string&)> onChunk)
+                                         std::function<void(const std::string&)> onChunk,
+                                         std::function<bool()> shouldCancel)
 {
     ModelResponse out;
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        out.content = "Error: CURL init failed";
-        out.finishReason = "error";
-        out.isFinished = true;
-        return out;
-    }
 
     StreamContext ctx;
     ctx.onChunk = std::move(onChunk);
+    ctx.shouldCancel = std::move(shouldCancel);
 
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    std::string auth = "Authorization: Bearer " + config_.apiKey;
-    headers = curl_slist_append(headers, auth.c_str());
+    CurlRequest req;
+    req.url = config_.baseUrl + "/chat/completions";
+    req.body = formattedInput;
+    req.headers = {
+        "Content-Type: application/json",
+        "Authorization: Bearer " + config_.apiKey};
+    // Models intentionally set no timeout (matches previous behavior).
 
-    curl_easy_setopt(curl, CURLOPT_URL, (config_.baseUrl + "/chat/completions").c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, formattedInput.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
+    CurlResponse resp = CurlClient::PostStream(req, [&ctx](const char* data, size_t len) -> bool {
+        ProcessSSEChunk(ctx, data, len);
+        // Check cancel after parsing so already-received tokens flush via
+        // ctx.onChunk before aborting.
+        if (ctx.shouldCancel && ctx.shouldCancel()) {
+            ctx.cancelled = true;
+            return false;  // aborts the transfer (curl returns CURLE_WRITE_ERROR)
+        }
+        return true;
+    });
 
-    CURLcode res = curl_easy_perform(curl);
-
-    if (res != CURLE_OK) {
-        out.content = std::string("Error: ") + curl_easy_strerror(res);
-        out.finishReason = "error";
+    if (ctx.cancelled) {
+        out.content = std::move(ctx.fullText);
+        out.finishReason = "cancelled";
         out.isFinished = true;
-        out.isRetryable = IsRetryableCurlError(res);
-        curl_easy_cleanup(curl);
-        curl_slist_free_all(headers);
+        out.isRetryable = false;
         return out;
     }
 
-    long httpCode = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
-    curl_easy_cleanup(curl);
-    curl_slist_free_all(headers);
+    if (resp.isCurlError) {
+        out.content = std::string("Error: ") + resp.curlErrorStr;
+        out.finishReason = "error";
+        out.isFinished = true;
+        out.isRetryable = IsRetryableCurlError(resp.curlCode);
+        return out;
+    }
 
-    out.statusCode = static_cast<int>(httpCode);
+    out.statusCode = static_cast<int>(resp.statusCode);
 
-    if (httpCode >= 400) {
+    if (resp.statusCode >= 400) {
         out.content = ctx.fullText.empty()
-            ? "Error: HTTP " + std::to_string(httpCode)
+            ? "Error: HTTP " + std::to_string(resp.statusCode)
             : ctx.fullText;
         out.finishReason = "error";
         out.isFinished = true;
-        out.isRetryable = IsRetryableHttpStatus(httpCode);
+        out.isRetryable = IsRetryableHttpStatus(resp.statusCode);
         return out;
     }
 
@@ -391,15 +400,30 @@ ModelResponse OpenAIModel::DoInvokeOnce(const std::string& formattedInput,
 }
 
 ModelResponse OpenAIModel::Invoke(const std::string& formattedInput,
-                                   std::function<void(const std::string&)> onChunk)
+                                    std::function<void(const std::string&)> onChunk,
+                                    std::function<bool()> shouldCancel)
 {
     const auto& policy = config_.retryPolicy;
     int totalAttempts = 1 + policy.maxRetries;
 
     for (int attempt = 0; attempt < totalAttempts; ++attempt) {
+        // Check cancel before each attempt: covers the backoff window of the
+        // previous attempt and the moment right before the first call.
+        if (shouldCancel && shouldCancel()) {
+            ModelResponse out;
+            out.finishReason = "cancelled";
+            out.isFinished = true;
+            return out;
+        }
+
         bool isFinalAttempt = (attempt == totalAttempts - 1);
 
-        ModelResponse out = DoInvokeOnce(formattedInput, isFinalAttempt ? onChunk : nullptr);
+        ModelResponse out = DoInvokeOnce(formattedInput, isFinalAttempt ? onChunk : nullptr, shouldCancel);
+
+        // Mid-stream cancel is terminal and must not be retried.
+        if (out.finishReason == "cancelled") {
+            return out;
+        }
 
         if (!out.isRetryable) {
             return out;
