@@ -239,8 +239,25 @@ std::vector<Message> ContextEngine::CompressSegment(
         compressed.push_back(summary);
     }
 
-    while (CalculateMessagesTokens(compressed) > tokenBudget && compressed.size() > 1) {
+    // Trim to token budget without dropping the summary entirely. If
+    // [user, summary] still exceeds budget, truncate the summary content to
+    // fit (budget minus the user-prefix tokens) instead of popping it —
+    // otherwise an extremely small tokenBudget would collapse the segment to
+    // just the bare user message and lose all tool/assistant context. The
+    // summary is halved until it fits, degrading to "[compressed]" when it
+    // truncates to empty, so a context marker always survives.
+    if (CalculateMessagesTokens(compressed) > tokenBudget && compressed.size() > 1) {
+        Message summary = std::move(compressed.back());
         compressed.pop_back();
+        int prefixTokens = CalculateMessagesTokens(compressed);
+        int budgetForSummary = std::max(1, tokenBudget - prefixTokens);
+        while (EstimateTokens(summary.content) > budgetForSummary && !summary.content.empty()) {
+            summary.content = summary.content.substr(0, summary.content.size() / 2);
+        }
+        if (summary.content.empty()) {
+            summary.content = "[compressed]";
+        }
+        compressed.push_back(std::move(summary));
     }
     return compressed;
 }

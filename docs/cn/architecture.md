@@ -103,6 +103,18 @@ MCP ─── Model Context Protocol 集成                         │
   └── MCPConfigManager ─── 运行时配置管理                    │
 ```
 
+### 3.1 全局单例（Meyers singleton）
+
+系统有三个进程级单例，均通过 Meyers（函数内 `static`）实现，初始化线程安全、退出时析构顺序由 C++ 运行时保证：
+
+| 单例 | 访问入口 | 职责 | 持有/管理 |
+|---|---|---|---|
+| `SessionManager` | `InitSessionManager(config)` / `GetSessionManager()` | 路由会话到 `ContextEngine`、持有活跃 `Agent`、全局并发门控、热重载屏障 | `Agent` (shared_ptr)、`MemoryRuntime` (unique_ptr)、`SessionEntry` 表 |
+| `ResourceManager` | `ResourceManager::GetInstance()` | 工具/模型/记忆运行时/MCP 连接的注册表与工厂 | 各域工厂 + 缓存 + 动态插件 handle |
+| `MCPConfigManager` | `MCPConfigManager::Instance()` | MCP 服务器配置的运行时管理（CRUD + 持久化 + 服务器生命周期） | `McpServerConfig` 表 + 已启动的服务器进程句柄 |
+
+> **MCPConfigManager 与 ResourceManager mcp 域的职责重叠**：`ResourceManager::mcpMutex_` 保护 MCP **连接实例**（`MCPConnection` 池），`MCPConfigManager::mutex_` 保护 MCP **配置 + 服务器生命周期**。两者均管理 MCP 服务器，但分属不同单例、使用不同锁。当前设计将"配置/生命周期"与"连接实例"分离以解耦应用层配置热加载与核心库连接管理，但职责边界较模糊，未来可评估是否合并到 ResourceManager 的 mcp 域。
+
 ## 4. 核心执行流程
 
 ### 4.1 一次完整的 Agent Invoke
@@ -257,7 +269,7 @@ DreamProcessor::Run(model, historyStore)
 
 **关键约束**：
 
-1. **L2 `sessionMutex_` 总是释放后才获取 L4+ 锁**——绝不与 L4 及以上锁同时持有。所有需同时访问 `sessions_` 和 `sessionActivity_` 的方法（如 `IsSessionBusy`、`CleanupSession`、`RemoveSession`）均在释放 `sessionMutex_` 后才获取 `sessionActivityMutex_`。
+1. **L2 `sessionMutex_` 在并发 Invoke 路径上总是释放后才获取 L4+ 锁**——并发路径上绝不与 L4 及以上锁同时持有。所有需同时访问 `sessions_` 和 `sessionActivity_` 的方法（如 `IsSessionBusy`、`CleanupSession`、`RemoveSession`）均在释放 `sessionMutex_` 后才获取 `sessionActivityMutex_`。**启动例外**：`SessionManager::Initialize` 在并发 Invoke / reload 路径可运行前单线程调用（由 `InitSessionManager` 触发）。其内 `agent_` 构造会启动 Agent 合并线程，但该线程在 `consolidationMutex_` 上等待、唤醒后取 L4 `sessionActivityMutex_` 而非 L2，不重现 L2→L5 嵌套。`Initialize` 持 L2 调 `InitMemoryRuntime`→`ResourceManager::CreateMemoryRuntime`（取 L5 `memoryMutex_`）构成 L2→L5；因并发 Invoke / reload 路径尚未可运行，不构成死锁风险，是本约束的合法例外。运行时重配走 `ReloadAgent`（检查 `initialized_` 布尔标志，不调 `Initialize`），不产生此嵌套。
 
 2. **L5 ResourceManager 四把域锁互不嵌套**——同一线程绝不会同时持两把域锁。它们保护不同的注册表，各域独立并发。
 

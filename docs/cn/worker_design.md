@@ -386,7 +386,7 @@ CallModelStream(systemPrompt, messages, onChunk, generation)
 - 同一线程内连续的模型调用 → 复用同一个 thread_local CURL handle（`curl_easy_reset` 清选项、保留连接缓存）
 - 跨 iteration 的连接复用 → 由 CurlClient 的 thread_local 机制保证，与 `Model` 对象是否缓存无关
 
-**与第二轮 review #2 的关系**：#2 指出"每次迭代新建 Model + 新 CURL handle"是性能浪费。CurlClient 重构（Phase 5）后，"新 CURL handle"部分已消除（thread_local 复用），per-call 新建 `Model` 对象本身开销可忽略。因此**缓存 `Model` 对象不再有性能价值**——会引入生命周期/配置热重载/线程安全的额外复杂度，收益却微乎其微。#2 的性能关切由 CurlClient 的 thread_local handle 解决，无需再缓存 `Model` 对象。
+**为何不缓存 Model 对象**：`Model` 对象本身是轻量配置持有者，per-call 新建/析构开销可忽略，缓存它没有性能收益；反而会引入生命周期管理、配置热重载刷新、线程安全等额外复杂度。真正的连接复用由 CurlClient 的 thread_local handle 承担，与 `Model` 对象是否缓存无关，因此 per-call 新建 `Model` + thread_local handle 复用即可同时获得简洁性与连接复用收益，无需缓存 `Model` 对象。
 
 ### 5.5 异常处理
 

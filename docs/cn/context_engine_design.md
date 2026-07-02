@@ -234,18 +234,35 @@ ApplyContextLimits(messages)
 
 ### 6.4 CompressSegment
 
-当 `config_.enableSummarization = true` 时，超出 token 预算的旧段被压缩：
+当 `config_.enableSummarization = true` 时，超出 token 预算的旧段被压缩。
+
+**双重条件守卫**：仅当段**同时**超 token 预算（`CalculateMessagesTokens > tokenBudget`）**且**超消息数上限（`size > config_.maxMessages`）时才压缩；否则原样返回。这避免了对"仅超一项"的段做不必要的摘要化。
 
 ```
 CompressSegment(messages, segment, tokenBudget)
-  │  1. 提取段中的所有工具调用和结果
-  │  2. 将每个工具调用压缩为一行摘要:
-  │     "Called {toolName}({args摘要}) → {result摘要}"
-  │  3. 组合为一条 assistant 消息:
-  │     "Previous actions summary:\n- Called read_file(/tmp/a) → Found 3 lines\n- ..."
-  │  4. 替换原始的多条消息
-  │  5. 返回压缩后的消息列表
+  │  0. 双重条件守卫: 若 tokens(segment) <= tokenBudget 且 size <= maxMessages → 原样返回
+  │
+  │  1. 保留段首 user 消息（若段首是 user）作为压缩后的第一条
+  │
+  │  2. 提取段中所有 tool 消息，每条压缩为一行摘要:
+  │     "- {toolName} payload_ref={ref}: {content 前 240 字符预览}..."
+  │     （最多保留 8 条，超出加 "...")
+  │
+  │  3. 提取最近一条无 tool_calls 的 assistant 消息文本（前 800 字符预览）
+  │
+  │  4. 组合为一条 assistant 摘要消息:
+  │     "Context segment compressed due to context window limits.
+  │      Tool results summary: ...
+  │      Latest assistant state: ..."
+  │
+  │  5. 压缩结果 = [段首 user?, 摘要消息]（0-2 条）
+  │
+  │  6. 裁剪到 tokenBudget（保底机制，见下）
 ```
+
+**裁剪保底机制**：若压缩结果仍超 `tokenBudget`，**不**用 `pop_back` 丢弃摘要消息（那样会塌缩成只剩段首 user 消息、丢失全部 tool/assistant 上下文）。改为**截断摘要消息的 content** 至 `tokenBudget - 段首 user 的 token 数`：循环对半截断 `summary.content` 直到 `EstimateTokens <= budgetForSummary` 或内容为空；内容截断到空时降级为 `"[compressed]"` 占位符。这保证极小预算下仍保留一个（截断的）上下文标记，而非完全丢失。
+
+> **极端低预算行为**：当 `tokenBudget` 极小（远小于段首 user 消息本身）时，`budgetForSummary = max(1, tokenBudget - prefixTokens)` 可能为 1，摘要被截断到接近空 + `[compressed]` 占位。结果为 `[段首 user, "[compressed]"]`——模型至少知道此前有被压缩的上下文，而非只见一条孤立的 user 消息。
 
 ### 6.5 Token 估算
 
@@ -263,7 +280,7 @@ static int EstimateTokens(const std::string& text);
 
 > **为何不再用 `length()/4`**：旧公式按字节数估算，一个中文字符占 3 字节、
 > 实际约 0.6–1 token，`/4` 会低估 3–4 倍，导致裁剪器误判“未超限”而放行
-> 过量中文内容，实际发给模型时溢出。加权估算修正了这一偏差（评审 #8）。
+> 过量中文内容，实际发给模型时溢出。加权估算修正了这一偏差。
 > 该估算仍是启发式、不依赖外部分词器（不引入 tiktoken/icu 重依赖），但足以
 > 做预算分配。
 

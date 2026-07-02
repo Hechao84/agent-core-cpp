@@ -407,6 +407,60 @@ TEST(context_engine, KeepsPairedToolMessagesInWindow)
     TestRunner::AssertTrue(hasToolResult);
 }
 
+TEST(context_engine, CompressSegmentRetainsSummaryAtExtremeLowBudget)
+{
+    // At an extremely small tokenBudget, CompressSegment must not drop the
+    // summary entirely (which would collapse the window to just the bare user
+    // message, losing all tool/assistant context). The summary is truncated
+    // but retained as an assistant marker.
+    ContextConfig config;
+    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
+    config.sessionId = "test_compress_lowbudget";
+    config.enableSummarization = true;
+    config.maxContextTokens = 10;   // tiny budget -> forces summary truncation
+    config.maxMessages = 2;          // segment > 2 msgs -> triggers compression
+    ContextEngine engine(config);
+    engine.Initialize();
+
+    Message user;
+    user.role = "user";
+    user.content = "do search";
+    engine.AddMessage(user);
+
+    auto addToolPair = [&](const std::string& callId) {
+        Message a;
+        a.role = "assistant";
+        ToolCall tc;
+        tc.id = callId;
+        tc.name = "search";
+        tc.argumentsJson = "{}";
+        a.toolCalls.push_back(tc);
+        engine.AddMessage(a);
+
+        Message t;
+        t.role = "tool";
+        t.toolCallId = callId;
+        t.toolName = "search";
+        t.content = std::string(200, 'x');  // ~50 tokens each
+        engine.AddMessage(t);
+    };
+    addToolPair("call_0");
+    addToolPair("call_1");
+
+    auto window = engine.GetContextWindow();
+    //保底: an assistant summary marker must survive (truncated, not dropped).
+    // Without保底, [user, summary] over budget would pop_back the summary,
+    // leaving only the bare user message -> no assistant message at all.
+    bool hasAssistantSummary = false;
+    for (const auto& m : window) {
+        if (m.role == "assistant" && !m.content.empty()) {
+            hasAssistantSummary = true;
+            break;
+        }
+    }
+    TestRunner::AssertTrue(hasAssistantSummary);
+}
+
 TEST(context_engine, GetConsolidationPayload)
 {
     ContextConfig config;
@@ -560,7 +614,7 @@ TEST(context_engine, OrphanTrailingAssistantTrimmedOnReload)
     fs::remove_all(testDir);
 }
 
-// #8: CJK text must not be under-counted the way length/4 did. With the
+// CJK text must not be under-counted the way length/4 did. With the
 // UTF-8-aware estimator, a window of many Chinese messages under a small token
 // budget should be trimmed to far fewer than the message-count limit, because
 // each Chinese character costs ~0.75 token rather than ~0.25.
@@ -588,7 +642,7 @@ TEST(context_engine, CjkTokenEstimationBoundsWindow)
     TestRunner::AssertTrue(!window.empty(), "at least the latest message kept");
 }
 
-// #7 mechanism: the latest user query is always retained by GetContextWindow,
+// The latest user query is always retained by GetContextWindow,
 // even when many assistant/tool turns precede it and the budget is tight. This
 // is what makes the worker's per-iteration GetContextWindow refresh safe.
 TEST(context_engine, LatestUserQueryAlwaysRetained)

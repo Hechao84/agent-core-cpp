@@ -269,9 +269,9 @@ CurlResponse resp = CurlClient::Post(req);
 - timeout 配置链路（完整配置驱动）：`mcp_servers.json` → app 层 `McpServerEntry.{connect,request}TimeoutSeconds`（默认 3/10）→ `McpServerConfig`（`include/types.h`，公开 API）→ `MCPEndpointConfig`（`resource_manager.cpp` 构造时赋值）→ `MCPClient` 构造透传 → `CurlRequest`。用户可在 `mcp_servers.json` 按 server 覆盖默认值
 - JSON-RPC 错误解析保留在 MCPClient
 
-**传输模型说明（事实修正）**：迁移后 MCPClient 的 `SendRequest` 是**离散 POST**——每次 JSON-RPC 请求经 CurlClient 的 thread_local 池化 handle 发一个独立 POST，MCP 会话靠 `Mcp-Session-Id` 请求头维系，而非持久 SSE 长连接订阅。`Accept: application/json, text/event-stream` 仅作内容协商头，当前不消费真正的 SSE 事件流。
+**传输模型说明**：迁移后 MCPClient 的 `SendRequest` 是**离散 POST**——每次 JSON-RPC 请求经 CurlClient 的 thread_local 池化 handle 发一个独立 POST，MCP 会话靠 `Mcp-Session-Id` 请求头维系，而非持久 SSE 长连接订阅。`Accept: application/json, text/event-stream` 仅作内容协商头，当前不消费真正的 SSE 事件流。
 
-这与第一轮 review #17 答复中"MCP 连接的长连接 handle 在初始化时创建并持久持有"的描述有出入——迁移后已简化为离散 POST + 会话头 + thread_local handle 复用，功能等价（Streamable HTTP MCP 的标准语义即是每请求一 POST），且连接复用收益由 CurlClient 的 thread_local handle 承担（同线程连续 MCP 调用复用 TCP/TLS/DNS）。若未来需要真正的持久 SSE 订阅（如服务器主动 push），需在 MCPClient 层另行设计长连接 + 事件分发，不在本次统一范围。
+当前实现即是 Streamable HTTP MCP 的标准语义（每请求一 POST + 会话头），连接复用收益由 CurlClient 的 thread_local handle 承担（同线程连续 MCP 调用复用 TCP/TLS/DNS）。若未来需要真正的持久 SSE 订阅（如服务器主动 push），需在 MCPClient 层另行设计长连接 + 事件分发，不在本次统一范围。
 
 ### 5.3 WebSearchTool + WebFetchTool（Phase 4）
 
