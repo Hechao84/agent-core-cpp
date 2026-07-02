@@ -170,25 +170,38 @@ std::string ResourceManager::GetToolSchema(const std::string& name)
         }
     }
 
-    // Create a probe instance outside the lock to get the human-readable
-    // schema text (used in fallback / prompt-only mode). Works for all
-    // tool types (stateless, session-scoped, MCP) — the caller no longer
-    // needs to distinguish between HasSessionTool and HasTool.
+    // Lookup the factory under toolMutex_, then instantiate the probe outside
+    // the lock (mirrors CreateTool / CreateSessionTool: lock-internal lookup
+    // -> lock-external instantiation -> lock-internal cache write). Probe
+    // instantiation runs a tool constructor, so keeping it outside the lock
+    // avoids blocking other tool-registry access. Works for all tool types
+    // (stateless, session-scoped, MCP); the caller does not need to
+    // distinguish between HasTool and HasSessionTool.
     std::unique_ptr<Tool> probe;
+    bool isSession = false;
+    SessionToolFactory sessionFactory;
+    std::function<std::unique_ptr<Tool>()> statelessFactory;
     {
         std::lock_guard<std::mutex> lock(toolMutex_);
         auto sit = sessionToolFactories_.find(name);
         if (sit != sessionToolFactories_.end()) {
-            ToolBuildContext probeCtx;
-            probe = sit->second(probeCtx);
+            isSession = true;
+            sessionFactory = sit->second;
         } else {
             auto tit = toolFactories_.find(name);
             if (tit != toolFactories_.end()) {
-                probe = tit->second();
+                statelessFactory = tit->second;
             } else {
                 throw std::runtime_error("Tool not found: " + name);
             }
         }
+    }
+
+    if (isSession) {
+        ToolBuildContext probeCtx;  // null-ctx probe contract
+        probe = sessionFactory(probeCtx);
+    } else {
+        probe = statelessFactory();
     }
 
     std::string schema = probe->GetSchema();

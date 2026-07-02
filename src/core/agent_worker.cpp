@@ -268,10 +268,20 @@ std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::str
 std::string AgentWorker::GetToolSchemaForQuery(const std::string& query)
 {
     (void)query;
-    std::lock_guard<std::mutex> lock(toolMutex_);
+    // Snapshot toolNames_ under toolMutex_, then call ResourceManager outside
+    // the lock. HasTool / HasSessionTool / GetToolSchema acquire
+    // ResourceManager::toolMutex_, so holding AgentWorker::toolMutex_ across
+    // them would nest two L5 locks; the lock-internal-read -> lock-external-
+    // call pattern keeps them non-nesting (mirrors BuildToolSchemas /
+    // CreateTool).
+    std::vector<std::string> names;
+    {
+        std::lock_guard<std::mutex> lock(toolMutex_);
+        names = toolNames_;
+    }
     auto& rm = ResourceManager::GetInstance();
     std::string schema;
-    for (const auto& name : toolNames_) {
+    for (const auto& name : names) {
         try {
             if (rm.HasTool(name) || rm.HasSessionTool(name)) {
                 schema += rm.GetToolSchema(name) + "\n\n";
