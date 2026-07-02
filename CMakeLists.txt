@@ -179,6 +179,7 @@ add_library(agent_framework SHARED
     src/utils/encoding.cpp
     src/utils/tool_parser.cpp
     src/utils/curl_client.cpp
+    src/utils/time_utils.cpp
     src/session/session_manager.cpp
     src/config/agent_config_json.cpp
     src/config/agent_config_store.cpp
@@ -366,6 +367,7 @@ target_include_directories(unittest PRIVATE
 )
 target_link_libraries(unittest PRIVATE 
     agent_framework
+    sqlite3
     nlohmann_json::nlohmann_json
 )
 if(ENABLE_MEMORY_BUILTIN)

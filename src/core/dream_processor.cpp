@@ -1,9 +1,7 @@
 #include "src/core/dream_processor.h"
 
-#include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <sstream>
 
 #include "include/model.h"
@@ -12,6 +10,7 @@
 #include "src/tools/builtin_tools/read_file_tool.h"
 #include "src/tools/builtin_tools/write_file_tool.h"
 #include "src/utils/tool_parser.h"
+#include "src/utils/time_utils.h"
 
 namespace fs = std::filesystem;
 
@@ -162,13 +161,8 @@ std::vector<DreamFinding> DreamProcessor::Phase1Analysis(
     const std::string& soulContent,
     const std::string& userContent) const
 {
-    auto now = std::chrono::system_clock::now();
-    auto time = std::chrono::system_clock::to_time_t(now);
-    std::stringstream dateStream;
-    dateStream << std::put_time(std::gmtime(&time), "%Y-%m-%d");
-
     std::string fileContext =
-        "## Current Date\n" + dateStream.str() + "\n\n"
+        "## Current Time\n" + jiuwen::NowUtcIso8601() + "\n\n"
         "## Current MEMORY.md (" + std::to_string(memoryContent.length()) + " chars)\n" + TruncateText(memoryContent.empty() ? "(empty)" : memoryContent, config_.memoryFileMaxChars) + "\n\n"
         "## Current SOUL.md (" + std::to_string(soulContent.length()) + " chars)\n" + TruncateText(soulContent.empty() ? "(empty)" : soulContent, config_.memoryFileMaxChars) + "\n\n"
         "## Current USER.md (" + std::to_string(userContent.length()) + " chars)\n" + TruncateText(userContent.empty() ? "(empty)" : userContent, config_.memoryFileMaxChars);

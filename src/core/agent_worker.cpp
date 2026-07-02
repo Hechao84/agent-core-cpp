@@ -1,8 +1,6 @@
 #include "src/core/agent_worker.h"
 
 #include <algorithm>
-#include <chrono>
-#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -20,6 +18,7 @@
 #include "src/skills/skill_engine.h"
 #include "src/tools/tool_selector.h"
 #include "src/utils/logger.h"
+#include "src/utils/time_utils.h"
 #include "src/utils/prompt_utils.h"
 
 namespace fs = std::filesystem;
@@ -154,11 +153,7 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
     vars["context"] = context;
 
     // Runtime context variables
-    auto now = std::chrono::system_clock::now();
-    auto time = std::chrono::system_clock::to_time_t(now);
-    std::stringstream timeStream;
-    timeStream << std::put_time(std::gmtime(&time), "%Y-%m-%d %H:%M:%S UTC");
-    vars["current_time"] = timeStream.str();
+    vars["current_time"] = jiuwen::NowUtcIso8601();
     vars["session_id"] = config_.contextConfig.sessionId;
 
     // 3. Resolve sub-templates from config (e.g., {$identity}, {$custom_section})

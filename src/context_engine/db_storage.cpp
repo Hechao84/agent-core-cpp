@@ -73,7 +73,7 @@ bool DbStorage::CreateTable()
                       "tool_call_id TEXT, "
                       "tool_name TEXT, "
                       "payload_ref TEXT, "
-                      "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP"
+                      "timestamp TEXT"
                       ");";
     char* errMsg = nullptr;
     int rc = sqlite3_exec(db_, sql, nullptr, 0, &errMsg);
@@ -81,6 +81,32 @@ bool DbStorage::CreateTable()
         LogError("Failed to create table");
         if (errMsg) sqlite3_free(errMsg);
         return false;
+    }
+
+    // Migration: a v2-era DB (has the v2 columns from the probe above but
+    // predates the timestamp column) passes the stale-schema probe and
+    // CREATE TABLE IF NOT EXISTS is a no-op, so the timestamp column would
+    // never be added -- SaveMessage/LoadHistory would then fail with
+    // "no such column: timestamp". Probe for the column and ALTER if missing.
+    // Existing rows keep NULL timestamp (their original event time was never
+    // recorded); only newly added rows get an ISO 8601 timestamp via INSERT.
+    {
+        sqlite3_stmt* tsProbe = nullptr;
+        const char* probe = "SELECT timestamp FROM messages LIMIT 1;";
+        if (sqlite3_prepare_v2(db_, probe, -1, &tsProbe, nullptr) != SQLITE_OK) {
+            std::string err = sqlite3_errmsg(db_);
+            if (err.find("no such column") != std::string::npos) {
+                char* alterErr = nullptr;
+                if (sqlite3_exec(db_, "ALTER TABLE messages ADD COLUMN timestamp TEXT;",
+                                 nullptr, nullptr, &alterErr) != SQLITE_OK) {
+                    LogError("Failed to add timestamp column");
+                    if (alterErr) sqlite3_free(alterErr);
+                    return false;
+                }
+                if (alterErr) sqlite3_free(alterErr);
+            }
+        }
+        if (tsProbe) sqlite3_finalize(tsProbe);
     }
     return true;
 }
@@ -127,8 +153,8 @@ bool DbStorage::SaveMessage(const Message& msg)
     if (!IsValidMessage(msg)) return true;
     if (!db_) return false;
 
-    const char* sql = "INSERT INTO messages (session_id, role, content, tool_calls, tool_call_id, tool_name, payload_ref) "
-                      "VALUES (?, ?, ?, ?, ?, ?, ?);";
+    const char* sql = "INSERT INTO messages (session_id, role, content, tool_calls, tool_call_id, tool_name, payload_ref, timestamp) "
+                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         LogError("Failed to prepare INSERT");
@@ -161,6 +187,11 @@ bool DbStorage::SaveMessage(const Message& msg)
     } else {
         sqlite3_bind_text(stmt, 7, msg.payloadRef.c_str(), -1, SQLITE_TRANSIENT);
     }
+    if (msg.timestamp.empty()) {
+        sqlite3_bind_null(stmt, 8);
+    } else {
+        sqlite3_bind_text(stmt, 8, msg.timestamp.c_str(), -1, SQLITE_TRANSIENT);
+    }
 
     bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
@@ -174,7 +205,7 @@ bool DbStorage::LoadHistory(std::vector<Message>& outMessages)
 {
     if (!db_) return false;
 
-    const char* sql = "SELECT role, content, tool_calls, tool_call_id, tool_name, payload_ref "
+    const char* sql = "SELECT role, content, tool_calls, tool_call_id, tool_name, payload_ref, timestamp "
                       "FROM messages WHERE session_id = ? ORDER BY id;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -191,12 +222,14 @@ bool DbStorage::LoadHistory(std::vector<Message>& outMessages)
         const unsigned char* toolCallId = sqlite3_column_text(stmt, 3);
         const unsigned char* toolName = sqlite3_column_text(stmt, 4);
         const unsigned char* payloadRef = sqlite3_column_text(stmt, 5);
+        const unsigned char* timestamp = sqlite3_column_text(stmt, 6);
         if (role) msg.role = reinterpret_cast<const char*>(role);
         if (content) msg.content = reinterpret_cast<const char*>(content);
         if (toolCalls) msg.toolCalls = DecodeToolCalls(reinterpret_cast<const char*>(toolCalls));
         if (toolCallId) msg.toolCallId = reinterpret_cast<const char*>(toolCallId);
         if (toolName) msg.toolName = reinterpret_cast<const char*>(toolName);
         if (payloadRef) msg.payloadRef = reinterpret_cast<const char*>(payloadRef);
+        if (timestamp) msg.timestamp = reinterpret_cast<const char*>(timestamp);
         if (msg.role.empty()) continue;
         if (msg.role == "tool" && msg.toolCallId.empty()) continue;
         if (msg.role == "assistant" && msg.content.empty() && msg.toolCalls.empty()) continue;

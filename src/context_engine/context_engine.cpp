@@ -18,6 +18,7 @@
 #include "src/context_engine/storage_base.h"
 #include "src/utils/data_dir.h"
 #include "src/utils/logger.h"
+#include "src/utils/time_utils.h"
 
 namespace fs = std::filesystem;
 
@@ -74,22 +75,32 @@ void ContextEngine::AddMessage(const Message& message)
 {
     if (!ContextStorageBase::IsValidMessage(message)) return;
 
+    // Stamp the message with an ISO 8601 UTC timestamp if the caller did not
+    // supply one. The stamped copy is what gets buffered, persisted, and
+    // forwarded to MemoryRuntime via the event sink, so memory consolidation
+    // has time-of-event information for correlation.
+    Message stored = message;
+    if (stored.timestamp.empty()) {
+        stored.timestamp = jiuwen::NowUtcIso8601();
+    }
+
     std::function<void(const MemoryEvent&)> sink;
     MemoryEvent event;
     {
         std::lock_guard<std::mutex> lock(memoryMutex_);
-        memoryBuffer_.push_back(message);
+        memoryBuffer_.push_back(stored);
         if (storage_) {
-            storage_->SaveMessage(message);
+            storage_->SaveMessage(stored);
         }
         if (memoryEventSink_) {
             event.type = MemoryEventType::MESSAGE_APPENDED;
             event.sessionId = config_.sessionId;
-            event.role = message.role;
-            event.content = message.content;
-            event.toolCallId = message.toolCallId;
-            event.toolName = message.toolName;
-            event.payloadRef = message.payloadRef;
+            event.role = stored.role;
+            event.content = stored.content;
+            event.toolCallId = stored.toolCallId;
+            event.toolName = stored.toolName;
+            event.payloadRef = stored.payloadRef;
+            event.timestamp = stored.timestamp;
             // Copy the sink and invoke it outside the lock: in HTTP memory
             // mode the sink performs network I/O, which must not block other
             // readers by holding memoryMutex_ for the duration of the call.

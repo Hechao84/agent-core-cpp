@@ -4,8 +4,11 @@
 #include <string>
 #include <vector>
 
+#include <sqlite3.h>
+
 #include "include/types.h"
 #include "src/context_engine/context_engine.h"
+#include "src/context_engine/db_storage.h"
 #include "src/context_engine/json_storage.h"
 #include "test_runner.h"
 
@@ -524,6 +527,12 @@ TEST(context_engine, AddMessageEmitsMemoryEvent)
     TestRunner::AssertEq(captured.toolCallId, std::string("call_1"));
     TestRunner::AssertEq(captured.toolName, std::string("grep"));
     TestRunner::AssertEq(captured.payloadRef, std::string("file://payload"));
+
+    // AddMessage auto-fills an ISO 8601 UTC timestamp when the caller omits
+    // it, and propagates it to the MemoryEvent for memory consolidation.
+    TestRunner::AssertTrue(!captured.timestamp.empty());
+    TestRunner::AssertTrue(captured.timestamp.back() == 'Z');
+    TestRunner::AssertTrue(captured.timestamp.find('T') != std::string::npos);
 }
 
 TEST(context_engine, JsonFileRoundTripWithToolCalls)
@@ -679,4 +688,67 @@ TEST(context_engine, LatestUserQueryAlwaysRetained)
     }
     TestRunner::AssertTrue(hasQuery,
         "latest user query must survive context-window trimming/compression");
+}
+
+TEST(db_storage, MigratesV2SchemaToAddTimestampColumn)
+{
+    // A v2-era DB has the v2 columns (tool_calls etc.) but no timestamp
+    // column. DbStorage must ALTER-add timestamp on open so SaveMessage /
+    // LoadHistory do not fail with "no such column: timestamp".
+    const std::string dbPath = "test_tmp_db_v2_migration.db";
+    fs::remove(dbPath);
+
+    // Build a v2-era schema directly via sqlite3 (no timestamp column).
+    sqlite3* raw = nullptr;
+    TestRunner::AssertTrue(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK);
+    const char* v2schema =
+        "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT, "
+        "tool_calls TEXT, tool_call_id TEXT, tool_name TEXT, payload_ref TEXT);";
+    TestRunner::AssertTrue(sqlite3_exec(raw, v2schema, nullptr, nullptr, nullptr) == SQLITE_OK);
+    // Insert a legacy row (no timestamp value -- column does not exist yet).
+    sqlite3_stmt* ins = nullptr;
+    sqlite3_prepare_v2(raw,
+        "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?);",
+        -1, &ins, nullptr);
+    sqlite3_bind_text(ins, 1, "v2sess", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ins, 2, "user", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ins, 3, "legacy row", -1, SQLITE_TRANSIENT);
+    sqlite3_step(ins);
+    sqlite3_finalize(ins);
+    sqlite3_close(raw);
+
+    // Open via DbStorage -> InitDatabase/CreateTable runs the migration.
+    DbStorage storage(dbPath, "v2sess");
+
+    // SaveMessage must succeed (INSERT references timestamp column).
+    Message m;
+    m.role = "assistant";
+    m.content = "after migration";
+    m.timestamp = "2026-07-02T11:12:38Z";
+    TestRunner::AssertTrue(storage.SaveMessage(m));
+
+    // LoadHistory must succeed and return both the legacy row and the new one.
+    std::vector<Message> loaded;
+    TestRunner::AssertTrue(storage.LoadHistory(loaded));
+    TestRunner::AssertTrue(loaded.size() >= 2);
+
+    // The legacy row has no timestamp (NULL -> empty); the new one carries
+    // the ISO 8601 timestamp we saved.
+    bool foundNew = false;
+    bool foundLegacy = false;
+    for (const auto& msg : loaded) {
+        if (msg.content == "after migration") {
+            foundNew = true;
+            TestRunner::AssertEq(msg.timestamp, std::string("2026-07-02T11:12:38Z"));
+        }
+        if (msg.content == "legacy row") {
+            foundLegacy = true;
+            TestRunner::AssertTrue(msg.timestamp.empty());
+        }
+    }
+    TestRunner::AssertTrue(foundNew);
+    TestRunner::AssertTrue(foundLegacy);
+
+    fs::remove(dbPath);
 }

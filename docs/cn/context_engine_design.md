@@ -47,21 +47,23 @@ ContextEngine 采用**内存 + 持久化**双层存储：
 
 ```
 AddMessage(message)
-  │  1. lock(memoryMutex_)
-  │  2. memoryBuffer_.push_back(message)
-  │  3. 若 storage_ 存在 → storage_->SaveMessage(message)
-  │  4. 若 memoryEventSink_ 存在:
+  │  1. 若 message.timestamp 为空 → 用 NowUtcIso8601() 填充（ISO 8601 UTC，
+  │     如 "2026-07-02T11:12:38Z"）；后续均使用该 stamped 副本 stored
+  │  2. lock(memoryMutex_)
+  │  3. memoryBuffer_.push_back(stored)
+  │  4. 若 storage_ 存在 → storage_->SaveMessage(stored)  // timestamp 一并持久化
+  │  5. 若 memoryEventSink_ 存在:
   │     ├── 构建 MemoryEvent:
   │     │   ├── type = MESSAGE_APPENDED
   │     │   ├── sessionId = config_.sessionId
-  │     │   ├── role = message.role
-  │     │   ├── content = message.content
-  │     │   ├── toolCallId / toolName / payloadRef (如有)
-  │     │   └── timestamp = 当前时间
+  │     │   ├── role / content / toolCallId / toolName / payloadRef = stored 对应字段
+  │     │   └── timestamp = stored.timestamp
   │     └── 将 memoryEventSink_ 拷贝到局部变量 sink
-  │  5. unlock
-  │  6. 若 sink 存在 → sink(event) → MemoryRuntime::AppendEvent(event)（锁外调用）
+  │  6. unlock
+  │  7. 若 sink 存在 → sink(event) → MemoryRuntime::AppendEvent(event)（锁外调用）
 ```
+
+> **timestamp 填充与持久化策略**：调用方未提供 `timestamp` 时，`AddMessage` 用 `NowUtcIso8601()`（`src/utils/time_utils`）自动填 ISO 8601 UTC。stamped 副本进入 `memoryBuffer_`、存储后端（`JsonStorage` / `DbStorage` 均 round-trip `timestamp` 字段，DbStorage 的 `messages.timestamp` 列为 `TEXT`、`INSERT` 总显式供值）与 `MemoryEvent`，使记忆整合具备事件时间信息。调用方提供的 `timestamp` 原样保留（允许回填历史消息的时间戳）。
 
 > **并发设计说明**：`memoryEventSink_` 在 HTTP 记忆模式下会执行网络 I/O。
 > 若在持有 `memoryMutex_` 期间调用，临界区时长将被网络延迟绑定，阻塞所有

@@ -49,6 +49,9 @@ json EncodeMessage(const Message& msg)
     if (!msg.payloadRef.empty()) {
         entry["payload_ref"] = msg.payloadRef;
     }
+    if (!msg.timestamp.empty()) {
+        entry["timestamp"] = msg.timestamp;
+    }
     return entry;
 }
 
@@ -76,6 +79,9 @@ bool DecodeMessage(const json& entry, Message& out)
     }
     if (entry.contains("payload_ref") && entry["payload_ref"].is_string()) {
         out.payloadRef = entry["payload_ref"].get<std::string>();
+    }
+    if (entry.contains("timestamp") && entry["timestamp"].is_string()) {
+        out.timestamp = entry["timestamp"].get<std::string>();
     }
     // Discard rows that have no usable payload.
     if (out.role.empty()) return false;

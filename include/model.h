@@ -42,6 +42,7 @@ struct Message {
     std::string toolCallId;           // tool only
     std::string toolName;             // tool only (informational)
     std::string payloadRef;           // optional offloaded payload reference
+    std::string timestamp;            // ISO 8601 UTC, e.g. "2026-07-02T11:12:38Z"; empty if unset
 };
 
 struct ModelResponse {

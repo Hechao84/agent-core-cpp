@@ -3,9 +3,9 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
-#include <sstream>
 #include <string>
 #include <vector>
+#include "src/utils/time_utils.h"
 #include "third_party/include/nlohmann/json.hpp"
 
 namespace fs = std::filesystem;
@@ -67,14 +67,9 @@ int HistoryStore::AppendEntry(const std::string& role, const std::string& conten
 
     int cursor = NextCursor();
 
-    auto now = std::chrono::system_clock::now();
-    auto time = std::chrono::system_clock::to_time_t(now);
-    std::stringstream ts;
-    ts << std::put_time(std::gmtime(&time), "%Y-%m-%d %H:%M");
-
     nlohmann::json entry;
     entry["cursor"] = cursor;
-    entry["timestamp"] = ts.str();
+    entry["timestamp"] = jiuwen::NowUtcIso8601();
     entry["session_id"] = sessionId;
     entry["role"] = role;
     entry["content"] = content;
