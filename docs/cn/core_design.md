@@ -47,7 +47,7 @@ Agent
 2. 通过 `contextEngineGetter_` 获取会话的 `ContextEngine`（从 WorkerEnv 预缓存读取，不获取 sessionMutex_）
 3. 将用户消息添加到 `ContextEngine::AddMessage`
 4. 调用 `worker_->Invoke(query, contextEngine, callback)` 执行推理循环
-5. 通知会话空闲（`NotifySessionIdle`），触发后台整合条件变量
+5. 通知会话空闲（`NotifySessionIdle`），在 `sessionActivity_` 中标记 `isBusy=false`（ConsolidationLoop 轮询时检测；不再触发条件变量，见下）
 6. 返回最终回答字符串
 
 #### `Agent::CleanupSession(sessionId)`
@@ -58,11 +58,14 @@ Agent
 
 后台线程方法，在构造时启动。存在两个重载：**无参重载**让 runtime 自行决定模型来源，可用于 runtime 自决场景；**带参重载**接收显式提供的 `modelClient`，意图明确。当前调用带参重载（意图明确），无参重载可用于 runtime 自决场景。流程如下：
 
-1. 等待条件变量（`cv_`），直到有会话变为空闲（在 `sessionActivityMutex_`（L4）保护下检查 `sessionActivity_`）
-2. 创建 Model 实例一次（`CreateModel`），供两条整合路径共享
-3. 若 `MemoryRuntime` 已启用，调用 `MemoryRuntime::Consolidate(request, modelClient)`
-4. 若 `MemoryRuntime` 未处理，调用 `longTermConsolidator_->Run(model, historyStore)`
-5. 循环继续，直到 `running_` 标志变为 false
+1. 在 `consolidationMutex_`（L3）上 `cv_.wait_for(idleConsolidationSeconds)`，谓词 `!running_`（仅 `Shutdown` 的 notify 提前退出）；超时后释放 L3
+2. 取 `sessionActivityMutex_`（L4）检查 `sessionActivity_` 有无 `isBusy=false` 的空闲会话；无则 continue，有则继续
+3. 创建 Model 实例一次（`CreateModel`），供两条整合路径共享
+4. 若 `MemoryRuntime` 已启用，调用 `MemoryRuntime::Consolidate(request, modelClient)`
+5. 若 `MemoryRuntime` 未处理，调用 `longTermConsolidator_->Run(model, historyStore)`
+6. 循环继续，直到 `running_` 标志变为 false
+
+> **轮询驱动而非事件驱动**：ConsolidationLoop 是**超时轮询**设计——每 `idleConsolidationSeconds` 醒一次检查空闲会话，`cv_` 仅用于 `Shutdown` 提前退出（谓词 `!running_`）。`NotifySessionIdle` 只在 `sessionActivity_` 标记 `isBusy=false`，**不发 `cv_` 信号**。原因：wait 不能在 `sessionActivityMutex_`（L4）上长 wait（会阻塞 `IsSessionBusy`/`NotifySessionIdle`/`CleanupSession` 等所有 session-activity 操作），故 wait 用独立 `consolidationMutex_`（L3）；若在 L4 下 notify 而 wait 持 L3，是经典 CV mutex 不匹配。且无 per-session idle-since 时间戳，"空闲 N 秒"无法真正强制（轮询间隔即近似窗口）。真事件驱动需加 idle-since 时间戳 + 谓词查 idle 时长 + 最近 deadline 计算，属未来增强，不在当前范围。
 
 #### `SessionManager::ProvideUserResponse(requestId, answer)` （原 `Agent::ProvideUserResponse`）
 
@@ -433,7 +436,7 @@ Agent ────────────────────────�
   │  └── 返回回答                                                  │
   │                                                                │
   │  ConsolidationLoop (后台线程)                                   │
-  │  ├── cv_.wait() 直到会话空闲                                    │
+  │  ├── cv_.wait_for(idleConsolidationSeconds) 超时或 Shutdown 唤醒 │
   │  ├── MemoryRuntime::Consolidate(..., modelClient)               │
   │  │   └── HostMemoryModelClient 适配 Model → MemoryModelClient │
   │  └── 或 LegacyDreamConsolidator::Run(model, historyStore)      │

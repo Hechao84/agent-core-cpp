@@ -215,7 +215,12 @@ void Agent::NotifySessionIdle(const std::string& sessionId)
     if (it != sessionActivity_.end()) {
         it->second.isBusy = false;
     }
-    cv_.notify_all();
+    // No cv_ signal here: ConsolidationLoop is poll-driven -- it wakes every
+    // idleConsolidationSeconds via wait_for timeout (or on Shutdown's notify)
+    // and picks up idle sessions from sessionActivity_ on each poll. A notify
+    // here would be a no-op (the wait predicate only checks !running_) and
+    // would be signalled under the wrong mutex (sessionActivityMutex_ L4 vs
+    // the wait's consolidationMutex_ L3).
 }
 
 bool Agent::IsSessionBusy(const std::string& sessionId) const
