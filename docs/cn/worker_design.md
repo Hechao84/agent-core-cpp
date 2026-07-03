@@ -23,12 +23,13 @@ Worker 执行引擎模块（`src/workers/`、`src/core/agent_worker.h`）实现�
 ```
 AgentWorker
   │  ├── config_ (AgentConfig)
-  │  ├── toolNames_ (vector<string>)    ← 注册的工具名称列表
+  │  ├── toolNames_ (vector<string>)    ← 注册的工具名称列表（唯一拥有）
+  │  ├── ownedMcpTools_ (vector<string>) ← 本 worker 加过的 MCP 工具（SyncMcpTools diff 用）
   │  ├── toolSelector_ (unique_ptr<ToolSelector>) ← 工具选择器
   │  ├── skillEngine_ (shared_ptr<SkillEngine>) ← 技能引擎
   │  ├── workerEnv_ (WorkerEnv*)        ← 环境接口（非拥有，由 SessionManager 注入）
   │  ├── cancelGeneration_ (atomic<uint64_t>) ← 取消代数计数器
-  │  ├── toolMutex_ (mutex)             ← 保护工具列表
+  │  ├── toolMutex_ (mutex)             ← 保护 toolNames_ + ownedMcpTools_ + toolSelector_
   │  │
   │  ├── 纯虚方法:
   │  │   Invoke(query, contextEngine, callback)

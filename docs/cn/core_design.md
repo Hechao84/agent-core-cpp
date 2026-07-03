@@ -31,11 +31,13 @@ Agent
  ├── longTermConsolidator_ (unique_ptr<LongTermConsolidator>) ← 遗留整合
   ├── memoryRuntime_ (MemoryRuntime*)               ← 非拥有，来自 SessionManager（跨热重载存活）
   ├── workerEnv_ (WorkerEnv*)                      ← 非拥有，来自 SessionManager（消环）
- ├── consolidationThread_ (std::thread)      ← 后台整合线程
-  ├── contextEngineGetter_ (function)         ← 通过 WorkerEnv 预缓存获取 ContextEngine（不再获取 sessionMutex_）
-  ├── sessionActivityMutex_ (mutex, L4)       ← 保护 sessionActivity_
-  └── sessionActivity_ (map<sid, SessionActivity>) ← 会话活跃状态
+  ├── consolidationThread_ (std::thread)      ← 后台整合线程
+   ├── contextEngineGetter_ (function)         ← 通过 WorkerEnv 预缓存获取 ContextEngine（不再获取 sessionMutex_）
+   ├── sessionActivityMutex_ (mutex, L4)       ← 保护 sessionActivity_
+   └── sessionActivity_ (map<sid, SessionActivity>) ← 会话活跃状态
 ```
+
+> **工具状态归属**：`Agent` 不持有工具状态副本——`AddTools` / `SyncMcpTools` / `GetRegisteredTools` 是纯代理，直接转发到 `AgentWorker`。工具名列表（`toolNames_`）、MCP 归属（`ownedMcpTools_`）、工具选择器（`toolSelector_`）的唯一拥有者是 `AgentWorker`（`toolMutex_` 保护）。工具管理设施放在 `AgentWorker` 基类，3 种 worker 子类（React / Plan&Execute / Workflow）继承共享，只重写循环逻辑；`Agent` 经 `ReloadAgent` 整体替换时新 worker 会被 `AddTools` 重新填充，工具不丢。
 
 ### 2.2 核心方法
 
@@ -102,11 +104,15 @@ Agent
 ```
 AgentWorker
  ├── config_ (AgentConfig)
- ├── toolNames_ (vector<string>)      ← 注册的工具名称
+ ├── toolNames_ (vector<string>)      ← 注册的工具名称（唯一拥有，toolMutex_ 保护）
+ ├── ownedMcpTools_ (vector<string>)  ← 本 worker 加过的 MCP 工具（SyncMcpTools diff 用）
  ├── toolSelector_ (unique_ptr<ToolSelector>) ← 工具选择器
  ├── skillEngine_ (shared_ptr<SkillEngine>)   ← 技能引擎
  ├── workerEnv_ (WorkerEnv*)          ← 接口隔离，非拥有
  ├── cancelGeneration_ (atomic<uint64_t>) ← 取消代数计数器
+ │
+ ├── 工具管理（toolMutex_ 保护，Agent 退为纯代理）:
+ │   AddTools / RemoveTools / GetToolNames / SyncMcpTools
  │
  ├── 纯虚方法:
  │   Invoke(query, contextEngine, callback)

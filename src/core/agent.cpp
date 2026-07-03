@@ -1,6 +1,5 @@
 #include "include/agent.h"
 
-#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -11,7 +10,6 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "include/model.h"
@@ -250,13 +248,9 @@ void Agent::Cancel()
 
 void Agent::AddTools(const std::vector<std::string>& toolNames)
 {
-    for (const auto& name : toolNames) {
-        bool exists = std::find(toolNames_.begin(), toolNames_.end(), name) != toolNames_.end();
-        if (!exists) {
-            toolNames_.push_back(name);
-        }
-    }
-
+    // Tool state lives in AgentWorker (single source of truth, under
+    // toolMutex_); Agent is a thin proxy. The worker dedups and validates
+    // against ResourceManager.
     if (worker_) {
         worker_->AddTools(toolNames);
     }
@@ -264,48 +258,20 @@ void Agent::AddTools(const std::vector<std::string>& toolNames)
 
 int Agent::SyncMcpTools()
 {
-    auto currentSet = ResourceManager::GetInstance().GetMcpToolNames();
-    std::unordered_set<std::string> desired(currentSet.begin(), currentSet.end());
-
-    std::vector<std::string> toAdd;
-    for (const auto& name : currentSet) {
-        bool owned = std::find(ownedMcpTools_.begin(), ownedMcpTools_.end(), name) != ownedMcpTools_.end();
-        if (!owned) {
-            toAdd.push_back(name);
-        }
+    // MCP ownership diff + toolNames_ reconciliation lives in AgentWorker
+    // (atomic under toolMutex_). Agent is a thin proxy.
+    if (worker_) {
+        return worker_->SyncMcpTools();
     }
-
-    std::vector<std::string> toRemove;
-    for (const auto& name : ownedMcpTools_) {
-        if (desired.find(name) == desired.end()) {
-            toRemove.push_back(name);
-        }
-    }
-
-    for (const auto& name : toAdd) {
-        if (std::find(toolNames_.begin(), toolNames_.end(), name) == toolNames_.end()) {
-            toolNames_.push_back(name);
-        }
-        ownedMcpTools_.push_back(name);
-    }
-    if (!toAdd.empty() && worker_) {
-        worker_->AddTools(toAdd);
-    }
-
-    for (const auto& name : toRemove) {
-        toolNames_.erase(std::remove(toolNames_.begin(), toolNames_.end(), name), toolNames_.end());
-        ownedMcpTools_.erase(std::remove(ownedMcpTools_.begin(), ownedMcpTools_.end(), name), ownedMcpTools_.end());
-    }
-    if (!toRemove.empty() && worker_) {
-        worker_->RemoveTools(toRemove);
-    }
-
-    return static_cast<int>(toAdd.size() + toRemove.size());
+    return 0;
 }
 
 std::vector<std::string> Agent::GetRegisteredTools() const
 {
-    return toolNames_;
+    if (worker_) {
+        return worker_->GetToolNames();
+    }
+    return {};
 }
 
 void Agent::ConsolidationLoop()

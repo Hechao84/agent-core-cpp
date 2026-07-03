@@ -29,14 +29,21 @@ public:
     virtual void Cancel();
     void AddTools(const std::vector<std::string>& toolNames);
     void RemoveTools(const std::vector<std::string>& toolNames);
+    // Snapshot of the currently-enabled tool names (under toolMutex_).
+    std::vector<std::string> GetToolNames() const;
+    // Reconcile MCP tools with the live ResourceManager registry: add newly-
+    // registered MCP tools, drop ones whose server is gone. All under
+    // toolMutex_ (atomic vs Invoke). Returns the add+remove delta.
+    int SyncMcpTools();
     void SetSkillEngine(std::shared_ptr<SkillEngine> engine);
     void SetWorkerEnv(WorkerEnv* env);
 
 protected:
     AgentConfig config_;
-    mutable std::mutex toolMutex_;  // Lock layer L5 (tool names + selector)
+    mutable std::mutex toolMutex_;  // Lock layer L5 (tool names + selector + mcp ownership)
     std::atomic<uint64_t> cancelGeneration_{0};
     std::vector<std::string> toolNames_;
+    std::vector<std::string> ownedMcpTools_;  // MCP tools this worker added (for SyncMcpTools diff)
     std::unique_ptr<ToolSelector> toolSelector_;
     std::shared_ptr<SkillEngine> skillEngine_;
     WorkerEnv* workerEnv_{nullptr};

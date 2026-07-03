@@ -5,8 +5,10 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "include/model.h"
@@ -61,6 +63,46 @@ void AgentWorker::RemoveTools(const std::vector<std::string>& toolNames)
             toolSelector_->RemoveToolFromPool(name);
         }
     }
+}
+
+std::vector<std::string> AgentWorker::GetToolNames() const
+{
+    std::lock_guard<std::mutex> lock(toolMutex_);
+    return toolNames_;
+}
+
+int AgentWorker::SyncMcpTools()
+{
+    auto currentSet = ResourceManager::GetInstance().GetMcpToolNames();
+    std::unordered_set<std::string> desired(currentSet.begin(), currentSet.end());
+
+    std::vector<std::string> toAdd;
+    for (const auto& name : currentSet) {
+        if (std::find(ownedMcpTools_.begin(), ownedMcpTools_.end(), name) == ownedMcpTools_.end()) {
+            toAdd.push_back(name);
+        }
+    }
+    std::vector<std::string> toRemove;
+    for (const auto& name : ownedMcpTools_) {
+        if (desired.find(name) == desired.end()) {
+            toRemove.push_back(name);
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(toolMutex_);
+    for (const auto& name : toAdd) {
+        if (std::find(toolNames_.begin(), toolNames_.end(), name) == toolNames_.end()) {
+            toolNames_.push_back(name);
+            if (toolSelector_) toolSelector_->AddToolToPool(name);
+        }
+        ownedMcpTools_.push_back(name);
+    }
+    for (const auto& name : toRemove) {
+        toolNames_.erase(std::remove(toolNames_.begin(), toolNames_.end(), name), toolNames_.end());
+        if (toolSelector_) toolSelector_->RemoveToolFromPool(name);
+        ownedMcpTools_.erase(std::remove(ownedMcpTools_.begin(), ownedMcpTools_.end(), name), ownedMcpTools_.end());
+    }
+    return static_cast<int>(toAdd.size() + toRemove.size());
 }
 
 void AgentWorker::SetSkillEngine(std::shared_ptr<SkillEngine> engine)

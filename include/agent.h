@@ -81,8 +81,6 @@ private:
     AgentConfig config_;
     std::unique_ptr<AgentWorker> worker_;
     std::shared_ptr<SkillEngine> skillEngine_;
-    std::vector<std::string> toolNames_;
-    std::vector<std::string> ownedMcpTools_;
 
     std::function<std::shared_ptr<ContextEngine>(const std::string&)> contextEngineGetter_;
 
