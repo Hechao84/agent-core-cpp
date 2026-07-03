@@ -45,6 +45,8 @@ AgentWorker
   │  │   CurrentCancelGeneration()
 ```
 
+> **工具状态单一所有权**：`AgentWorker` 是工具状态的**唯一拥有者**——`toolNames_`（注册工具名）、`ownedMcpTools_`（MCP 归属 diff）、`toolSelector_`（选择器）均在 `toolMutex_`（L5）下。`Agent` 不持工具状态副本，`Agent::AddTools` / `SyncMcpTools` / `GetRegisteredTools` 是纯代理，直接转发到 worker。工具管理设施放 `AgentWorker` 基类，3 种 worker 子类（React / Plan&Execute / Workflow）继承共享、只重写循环。`AddTools` / `SyncMcpTools` 对 `ResourceManager` 的访问（`HasTool` / `GetMcpToolNames`）在 `toolMutex_` **外**完成（避免与 `ResourceManager::toolMutex_` 的 L5→L5 嵌套，见锁排序协议约束 2）。
+
 ### 2.3 模板方法模式
 
 `AgentWorker` 使用**模板方法模式**：

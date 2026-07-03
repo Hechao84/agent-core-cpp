@@ -39,13 +39,21 @@ void AgentWorker::Cancel()
 
 void AgentWorker::AddTools(const std::vector<std::string>& toolNames)
 {
-    std::lock_guard<std::mutex> lock(toolMutex_);
     auto& rm = ResourceManager::GetInstance();
+    // Validate outside the lock: HasTool / HasSessionTool acquire
+    // ResourceManager::toolMutex_, so holding AgentWorker::toolMutex_ across
+    // them would nest two L5 locks. Mirrors CreateTool / GetToolSchemaForQuery
+    // (lock-external RM access per the lock ordering protocol).
+    std::vector<std::string> valid;
     for (const auto& name : toolNames) {
-        if (!rm.HasTool(name) && !rm.HasSessionTool(name)) {
+        if (rm.HasTool(name) || rm.HasSessionTool(name)) {
+            valid.push_back(name);
+        } else {
             std::cerr << "Warning: Tool '" << name << "' not found" << std::endl;
-            continue;
         }
+    }
+    std::lock_guard<std::mutex> lock(toolMutex_);
+    for (const auto& name : valid) {
         if (std::find(toolNames_.begin(), toolNames_.end(), name) != toolNames_.end()) {
             continue;
         }
