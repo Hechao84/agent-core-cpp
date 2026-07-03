@@ -78,7 +78,9 @@ void ResourceManager::RegisterBuiltinTools()
     RegisterTool("glob", []() { return std::make_unique<GlobTool>(); });
     RegisterTool("grep", []() { return std::make_unique<GrepTool>(); });
     RegisterTool("exec", []() { return std::make_unique<ExecTool>(); });
-    RegisterTool("skill_search", []() { return std::make_unique<SkillSearchTool>(); });
+    RegisterSessionTool("skill_search", [](const ToolBuildContext& ctx) {
+        return std::make_unique<SkillSearchTool>(ctx.skillEngine);
+    });
 
     // Session-scoped builtin tools: Todo + AskUser. These need per-session
     // resources, so they are constructed via the SessionToolFactory path.

@@ -225,27 +225,29 @@ skillEngine_->Load();
 Agent 构造
   │  ├── skillEngine_ = make_shared<SkillEngine>(config_.skillDirectory)
   │  ├── skillEngine_->Load()
-  │  ├── worker_->SetSkillEngine(skillEngine_)
-  │  └── SkillSearchTool::SetSkillEngine(skillEngine_.get())
+  │  └── worker_->SetSkillEngine(skillEngine_)
 ```
 
 - `AgentWorker` 使用 `skillEngine_` 的 `GetSkillCatalog()` 生成 `{$skills}` 占位符内容
-- `SkillSearchTool` 使用 `skillEngine_` 的 `SearchSkills()` 和 `GetSkillInstructions()` 执行技能搜索
+- `SkillSearchTool` 使用 `skillEngine_` 的 `SearchSkills()` 和 `GetSkillInstructions()` 执行技能搜索。`SkillEngine` 经 `ToolBuildContext` 注入（见 §6.3），不持有全局静态指针
 
-### 6.3 SkillSearchTool 的静态指针
+### 6.3 SkillSearchTool 经 ToolBuildContext 注入
 
-`SkillSearchTool` 使用静态指针而非 `ToolBuildContext` 注入 `SkillEngine`：
+`SkillSearchTool` 是**会话级工具**（`RegisterSessionTool`），`SkillEngine` 在工具构造时经 `ToolBuildContext.skillEngine` 注入，无需全局静态指针：
 
 ```cpp
-// SkillSearchTool 内部
-static SkillEngine* skillEnginePtr_ = nullptr;
+// SkillSearchTool 构造接收 SkillEngine*
+SkillSearchTool::SkillSearchTool(SkillEngine* engine) : engine_(engine) {}
 
-void SkillSearchTool::SetSkillEngine(SkillEngine* engine) {
-    skillEnginePtr_ = engine;
-}
+// 注册时从 ctx 取 skillEngine
+RegisterSessionTool("skill_search", [](const ToolBuildContext& ctx) {
+    return std::make_unique<SkillSearchTool>(ctx.skillEngine);
+});
 ```
 
-这是因为 `SkillEngine` 是 Agent 级别资源（所有会话共享），而非会话级别资源。
+`ctx.skillEngine` 由 `AgentWorker::ExecuteTool` 构建 ctx 时从 `WorkerEnv::GetSkillEngine()` 填充，后者返回**当前活跃 Agent** 的 `SkillEngine`（`SessionManager::agent_->GetSkillEngine()`）。由于 `ReloadAgent` 先 drain 所有在飞 Invoke（`concurrencyCv_` 等待 `concurrentCount_==0`）再 swap `agent_`，Invoke 期间无并发写 `agent_`，故每次取的都是当前 Agent 的 SkillEngine——热重载后下一次 Invoke 自动拿到新 Agent 的 SkillEngine，无悬空指针。
+
+> **所有权语义**：`SkillEngine` 仍是 Agent 级资源（所有会话共享、Agent 拥有），`ToolBuildContext` 只是 invoke 时的交付通道（非拥有指针）。"Agent 级 vs 会话级"是所有权区分，不影响经 ctx 交付——与 `todoList`/`askUser`/`memoryRuntime` 同模式。
 
 ### 6.4 Agent 公共 API
 

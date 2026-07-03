@@ -5,18 +5,13 @@
 
 namespace jiuwen {
 
-SkillEngine* SkillSearchTool::engine_ = nullptr;
-
-SkillSearchTool::SkillSearchTool() : Tool("skill_search", "Search for available skills and load their full instructions. Use when you need detailed guidance on a specific domain or task. Accepts JSON input with 'action' (search|load) and 'query' (search term or skill name).", {
+SkillSearchTool::SkillSearchTool(SkillEngine* engine)
+    : Tool("skill_search", "Search for available skills and load their full instructions. Use when you need detailed guidance on a specific domain or task. Accepts JSON input with 'action' (search|load) and 'query' (search term or skill name).", {
     ToolParam{"action", "Action to perform: 'search' to find skills, 'load' to get full instructions", "string", true},
     ToolParam{"query", "Search query or skill name", "string", true}
-})
+}),
+    engine_(engine)
 {
-}
-
-void SkillSearchTool::SetEngine(SkillEngine* engine)
-{
-    engine_ = engine;
 }
 
 std::string SkillSearchTool::Invoke(const std::string& input)

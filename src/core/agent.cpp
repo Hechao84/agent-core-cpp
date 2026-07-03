@@ -79,7 +79,9 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
     if (!config_.skillDirectory.empty()) {
         skillEngine_ = std::make_shared<SkillEngine>(config_.skillDirectory);
         skillEngine_->Load(true);
-        SkillSearchTool::SetEngine(skillEngine_.get());
+        // SkillEngine is no longer wired to SkillSearchTool via a global
+        // static pointer; it is injected per-invoke via ToolBuildContext
+        // (ctx.skillEngine), resolved by WorkerEnv from the active Agent.
     }
 
     // workerEnv_ is now injected by SessionManager via SetWorkerEnv after
@@ -371,6 +373,11 @@ std::vector<Skill> Agent::ListSkills() const
         return {};
     }
     return skillEngine_->GetAllSkills();
+}
+
+SkillEngine* Agent::GetSkillEngine() const
+{
+    return skillEngine_.get();
 }
 
 Skill Agent::GetSkill(const std::string& id) const

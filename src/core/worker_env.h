@@ -9,6 +9,7 @@ class ContextEngine;
 class SessionTodoList;
 class AskUserDispatcher;
 class MemoryRuntime;
+class SkillEngine;
 
 struct SessionEntry;
 
@@ -31,6 +32,10 @@ public:
     virtual SessionTodoList* GetOrCreateSessionTodoList(const std::string& sessionId) = 0;
     virtual AskUserDispatcher* GetAskUserDispatcher(const std::string& sessionId) = 0;
     virtual MemoryRuntime* GetMemoryRuntime() = 0;
+    // Returns the active Agent's SkillEngine (Agent-scoped, shared across
+    // sessions; non-owning). Resolves through the current Agent so it stays
+    // valid across ReloadAgent swaps.
+    virtual SkillEngine* GetSkillEngine() = 0;
 
     virtual void SetCurrentEntry(std::shared_ptr<SessionEntry> entry) = 0;
     virtual void ClearCurrentEntry() = 0;

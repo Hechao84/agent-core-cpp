@@ -52,6 +52,10 @@ public:
     std::vector<Skill> ListSkills() const;
     Skill GetSkill(const std::string& id) const;
     std::string GetSkillRootDir() const;
+    // Non-owning access to the Agent's SkillEngine, used by WorkerEnv to
+    // inject into ToolBuildContext for skill_search (resolves fresh each
+    // call so it tracks ReloadAgent swaps).
+    SkillEngine* GetSkillEngine() const;
 
     const std::vector<std::string>& GetMcpServerIds() const { return config_.mcpServerIds; }
     int SyncMcpTools();

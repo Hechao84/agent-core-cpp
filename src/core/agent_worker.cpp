@@ -242,6 +242,7 @@ std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::str
                 ctx.todoList = workerEnv_->GetOrCreateSessionTodoList(ctx.sessionId);
                 ctx.askUser = workerEnv_->GetAskUserDispatcher(ctx.sessionId);
                 ctx.memoryRuntime = workerEnv_->GetMemoryRuntime();
+                ctx.skillEngine = workerEnv_->GetSkillEngine();
             }
             tool = rm.CreateSessionTool(toolName, ctx);
         } else {

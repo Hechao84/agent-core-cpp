@@ -18,6 +18,7 @@ namespace jiuwen {
 class MCPConnection;
 class SessionTodoList;
 class AskUserDispatcher;
+class SkillEngine;
 
 // Context for session-scoped tool construction. When a tool instance is
 // created for actual execution (via CreateSessionTool), the pointers are
@@ -31,6 +32,7 @@ struct ToolBuildContext {
     SessionTodoList* todoList{nullptr};
     AskUserDispatcher* askUser{nullptr};
     MemoryRuntime* memoryRuntime{nullptr};
+    SkillEngine* skillEngine{nullptr};  // Agent-scoped (shared across sessions), non-owning
     std::function<void(const std::string&)> streamCallback;
     std::string sessionId;
 };

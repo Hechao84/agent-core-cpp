@@ -78,6 +78,16 @@ public:
         return sm_->memoryRuntime_.get();
     }
 
+    SkillEngine* GetSkillEngine() override
+    {
+        // Safe without sessionMutex_: ReloadAgent drains all in-flight
+        // Invokes (concurrencyCv_ waits until concurrentCount_ == 0) before
+        // swapping agent_, so no concurrent writer exists during an Invoke.
+        // The read is fresh each call, so it always reflects the current
+        // Agent's SkillEngine (no stale pointer across reloads).
+        return sm_->agent_ ? sm_->agent_->GetSkillEngine() : nullptr;
+    }
+
     // Per-thread pre-caching: the Invoke flow is SetCurrentEntry →
     // acquire invokeMutex → Invoke → ClearCurrentEntry, all on the
     // same thread. thread_local ensures each thread's cached entry
