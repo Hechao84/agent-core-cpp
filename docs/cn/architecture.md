@@ -271,7 +271,7 @@ DreamProcessor::Run(model, historyStore)
 
 1. **L2 `sessionMutex_` 在并发 Invoke 路径上总是释放后才获取 L4+ 锁**——并发路径上绝不与 L4 及以上锁同时持有。所有需同时访问 `sessions_` 和 `sessionActivity_` 的方法（如 `IsSessionBusy`、`CleanupSession`、`RemoveSession`）均在释放 `sessionMutex_` 后才获取 `sessionActivityMutex_`。**启动例外**：`SessionManager::Initialize` 在并发 Invoke / reload 路径可运行前单线程调用（由 `InitSessionManager` 触发）。其内 `agent_` 构造会启动 Agent 合并线程，但该线程在 `consolidationMutex_` 上等待、唤醒后取 L4 `sessionActivityMutex_` 而非 L2，不重现 L2→L5 嵌套。`Initialize` 持 L2 调 `InitMemoryRuntime`→`ResourceManager::CreateMemoryRuntime`（取 L5 `memoryMutex_`）构成 L2→L5；因并发 Invoke / reload 路径尚未可运行，不构成死锁风险，是本约束的合法例外。运行时重配走 `ReloadAgent`（检查 `initialized_` 布尔标志，不调 `Initialize`），不产生此嵌套。
 
-2. **L5 ResourceManager 四把域锁互不嵌套**——同一线程绝不会同时持两把域锁。它们保护不同的注册表，各域独立并发。**`AgentWorker::toolMutex_` 与 `ResourceManager::toolMutex_` 亦不嵌套**——`GetToolSchemaForQuery` / `BuildToolSchemas` 等需在持有 `AgentWorker::toolMutex_` 时调用 `ResourceManager` 的方法，均遵循"锁内拷贝 `toolNames_`→释放锁→锁外调用 ResourceManager"模式，避免 L5→L5 同层嵌套。
+2. **L5 ResourceManager 四把域锁互不嵌套**——同一线程绝不会同时持两把域锁。它们保护不同的注册表，各域独立并发。**`AgentWorker::toolMutex_` 与 `ResourceManager::toolMutex_` 亦不嵌套**——这类需跨 `AgentWorker::toolMutex_` 与 `ResourceManager` 域锁的方法（`GetToolSchemaForQuery` / `BuildToolSchemas` / `AddTools` 等），均遵循"锁内拷贝 `toolNames_` 快照→释放 `AgentWorker::toolMutex_`→锁外调用 `ResourceManager`"模式，避免 L5→L5 同层嵌套。
 
 3. **L5 配置锁（ConfigWatcher/AgentConfigStore/MCPConfigManager）不在 Invoke 线程上获取**，与 Invoke 路径的锁无交叉嵌套风险。但 `MCPConfigManager::mutex_` 在配置管理线程上嵌套 L5 `mcpMutex_` 和 L6 `stateMutex_`。
 

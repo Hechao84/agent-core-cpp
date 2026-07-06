@@ -226,6 +226,7 @@ std::vector<Message> ContextEngine::CompressSegment(
         }
     }
 
+    bool hasSummary = false;
     if (!toolSummaries.empty() || !lastAssistantText.empty()) {
         Message summary;
         summary.role = "assistant";
@@ -248,16 +249,20 @@ std::vector<Message> ContextEngine::CompressSegment(
             summary.content += "\n\nLatest assistant state:\n" + preview;
         }
         compressed.push_back(summary);
+        hasSummary = true;
     }
 
-    // Trim to token budget without dropping the summary entirely. If
-    // [user, summary] still exceeds budget, truncate the summary content to
-    // fit (budget minus the user-prefix tokens) instead of popping it —
-    // otherwise an extremely small tokenBudget would collapse the segment to
-    // just the bare user message and lose all tool/assistant context. The
-    // summary is halved until it fits, degrading to "[compressed]" when it
-    // truncates to empty, so a context marker always survives.
-    if (CalculateMessagesTokens(compressed) > tokenBudget && compressed.size() > 1) {
+    // Trim to token budget without dropping the summary entirely. If the
+    // summary (with or without a user prefix) still exceeds budget, truncate
+    // the summary content to fit (budget minus any user-prefix tokens)
+    // instead of popping it — otherwise an extremely small tokenBudget would
+    // collapse the segment to just the bare user message (or drop a lone
+    // summary when the segment did not start with user) and lose all
+    // tool/assistant context. The summary is halved until it fits, degrading
+    // to "[compressed]" when it truncates to empty, so a context marker
+    // always survives. Guarded on hasSummary so a lone over-budget user
+    // message (no summary) is returned as-is rather than truncated.
+    if (hasSummary && CalculateMessagesTokens(compressed) > tokenBudget) {
         Message summary = std::move(compressed.back());
         compressed.pop_back();
         int prefixTokens = CalculateMessagesTokens(compressed);

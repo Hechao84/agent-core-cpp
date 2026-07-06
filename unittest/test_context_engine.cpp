@@ -464,6 +464,50 @@ TEST(context_engine, CompressSegmentRetainsSummaryAtExtremeLowBudget)
     TestRunner::AssertTrue(hasAssistantSummary);
 }
 
+TEST(context_engine, CompressSegmentTruncatesLoneSummaryWhenSegmentDoesNotStartWithUser)
+{
+    // Edge case for the CompressSegment保底: when a segment does NOT start
+    // with a user message, compressed = [summary] (lone, no user prefix,
+    // size==1). The保底 guard must still truncate the summary (hasSummary)
+    // rather than skip it and return an over-budget lone summary. Constructed
+    // by adding assistant + tool directly (no leading user), bypassing
+    // Agent::Invoke's user-first pattern.
+    ContextConfig config;
+    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
+    config.sessionId = "test_lone_summary";
+    config.enableSummarization = true;
+    config.maxContextTokens = 10;   // tiny -> forces summary truncation
+    config.maxMessages = 1;          // segment of 2 msgs -> triggers compression
+    ContextEngine engine(config);
+    engine.Initialize();
+
+    Message asst;
+    asst.role = "assistant";
+    asst.content = "here is some assistant text";
+    engine.AddMessage(asst);
+
+    Message t;
+    t.role = "tool";
+    t.toolCallId = "call_0";
+    t.toolName = "search";
+    t.content = std::string(200, 'x');  // ~50 tokens -> summary well over budget
+    engine.AddMessage(t);
+
+    auto window = engine.GetContextWindow();
+    //保底 fired: the lone summary is truncated (short content or the
+    // "[compressed]" marker), NOT returned as the full over-budget summary
+    // (~300 chars). Distinguishes the fixed (truncated) from the broken
+    // (full lone summary) path.
+    bool foundTruncated = false;
+    for (const auto& m : window) {
+        if (m.role == "assistant" && !m.content.empty() && m.content.size() < 60) {
+            foundTruncated = true;
+            break;
+        }
+    }
+    TestRunner::AssertTrue(foundTruncated);
+}
+
 TEST(context_engine, GetConsolidationPayload)
 {
     ContextConfig config;
