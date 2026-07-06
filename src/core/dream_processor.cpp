@@ -333,8 +333,20 @@ bool DreamProcessor::Run(Model* model, HistoryStore* historyStore)
 
     std::stringstream historyText;
     for (auto it = entries.begin(); it != batchEnd; ++it) {
-        historyText << "[" << it->timestamp << "] " << it->role << ": "
-                    << TruncateText(it->content, config_.historyEntryPreviewMaxChars) << "\n";
+        historyText << "[" << it->timestamp << "] " << it->role;
+        // Enrich tool messages with toolName / callId / payloadRef (full
+        // MemoryEvent fields now stored by HistoryStore) so the dream sees
+        // the full ReAct trace shape, not just role:content.
+        if (!it->toolName.empty()) {
+            historyText << "(" << it->toolName;
+            if (!it->toolCallId.empty()) historyText << " #" << it->toolCallId;
+            historyText << ")";
+        }
+        historyText << ": " << TruncateText(it->content, config_.historyEntryPreviewMaxChars);
+        if (!it->payloadRef.empty()) {
+            historyText << " [payload:" << it->payloadRef << "]";
+        }
+        historyText << "\n";
     }
 
     std::string workspace = config_.dataBasePath;

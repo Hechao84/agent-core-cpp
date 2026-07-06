@@ -22,6 +22,7 @@ class SessionTodoList;
 class AskUserDispatcher;
 class AskUserRouter;
 class WorkerEnv;
+class HistoryStore;
 
 // Reserved session IDs for internal use
 inline constexpr char kDefaultSessionId[] = "__DEFAULT__";
@@ -119,6 +120,12 @@ public:
     // shared across all sessions and survives an Agent hot-reload.
     MemoryRuntime* GetMemoryRuntime() const { return memoryRuntime_.get(); }
 
+    // Access the local fallback HistoryStore owned by SessionManager. Always
+    // non-null after Initialize. Used as the ContextEngine event sink target
+    // when no MemoryRuntime is configured (the local simplified MemoryRuntime
+    // fallback). Survives an Agent hot-reload (like memoryRuntime_).
+    HistoryStore* GetHistoryStore() const { return historyStore_.get(); }
+
     // Atomically rebuild the underlying Agent with a new config.
     // Existing sessions (history/context) are preserved; in-flight calls are
     // drained via the concurrency gate before the swap. Returns false if the
@@ -159,10 +166,21 @@ private:
     //   1. Declaration order: memoryRuntime_ is declared BEFORE agent_ and
     //      sessions_, so it is destroyed AFTER them (members destruct in
     //      reverse declaration order). DO NOT reorder these members.
-    //   2. ~SessionManager() and Shutdown() tear down agent_/sessions_ first.
+    //   2. ~SessionManager() tears down agent_/sessions_ first (Shutdown()
+    //      only joins the consolidation thread + curl cleanup; it does not
+    //      reset members).
     // memoryRuntime_ itself is created once in Initialize() and never rebuilt
     // (ReloadAgent reuses it), so the raw pointers stay valid across reloads.
     std::unique_ptr<MemoryRuntime> memoryRuntime_;
+
+    // Local simplified MemoryRuntime fallback. Always created in Initialize
+    // (regardless of memoryConfig.enabled). When no MemoryRuntime is
+    // configured, the per-session ContextEngine event sink routes here so the
+    // full event stream is persisted locally for DreamProcessor. Same lifetime
+    // contract as memoryRuntime_: declared before agent_/sessions_, never
+    // rebuilt across reload, reset in ~SessionManager() after sessions_.clear()
+    // (Shutdown() does not reset members).
+    std::unique_ptr<HistoryStore> historyStore_;
 
     // Single shared Agent instance. shared_ptr (not unique_ptr) so that
     // GetAgent() can hand a strong reference to callers without risk of

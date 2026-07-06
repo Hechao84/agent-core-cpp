@@ -120,6 +120,9 @@ struct HistoryEntry
     std::string timestamp;
     std::string role;
     std::string content;
+    std::string toolCallId;
+    std::string toolName;
+    std::string payloadRef;
     int toolsUsed{0};
 };
 

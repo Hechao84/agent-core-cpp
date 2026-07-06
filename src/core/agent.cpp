@@ -95,7 +95,8 @@ Agent::Agent(AgentConfig config) : config_(std::move(config))
         worker_->SetSkillEngine(skillEngine_);
     }
 
-    historyStore_ = std::make_unique<HistoryStore>(dataPath);
+    // HistoryStore is now owned by SessionManager (set via SetHistoryStore);
+    // Agent holds a non-owning pointer that survives ReloadAgent.
 
     config_.dreamConfig.dataBasePath = dataPath;
     longTermConsolidator_ = std::make_unique<LegacyDreamConsolidator>(config_.dreamConfig);
@@ -143,6 +144,11 @@ void Agent::SetMemoryRuntime(MemoryRuntime* runtime)
     memoryRuntime_ = runtime;
 }
 
+void Agent::SetHistoryStore(HistoryStore* store)
+{
+    historyStore_ = store;
+}
+
 void Agent::SetWorkerEnv(WorkerEnv* env)
 {
     workerEnv_ = env;
@@ -170,17 +176,32 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
     }
 
     NotifySessionActive(sessionId);
+    // RAII: ensure NotifySessionIdle runs on ALL exit paths (normal return,
+    // exception from AddMessage's sink / worker, or early return). Without
+    // this, an exception would leak sessionActivity_[sid].isBusy=true forever,
+    // making ConsolidationLoop never consider the session idle.
+    struct SessionIdleGuard {
+        Agent* self;
+        std::string sid;
+        bool armed{true};
+        ~SessionIdleGuard() { if (armed) self->NotifySessionIdle(sid); }
+    } idleGuard{this, sessionId};
 
+    // Persist the user message via ContextEngine. The event sink (set by
+    // SessionManager per session) routes to MemoryRuntime if configured, or
+    // to HistoryStore (the local fallback) otherwise. Agent no longer makes
+    // the persistence-routing decision -- it is a pure Facade for this step.
     {
         Message userMsg;
         userMsg.role = "user";
         userMsg.content = query;
         contextEngine->AddMessage(userMsg);
     }
-    if (historyStore_ && !memoryRuntime_) {
-        historyStore_->AppendEntry("user", query, sessionId);
-    }
 
+    // The worker adds intermediate assistant/tool messages and the final
+    // answer to ContextEngine (which feeds the same sink), so the full event
+    // stream reaches the configured persistence target without Agent
+    // writing to HistoryStore directly.
     std::string finalAnswer = worker_->Invoke(
         query, contextEngine.get(),
         [callback](const std::string& response) {
@@ -188,14 +209,6 @@ std::string Agent::Invoke(const std::string& sessionId, const std::string& query
                 callback(response);
             }
         });
-
-    if (!finalAnswer.empty()) {
-        if (historyStore_ && !memoryRuntime_) {
-            historyStore_->AppendEntry("assistant", finalAnswer, sessionId);
-        }
-    }
-
-    NotifySessionIdle(sessionId);
 
     return finalAnswer;
 }
@@ -322,7 +335,7 @@ void Agent::ConsolidationLoop()
             }
 
             if (!handledByMemoryRuntime) {
-                bool didWork = longTermConsolidator_->Run(model.get(), historyStore_.get());
+                bool didWork = longTermConsolidator_->Run(model.get(), historyStore_);
                 if (didWork) {
                     LOG(INFO) << "[Dream] Memory consolidation completed";
                 }

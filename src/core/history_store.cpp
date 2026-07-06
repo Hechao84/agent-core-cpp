@@ -61,7 +61,7 @@ int HistoryStore::NextCursor()
     return current + 1;
 }
 
-int HistoryStore::AppendEntry(const std::string& role, const std::string& content, const std::string& sessionId)
+void HistoryStore::AppendEvent(const MemoryEvent& event)
 {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -69,10 +69,15 @@ int HistoryStore::AppendEntry(const std::string& role, const std::string& conten
 
     nlohmann::json entry;
     entry["cursor"] = cursor;
-    entry["timestamp"] = jiuwen::NowUtcIso8601();
-    entry["session_id"] = sessionId;
-    entry["role"] = role;
-    entry["content"] = content;
+    // Prefer the event's stamped timestamp (set by ContextEngine::AddMessage);
+    // fall back to now if absent.
+    entry["timestamp"] = event.timestamp.empty() ? jiuwen::NowUtcIso8601() : event.timestamp;
+    entry["session_id"] = event.sessionId;
+    entry["role"] = event.role;
+    entry["content"] = event.content;
+    if (!event.toolCallId.empty()) entry["tool_call_id"] = event.toolCallId;
+    if (!event.toolName.empty()) entry["tool_name"] = event.toolName;
+    if (!event.payloadRef.empty()) entry["payload_ref"] = event.payloadRef;
 
     std::ofstream file(historyFile_, std::ios::app);
     if (file.is_open()) {
@@ -83,8 +88,6 @@ int HistoryStore::AppendEntry(const std::string& role, const std::string& conten
     if (cursorFile.is_open()) {
         cursorFile << cursor;
     }
-
-    return cursor;
 }
 
 std::vector<HistoryEntry> HistoryStore::ReadAllEntries()
@@ -104,6 +107,9 @@ std::vector<HistoryEntry> HistoryStore::ReadAllEntries()
             e.timestamp = j.value("timestamp", "");
             e.role = j.value("role", "");
             e.content = j.value("content", "");
+            e.toolCallId = j.value("tool_call_id", "");
+            e.toolName = j.value("tool_name", "");
+            e.payloadRef = j.value("payload_ref", "");
             entries.push_back(e);
         } catch (...) {
             // Skip malformed lines
@@ -133,6 +139,9 @@ std::vector<HistoryEntry> HistoryStore::ReadUnprocessedHistory(int sinceCursor)
             e.timestamp = j.value("timestamp", "");
             e.role = j.value("role", "");
             e.content = j.value("content", "");
+            e.toolCallId = j.value("tool_call_id", "");
+            e.toolName = j.value("tool_name", "");
+            e.payloadRef = j.value("payload_ref", "");
             entries.push_back(e);
         } catch (...) {
             continue;
@@ -179,6 +188,9 @@ void HistoryStore::WriteEntries(const std::vector<HistoryEntry>& entries)
         j["timestamp"] = e.timestamp;
         j["role"] = e.role;
         j["content"] = e.content;
+        if (!e.toolCallId.empty()) j["tool_call_id"] = e.toolCallId;
+        if (!e.toolName.empty()) j["tool_name"] = e.toolName;
+        if (!e.payloadRef.empty()) j["payload_ref"] = e.payloadRef;
         file << j.dump() << "\n";
     }
     file.flush();

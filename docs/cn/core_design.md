@@ -27,29 +27,31 @@ Agent
  ├── config_ (AgentConfig)
  ├── worker_ (unique_ptr<AgentWorker>)       ← 执行引擎
  ├── skillEngine_ (shared_ptr<SkillEngine>)  ← 技能发现
- ├── historyStore_ (unique_ptr<HistoryStore>) ← 遗留历史
  ├── longTermConsolidator_ (unique_ptr<LongTermConsolidator>) ← 遗留整合
-  ├── memoryRuntime_ (MemoryRuntime*)               ← 非拥有，来自 SessionManager（跨热重载存活）
-  ├── workerEnv_ (WorkerEnv*)                      ← 非拥有，来自 SessionManager（消环）
-  ├── consolidationThread_ (std::thread)      ← 后台整合线程
-   ├── contextEngineGetter_ (function)         ← 通过 WorkerEnv 预缓存获取 ContextEngine（不再获取 sessionMutex_）
-   ├── sessionActivityMutex_ (mutex, L4)       ← 保护 sessionActivity_
-   └── sessionActivity_ (map<sid, SessionActivity>) ← 会话活跃状态
+ ├── memoryRuntime_ (MemoryRuntime*)         ← 非拥有，来自 SessionManager（跨热重载存活）
+ ├── historyStore_ (HistoryStore*)           ← 非拥有，来自 SessionManager（跨热重载存活，本地简化退避）
+ ├── workerEnv_ (WorkerEnv*)                 ← 非拥有，来自 SessionManager（消环）
+ ├── consolidationThread_ (std::thread)      ← 后台整合线程
+ ├── contextEngineGetter_ (function)         ← 通过 WorkerEnv 预缓存获取 ContextEngine（不再获取 sessionMutex_）
+ ├── sessionActivityMutex_ (mutex, L4)       ← 保护 sessionActivity_
+ └── sessionActivity_ (map<sid, SessionActivity>) ← 会话活跃状态
 ```
 
 > **工具状态归属**：`Agent` 不持有工具状态副本——`AddTools` / `SyncMcpTools` / `GetRegisteredTools` 是纯代理，直接转发到 `AgentWorker`。工具名列表（`toolNames_`）、MCP 归属（`ownedMcpTools_`）、工具选择器（`toolSelector_`）的唯一拥有者是 `AgentWorker`（`toolMutex_` 保护）。工具管理设施放在 `AgentWorker` 基类，3 种 worker 子类（React / Plan&Execute / Workflow）继承共享，只重写循环逻辑；`Agent` 经 `ReloadAgent` 整体替换时新 worker 会被 `AddTools` 重新填充，工具不丢。
+
+> **HistoryStore 所有权与退避语义**：`HistoryStore` 不再由 `Agent` 拥有，而由 `SessionManager` 持有（与 `memoryRuntime_` 同模式：声明在 `agent_`/`sessions_` 前、`Initialize` 创建一次、跨 `ReloadAgent` 复用、`Shutdown` 在 `sessions_` 清空后销毁）。它是**本地简化版 MemoryRuntime 退避**——当 `MemoryRuntime` 未配置或 init 失败时，`SessionManager` 在 `FindOrCreateEntry` 把会话的 `ContextEngine` 事件 sink 路由到 `historyStore_`（否则路由到 `memoryRuntime_`）。路由是**启动时静态决策**（非每调动态退避），避免两存储数据分叉。`HistoryStore` 消费**全量事件流**（`MemoryEvent` 全字段，与 `MemoryRuntime` 对齐），存本地 JSONL 供 `DreamProcessor` 挖掘。`Agent::Invoke` 不再做持久化路由决策——只 `AddMessage`，sink 负责路由。
 
 ### 2.2 核心方法
 
 #### `Agent::Invoke(sessionId, query, callback)`
 
-主要入口方法，执行流程：
+主要入口方法，纯 Facade——不做持久化路由决策，只编排"取 ContextEngine → AddMessage → 调 worker → 返回"。执行流程：
 
-1. 通知会话活跃（`NotifySessionActive`）
-2. 通过 `contextEngineGetter_` 获取会话的 `ContextEngine`（从 WorkerEnv 预缓存读取，不获取 sessionMutex_）
-3. 将用户消息添加到 `ContextEngine::AddMessage`
-4. 调用 `worker_->Invoke(query, contextEngine, callback)` 执行推理循环
-5. 通知会话空闲（`NotifySessionIdle`），在 `sessionActivity_` 中标记 `isBusy=false`（ConsolidationLoop 轮询时检测；不再触发条件变量，见下）
+1. 通过 `contextEngineGetter_` 获取会话的 `ContextEngine`（从 WorkerEnv 预缓存读取，不获取 sessionMutex_）
+2. 通知会话活跃（`NotifySessionActive`），并构造 RAII guard 保证 `NotifySessionIdle` 在所有退出路径（正常返回 / 异常 / 早退）都执行——避免异常时 `sessionActivity_[sid].isBusy` 永久泄漏
+3. 将用户消息 `AddMessage` 到 `ContextEngine`（事件 sink 在 `SessionManager::FindOrCreateEntry` 静态设置：路由到 `memoryRuntime_` 或退避 `historyStore_`，Agent 不参与路由决策）
+4. 调用 `worker_->Invoke(query, contextEngine, callback)` 执行推理循环——worker 把 intermediate assistant/tool + final answer 都 `AddMessage` 进 `ContextEngine`，同一 sink 接收全量流
+5. RAII guard 析构 → `NotifySessionIdle`（`sessionActivity_` 标记 `isBusy=false`，ConsolidationLoop 轮询检测）
 6. 返回最终回答字符串
 
 #### `Agent::CleanupSession(sessionId)`
@@ -318,29 +320,29 @@ struct TodoItem {
 - `WorkerEnv::GetOrCreateSessionTodoList(sessionId)` 通过 SessionManager 查找 SessionEntry
 - `TodoCreateTool` / `TodoCompleteTool` / 等会话级工具通过 `ToolBuildContext` 获取指针
 
-## 7. HistoryStore 追加式历史存储
+## 7. HistoryStore 本地简化版 MemoryRuntime 退避
 
 ### 7.1 设计意图
 
-`HistoryStore` 是遗留的对话历史存储机制，为 `DreamProcessor` 提供数据源。每个交互条目以 JSONL 格式追加到文件中，通过游标文件追踪处理进度。
+`HistoryStore` 是**本地简化版 MemoryRuntime 退避**——当 `MemoryRuntime` 未配置或 init 失败时，作为 `ContextEngine` 事件 sink 的退避目标，存储全量对话事件流（与 `MemoryRuntime` 内容对齐）供 `DreamProcessor` 挖掘整合。功能上与 `MemoryRuntime` 同类（存历史 + dream 生成记忆），实现简化（本地 JSONL 文件，无检索/HTTP）。由 `SessionManager` 拥有（跨 `ReloadAgent` 存活，与 `memoryRuntime_` 同模式）。每个事件以 JSONL 格式追加，游标文件追踪 dream 处理进度。
 
 ### 7.2 数据格式
 
-每行一个 JSON 对象：
+每行一个 JSON 对象，字段与 `MemoryEvent` 对齐（全量事件）：
 
 ```json
-{"cursor": 1, "timestamp": "...", "role": "user", "content": "...", "toolsUsed": 0}
-{"cursor": 2, "timestamp": "...", "role": "assistant", "content": "...", "toolsUsed": 2}
+{"cursor": 1, "timestamp": "2026-07-02T11:12:38Z", "session_id": "...", "role": "user", "content": "..."}
+{"cursor": 2, "timestamp": "...", "session_id": "...", "role": "assistant", "content": "...", "tool_call_id": "...", "tool_name": "...", "payload_ref": "..."}
 ```
 
 ### 7.3 游标文件
 
-- `.cursor`：普通游标，记录已处理到的条目编号
+- `.cursor`：普通游标，记录已追加到的条目编号
 - `.dream_cursor`：Dream 处理游标，记录已整合的条目编号
 
 ### 7.4 与 MemoryRuntime 的关系
 
-当 `MemoryRuntime` 启用时，`ContextEngine::AddMessage()` 通过回调将事件发送到 `MemoryRuntime::AppendEvent()`，取代了 `HistoryStore` 的职责。`HistoryStore` 仅在 `MemoryRuntime` 未启用时使用。
+`SessionManager::FindOrCreateEntry` 在创建会话时**静态决策**事件 sink 路由：`MemoryRuntime` 已配置 → sink 路由 `memoryRuntime_->AppendEvent`；未配置/init 失败 → sink 路由 `historyStore_->AppendEvent`（退避）。决策是启动时一次性的（`memoryRuntime_` 跨 reload 存活，路由稳定），**非每调动态退避**——避免两存储数据分叉。`HistoryStore` 消费 `MemoryEvent` 全字段（与 `MemoryRuntime` 对齐），`DreamProcessor` 据此构建全量 ReAct trace（含 toolName/callId/payloadRef）进行整合。
 
 ## 8. DreamProcessor 遗留记忆整合
 

@@ -72,6 +72,9 @@ public:
     // SessionManager so the runtime (and the ContextEngine callbacks that
     // capture it) survive an Agent hot-reload.
     void SetMemoryRuntime(MemoryRuntime* runtime);
+    // HistoryStore is now owned by SessionManager (survives ReloadAgent, like
+    // memoryRuntime_); Agent holds a non-owning pointer set via SetHistoryStore.
+    void SetHistoryStore(HistoryStore* store);
 
     // Inject the WorkerEnv that resolves session-scoped resources via
     // SessionManager. Called by SessionManager after Agent construction
@@ -93,7 +96,7 @@ private:
     std::condition_variable cv_;
     std::atomic<bool> running_{true};
 
-    std::unique_ptr<HistoryStore> historyStore_;
+    HistoryStore* historyStore_{nullptr};  // non-owning, owned by SessionManager
     std::unique_ptr<LongTermConsolidator> longTermConsolidator_;
     // NON-OWNING. Owned by SessionManager::memoryRuntime_, which outlives every
     // Agent (it is created once and reused across hot-reloads, and destroyed

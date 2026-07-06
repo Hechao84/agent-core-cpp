@@ -9,6 +9,7 @@
 #include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
 #include "src/core/ask_user_dispatcher.h"
+#include "src/core/history_store.h"
 #include "src/core/session_todo_list.h"
 #include "src/core/worker_env.h"
 #include "src/utils/data_dir.h"
@@ -224,10 +225,11 @@ SessionManager::~SessionManager()
     }
     {
         std::lock_guard<std::mutex> lock(sessionMutex_);
-        sessions_.clear();   // drops ContextEngine callbacks capturing memoryRuntime_
+        sessions_.clear();   // drops ContextEngine callbacks capturing memoryRuntime_/historyStore_
     }
-    agent_.reset();          // drop the Agent (holds a raw MemoryRuntime*)
+    agent_.reset();          // drop the Agent (holds raw MemoryRuntime*/HistoryStore*)
     memoryRuntime_.reset();  // now safe: no surviving non-owning reference
+    historyStore_.reset();   // ditto for HistoryStore sink callbacks
 }
 
 void SessionManager::Initialize(const AgentConfig& config)
@@ -263,6 +265,11 @@ void SessionManager::Initialize(const AgentConfig& config)
     // can be wired immediately.
     InitMemoryRuntime();
 
+    // Always create the local fallback HistoryStore (the simplified local
+    // MemoryRuntime). Used as the ContextEngine event sink when no
+    // MemoryRuntime is configured. Survives reload (created once here).
+    historyStore_ = std::make_unique<HistoryStore>(config_.dataBasePath);
+
     // Create the AskUserRouter and WorkerEnv adapters. These resolve
     // session-scoped resources through SessionManager, eliminating the
     // WorkerEnv→Agent back-reference cycle.
@@ -272,6 +279,7 @@ void SessionManager::Initialize(const AgentConfig& config)
     // Create the single shared Agent
     agent_ = std::make_shared<Agent>(config_);
     agent_->SetMemoryRuntime(memoryRuntime_.get());
+    agent_->SetHistoryStore(historyStore_.get());
     agent_->SetWorkerEnv(workerEnv_.get());
 
     // Register default tools
@@ -434,6 +442,15 @@ std::shared_ptr<SessionEntry> SessionManager::FindOrCreateEntry(const std::strin
                 LOG(WARN) << "[SessionManager] Memory AppendEvent lost: agentId=" << agentId
                           << " sessionId=" << copied.sessionId << " eventType=" << static_cast<int>(copied.type);
             }
+        });
+    } else if (historyStore_) {
+        // No MemoryRuntime configured (or its init failed): route the event
+        // stream to the local fallback HistoryStore (simplified local
+        // MemoryRuntime). Content is aligned with MemoryRuntime (full
+        // MemoryEvent fields), so DreamProcessor mines the same shape of data.
+        HistoryStore* hs = historyStore_.get();
+        entry->contextEngine->SetMemoryEventSink([hs](const MemoryEvent& event) {
+            hs->AppendEvent(event);
         });
     }
 
@@ -784,6 +801,8 @@ bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* erro
         // Reuse the existing shared memory runtime so the ContextEngine
         // callbacks captured for live sessions stay valid across the swap.
         newAgent->SetMemoryRuntime(memoryRuntime_.get());
+        // Reuse the shared HistoryStore (survives reload, like memoryRuntime_).
+        newAgent->SetHistoryStore(historyStore_.get());
         // Inject the SessionManager-owned WorkerEnv so the worker can resolve
         // session-scoped resources without a back-reference to Agent.
         newAgent->SetWorkerEnv(workerEnv_.get());

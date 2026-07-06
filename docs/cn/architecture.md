@@ -65,8 +65,8 @@ SessionManager ─── 拥有 Agent (shared_ptr)                  │
   │                                                         │
 Agent ─── 拥有 AgentWorker                                  │
   │  ├── 拥有 SkillEngine                                   │
-  │  ├── 拥有 HistoryStore                                  │
-  │  ├── 拁有 LongTermConsolidator                          │
+  │  ├── 拥有 LongTermConsolidator                          │
+  │  ├── 非拥有 HistoryStore* (由 SessionManager 拥有, 跨热重载存活, 本地简化退避) │
   │  ├── 非拥有 SessionTodoList* (per-session, 由 SessionEntry 拥有, 经 WorkerEnv 访问) │
   │  ├── 非拥有 AskUserDispatcher* (per-session, 由 SessionEntry 拥有, 经 WorkerEnv 访问) │
   │  ├── 非拥有 MemoryRuntime* (来自 SessionManager)        │
