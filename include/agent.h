@@ -113,6 +113,15 @@ private:
     mutable std::mutex sessionActivityMutex_;  // Lock layer L4 (session activity tracking)
     std::unordered_map<std::string, SessionActivity> sessionActivity_;
 
+    // Activity gate for ConsolidationLoop: set by NotifySessionIdle when a
+    // conversation completes (events have been appended to the store), cleared
+    // by ConsolidationLoop right before driving Consolidate. A purely advisory
+    // performance hint — the memory runtime's cursor mechanism remains the
+    // source of truth for idempotency. Lets the loop skip CreateModel + the
+    // cursor query entirely when no new conversation has finished since the
+    // last consolidation pass.
+    std::atomic<bool> hasNewActivity_{false};
+
     void ConsolidationLoop();
 };
 

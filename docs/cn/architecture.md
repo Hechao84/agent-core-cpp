@@ -189,6 +189,8 @@ ReactLoop —— 循环执行直到 isFinished 或 maxIterations
   ▼
 Agent::ConsolidationLoop (后台线程)
   │  条件变量等待，直到有会话空闲
+  │  首轮 catch-up (firstCycle)：首个轮询周期到期后绕过两道门无条件整合一次，拾取遗留事件（不抢占启动）
+  │  活动门 hasNewActivity_：无新对话完成则跳过 CreateModel + cursor 查询
   │
   ▼
 MemoryRuntime::Consolidate(request, modelClient)

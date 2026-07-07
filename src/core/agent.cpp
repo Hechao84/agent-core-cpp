@@ -228,6 +228,12 @@ void Agent::NotifySessionIdle(const std::string& sessionId)
     if (it != sessionActivity_.end()) {
         it->second.isBusy = false;
     }
+    // Mark that a conversation just completed. By the time NotifySessionIdle
+    // runs (RAII guard in Invoke), AddMessage has already routed the session's
+    // events into the memory store, so the cursor will find new work. This
+    // lets ConsolidationLoop skip CreateModel + the cursor query when no
+    // conversation has finished since the last consolidation pass.
+    hasNewActivity_.store(true, std::memory_order_release);
     // No cv_ signal here: ConsolidationLoop is poll-driven -- it wakes every
     // idleConsolidationSeconds via wait_for timeout (or on Shutdown's notify)
     // and picks up idle sessions from sessionActivity_ on each poll. A notify
@@ -289,6 +295,14 @@ std::vector<std::string> Agent::GetRegisteredTools() const
 
 void Agent::ConsolidationLoop()
 {
+    // Catch-up: the first iteration bypasses both the anyIdle and
+    // hasNewActivity_ gates so a freshly constructed (or hot-reloaded) Agent
+    // picks up pending events from the cursor without waiting for a new
+    // conversation to complete. After the first iteration, normal gating
+    // resumes. ReloadAgent constructs a new Agent (new thread, new local),
+    // so firstCycle resets naturally on each reload.
+    bool firstCycle = true;
+
     while (running_) {
         {
             std::unique_lock<std::mutex> lock(consolidationMutex_);
@@ -305,22 +319,42 @@ void Agent::ConsolidationLoop()
             }
         }
 
-        bool anyIdle = false;
-        {
-            std::lock_guard<std::mutex> lock(sessionActivityMutex_);
-            for (const auto& p : sessionActivity_) {
-                if (!p.second.isBusy) {
-                    anyIdle = true;
-                    break;
+        // Normal gating (skipped on the first iteration for catch-up).
+        if (!firstCycle) {
+            bool anyIdle = false;
+            {
+                std::lock_guard<std::mutex> lock(sessionActivityMutex_);
+                for (const auto& p : sessionActivity_) {
+                    if (!p.second.isBusy) {
+                        anyIdle = true;
+                        break;
+                    }
                 }
             }
-        }
 
-        if (!anyIdle) {
-            continue;
+            if (!anyIdle) {
+                continue;
+            }
+
+            // Activity gate: skip the entire consolidation attempt (CreateModel +
+            // cursor query) when no conversation has finished since the last pass.
+            // hasNewActivity_ is set by NotifySessionIdle and cleared below before
+            // driving Consolidate (clear-before). If a new conversation completes
+            // during Consolidate, NotifySessionIdle re-arms the flag and the next
+            // pass picks it up -- the cursor mechanism keeps the re-entry idempotent.
+            if (!hasNewActivity_.load(std::memory_order_acquire)) {
+                continue;
+            }
         }
+        firstCycle = false;
 
         try {
+            // Clear before Consolidate: any activity arriving during the
+            // consolidation pass re-arms the flag (see NotifySessionIdle) and
+            // is handled on the next pass. The cursor is the correctness
+            // boundary, so a missed retry here only delays work by one cycle.
+            hasNewActivity_.store(false, std::memory_order_release);
+
             auto model = ResourceManager::GetInstance().CreateModel(config_.modelConfig);
             bool handledByMemoryRuntime = false;
             if (memoryRuntime_) {
