@@ -8,6 +8,7 @@
 #include <sstream>
 #include <thread>
 
+#include "examples/jiuwenClaw/reserved_sessions.h"
 #include "examples/jiuwenClaw/utils/agent_response_handler.h"
 #include "examples/jiuwenClaw/utils/encoding.h"
 #include "examples/jiuwenClaw/utils/logger.h"

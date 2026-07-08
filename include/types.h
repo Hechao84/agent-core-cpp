@@ -92,7 +92,10 @@ struct ContextConfig
     enum class StorageType{ MEMORY_ONLY, JSON_FILE, DATABASE };
     StorageType storageType{StorageType::JSON_FILE}; // Default to Json file for persistence
     bool enableSummarization{false};
-    int idleConsolidationSeconds{60};
+    // idleConsolidationSeconds has migrated to MemoryConfig (it is a
+    // memory-policy knob, not context-engine state). JSON deserialization
+    // still falls back to contextConfig.idleConsolidationSeconds for
+    // backward compatibility with older config files.
 };
 
 // Session-specific configuration (per-session agent runtime)

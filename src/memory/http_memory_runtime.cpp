@@ -288,6 +288,7 @@ nlohmann::json HttpMemoryRuntime::SerializeConsolidationRequest(const MemoryCons
     j["sessionId"] = request.sessionId;
     j["maxEvents"] = request.maxEvents;
     j["forceReprocess"] = request.forceReprocess;
+    j["excludedSessionIds"] = request.excludedSessionIds;
     j["metadata"] = request.metadata;
     return j;
 }

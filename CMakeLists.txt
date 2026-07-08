@@ -359,6 +359,7 @@ add_executable(unittest
     unittest/test_session_tools.cpp
     unittest/test_retry_helper.cpp
     unittest/test_consolidation_loop.cpp
+    unittest/test_session_manager.cpp
 )
 target_include_directories(unittest PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 

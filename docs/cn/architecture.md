@@ -184,7 +184,7 @@ ReactLoop —— 循环执行直到 isFinished 或 maxIterations
 ### 4.2 记忆整合流程
 
 ```
-空闲会话触发 (idleConsolidationSeconds)
+空闲会话触发 (memoryConfig.idleConsolidationSeconds)
   │
   ▼
 Agent::ConsolidationLoop (后台线程)

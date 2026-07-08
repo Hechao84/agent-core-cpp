@@ -1,5 +1,6 @@
 #include "include/agent.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -223,23 +224,56 @@ void Agent::NotifySessionActive(const std::string& sessionId)
 
 void Agent::NotifySessionIdle(const std::string& sessionId)
 {
+    bool isExcluded = false;
+    {
+        // Quick snapshot of the excluded set so we don't hold
+        // sessionActivityMutex_ across config reads. config_ is a value
+        // member initialized once at Agent construction and never mutated
+        // afterwards -- ReloadAgent swaps the whole Agent instance (new
+        // thread, new config_), it does NOT rewrite config_ in place.
+        // This is what makes the lock-free read here safe.
+        //
+        // IMPORTANT: any future feature that makes config_ mutable within
+        // an Agent's lifetime (e.g. ConfigWatcher hot-updating
+        // excludedConsolidationSessionIds) MUST audit this read together
+        // with sessionActivityMutex_ acquisition -- a concurrent writer
+        // would turn this into a data race.
+        const auto& excluded = config_.memoryConfig.excludedConsolidationSessionIds;
+        if (!excluded.empty()) {
+            isExcluded = std::find(excluded.begin(), excluded.end(), sessionId) != excluded.end();
+        }
+    }
+
     std::lock_guard<std::mutex> lock(sessionActivityMutex_);
     auto it = sessionActivity_.find(sessionId);
     if (it != sessionActivity_.end()) {
         it->second.isBusy = false;
     }
+    // System-triggered sessions (cron / heartbeat / application-declared
+    // reserved sessions) must not arm the consolidation dirty flag: their
+    // events are excluded from the batch by config, and letting them wake
+    // ConsolidationLoop would defeat the "skip CreateModel when no new user
+    // conversation finished" optimization. We still update isBusy above so
+    // the anyIdle gate and busy tracking behave normally.
+    if (isExcluded) {
+        // No cv_ signal here: ConsolidationLoop is poll-driven -- it wakes
+        // every idleConsolidationSeconds via wait_for timeout (or on
+        // Shutdown's notify) and picks up idle sessions from
+        // sessionActivity_ on each poll.
+        return;
+    }
     // Mark that a conversation just completed. By the time NotifySessionIdle
-    // runs (RAII guard in Invoke), AddMessage has already routed the session's
-    // events into the memory store, so the cursor will find new work. This
-    // lets ConsolidationLoop skip CreateModel + the cursor query when no
-    // conversation has finished since the last consolidation pass.
+    // runs (RAII guard in Invoke), AddMessage has already routed the
+    // session's events into the memory store, so the cursor will find new
+    // work. This lets ConsolidationLoop skip CreateModel + the cursor query
+    // when no conversation has finished since the last consolidation pass.
     hasNewActivity_.store(true, std::memory_order_release);
     // No cv_ signal here: ConsolidationLoop is poll-driven -- it wakes every
-    // idleConsolidationSeconds via wait_for timeout (or on Shutdown's notify)
-    // and picks up idle sessions from sessionActivity_ on each poll. A notify
-    // here would be a no-op (the wait predicate only checks !running_) and
-    // would be signalled under the wrong mutex (sessionActivityMutex_ L4 vs
-    // the wait's consolidationMutex_ L3).
+    // idleConsolidationSeconds via wait_for timeout (or on Shutdown's
+    // notify) and picks up idle sessions from sessionActivity_ on each
+    // poll. A notify here would be a no-op (the wait predicate only checks
+    // !running_) and would be signalled under the wrong mutex
+    // (sessionActivityMutex_ L4 vs the wait's consolidationMutex_ L3).
 }
 
 bool Agent::IsSessionBusy(const std::string& sessionId) const
@@ -306,7 +340,7 @@ void Agent::ConsolidationLoop()
     while (running_) {
         {
             std::unique_lock<std::mutex> lock(consolidationMutex_);
-            auto idleSeconds = static_cast<unsigned int>(config_.contextConfig.idleConsolidationSeconds);
+            auto idleSeconds = static_cast<unsigned int>(config_.memoryConfig.idleConsolidationSeconds);
             if (idleSeconds <= 0) {
                 idleSeconds = 60;
             }
@@ -361,6 +395,11 @@ void Agent::ConsolidationLoop()
                 MemoryConsolidationRequest request;
                 request.agentId = config_.id;
                 request.forceReprocess = false;
+                // Skip system-triggered sessions (cron / heartbeat / any
+                // application-declared reserved id) so the LLM only sees
+                // real user conversations. Events from these sessions are
+                // still persisted for audit and still advance the cursor.
+                request.excludedSessionIds = config_.memoryConfig.excludedConsolidationSessionIds;
                 HostMemoryModelClient hostClient(model.get());
                 handledByMemoryRuntime = memoryRuntime_->Consolidate(request, &hostClient);
                 if (handledByMemoryRuntime) {

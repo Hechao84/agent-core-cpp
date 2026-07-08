@@ -190,8 +190,13 @@ static void MergeContextConfig(const nlohmann::json& j, ContextConfig& out)
             out.storageType = st;
         }
     }
-    if (j.contains("enableSummarization"))      out.enableSummarization      = j["enableSummarization"].get<bool>();
-    if (j.contains("idleConsolidationSeconds")) out.idleConsolidationSeconds = j["idleConsolidationSeconds"].get<int>();
+    if (j.contains("enableSummarization")) out.enableSummarization = j["enableSummarization"].get<bool>();
+    // Note: idleConsolidationSeconds has migrated to MemoryConfig. It is
+    // still tolerated here for backward compatibility with older config
+    // files -- MergeMemoryConfig reads it via a fallback below. We do NOT
+    // serialize it back into ContextConfig (single-source migration), so
+    // loading + saving an old config file silently migrates the value to
+    // memoryConfig.idleConsolidationSeconds.
 }
 
 static nlohmann::json ContextConfigToJson(const ContextConfig& cfg)
@@ -203,7 +208,6 @@ static nlohmann::json ContextConfigToJson(const ContextConfig& cfg)
     j["storagePath"]              = cfg.storagePath;
     j["storageType"]              = StorageTypeToString(cfg.storageType);
     j["enableSummarization"]      = cfg.enableSummarization;
-    j["idleConsolidationSeconds"] = cfg.idleConsolidationSeconds;
     return j;
 }
 
@@ -246,7 +250,8 @@ static nlohmann::json DreamConfigToJson(const DreamConfig& cfg)
     return j;
 }
 
-static void MergeMemoryConfig(const nlohmann::json& j, MemoryConfig& out)
+static void MergeMemoryConfig(const nlohmann::json& j, MemoryConfig& out,
+                              const nlohmann::json& contextConfigJson = nlohmann::json::object())
 {
     if (!j.is_object()) return;
     if (j.contains("enabled"))                out.enabled                = j["enabled"].get<bool>();
@@ -262,6 +267,23 @@ static void MergeMemoryConfig(const nlohmann::json& j, MemoryConfig& out)
     if (j.contains("tokenBudget"))            out.tokenBudget            = j["tokenBudget"].get<int>();
     if (j.contains("offloadToolResultChars")) out.offloadToolResultChars = j["offloadToolResultChars"].get<int>();
     if (j.contains("enablePayloadOffload"))   out.enablePayloadOffload   = j["enablePayloadOffload"].get<bool>();
+    // idleConsolidationSeconds: single-source read from memoryConfig; falls
+    // back to contextConfig.idleConsolidationSeconds for configs persisted
+    // before the migration. The fallback is read-only: serialization writes
+    // the value only to memoryConfig (see MemoryConfigToJson), so a load +
+    // save cycle silently migrates the value to its new home.
+    if (j.contains("idleConsolidationSeconds")) {
+        out.idleConsolidationSeconds = j["idleConsolidationSeconds"].get<int>();
+    } else if (contextConfigJson.is_object() && contextConfigJson.contains("idleConsolidationSeconds")) {
+        out.idleConsolidationSeconds = contextConfigJson["idleConsolidationSeconds"].get<int>();
+    }
+    if (j.contains("excludedConsolidationSessionIds") && j["excludedConsolidationSessionIds"].is_array()) {
+        std::vector<std::string> ids;
+        for (const auto& v : j["excludedConsolidationSessionIds"]) {
+            if (v.is_string()) ids.push_back(v.get<std::string>());
+        }
+        out.excludedConsolidationSessionIds = std::move(ids);
+    }
     if (j.contains("modelEnabled"))           out.modelEnabled           = j["modelEnabled"].get<bool>();
     if (j.contains("modelFormatType"))        out.modelFormatType        = j["modelFormatType"].get<std::string>();
     if (j.contains("modelBaseUrl"))           out.modelBaseUrl           = j["modelBaseUrl"].get<std::string>();
@@ -294,6 +316,8 @@ static nlohmann::json MemoryConfigToJson(const MemoryConfig& cfg)
     j["tokenBudget"]                = cfg.tokenBudget;
     j["offloadToolResultChars"]     = cfg.offloadToolResultChars;
     j["enablePayloadOffload"]       = cfg.enablePayloadOffload;
+    j["idleConsolidationSeconds"]   = cfg.idleConsolidationSeconds;
+    j["excludedConsolidationSessionIds"] = cfg.excludedConsolidationSessionIds;
     j["modelEnabled"]               = cfg.modelEnabled;
     j["modelFormatType"]            = cfg.modelFormatType;
     j["modelBaseUrl"]               = cfg.modelBaseUrl;
@@ -368,7 +392,13 @@ void MergeAgentConfigFromJson(const nlohmann::json& j, AgentConfig& out)
     if (j.contains("modelConfig"))     MergeModelConfig(j["modelConfig"], out.modelConfig);
     if (j.contains("contextConfig"))   MergeContextConfig(j["contextConfig"], out.contextConfig);
     if (j.contains("dreamConfig"))     MergeDreamConfig(j["dreamConfig"], out.dreamConfig);
-    if (j.contains("memoryConfig"))    MergeMemoryConfig(j["memoryConfig"], out.memoryConfig);
+    if (j.contains("memoryConfig")) {
+        // Pass the contextConfig JSON for idleConsolidationSeconds fallback
+        // (older configs persisted the value under contextConfig before it
+        // migrated to memoryConfig).
+        const nlohmann::json& ctxJson = j.contains("contextConfig") ? j["contextConfig"] : nlohmann::json::object();
+        MergeMemoryConfig(j["memoryConfig"], out.memoryConfig, ctxJson);
+    }
     if (j.contains("promptTemplates")) MergePromptTemplates(j["promptTemplates"], out.promptTemplates);
     if (j.contains("skillDirectory"))         out.skillDirectory        = j["skillDirectory"].get<std::string>();
     if (j.contains("maxIterations"))          out.maxIterations         = j["maxIterations"].get<int>();

@@ -244,19 +244,29 @@ SessionInvokeResult InvokeChannel(const ChannelMessage& msg, callback);
 
 ### 5.3 保留会话 ID
 
+核心库只保留 `__DEFAULT__` 作为 `MakeSessionKey`（channel/chatId 都为空时）的 fallback 产物：
+
 ```cpp
 inline constexpr char kDefaultSessionId[] = "__DEFAULT__";
-inline constexpr char kHeartbeatSessionId[] = "__HEARTBEAT__";
-inline constexpr char kCronSessionId[] = "__CRON__";
 ```
 
-| 会话 ID | 用途 |
-|---------|------|
-| `__DEFAULT__` | 未显式传入 sessionId 时的默认会话 |
-| `__HEARTBEAT__` | 心跳任务的专用会话（jiuwenClaw） |
-| `__CRON__` | 定时任务的专用会话（jiuwenClaw） |
+`__HEARTBEAT__` / `__CRON__` 等系统会话标识由应用层自行定义（如 `examples/jiuwenClaw/reserved_sessions.h`），核心库不再硬编码——核心库不主动使用这些 ID，仅在 `RemoveSession` 被动保护时通过 `RegisterReservedSession` API 查询注册集。应用层在启动时调用 `RegisterReservedSession` 注册自己的系统会话，并在 `MemoryConfig::excludedConsolidationSessionIds` 中列出需要从记忆整合排除的 session。
 
-这些保留 ID 确保内部功能会话不会与用户会话冲突。
+| 会话 ID | 定义位置 | 用途 |
+|---------|---------|------|
+| `__DEFAULT__` | 核心库 `include/session_manager.h` | `MakeSessionKey` 双空 fallback；核心库主动使用，应用层不应直接引用 `kDefaultSessionId` 常量，建议设置自己的默认 session 常量 |
+| `__HEARTBEAT__` | 应用层 `examples/jiuwenClaw/reserved_sessions.h` | 心跳任务的专用会话 |
+| `__CRON__` | 应用层 `examples/jiuwenClaw/reserved_sessions.h` | 定时任务的专用会话 |
+
+#### `RegisterReservedSession` API
+
+```cpp
+void SessionManager::RegisterReservedSession(std::string id);
+```
+
+注册一个 session 为"保留"（不可通过 `RemoveSession` 删除）。核心库构造时自动注册 `__DEFAULT__`；应用层在启动时注册自己的系统会话。`RemoveSession` 内部查 `reservedSessions_` 集合，命中则拒绝删除并打日志。
+
+保留状态与 `MemoryConfig::excludedConsolidationSessionIds` 是两个正交概念：前者保护 session 不被删除，后者控制 session 的事件是否参与记忆整合。两者通常一起配置（一个 session 既是保留又是排除），但语义上互不依赖——例如 `__DEFAULT__` 是保留但**不应**被排除（用户在默认 session 中的对话有整合价值）。
 
 ## 6. 热重载原子替换
 

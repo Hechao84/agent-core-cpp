@@ -152,7 +152,7 @@ For C++ integrations, set the same fields on `AgentConfig::memoryConfig` before 
 - Idle sessions trigger background memory consolidation
 - Interaction history is tracked with cursors
 - The Dream processor analyzes recent history, extracts key facts, and updates long-term memory
-- Consolidation is automatic after `ContextConfig::idleConsolidationSeconds`
+- Consolidation is automatic after `MemoryConfig::idleConsolidationSeconds`
 
 ### Skill System
 
@@ -268,7 +268,7 @@ config.modelConfig.extraParams.Set("temperature", 0.2f);
 
 config.contextConfig.sessionId = kDefaultSessionId;
 config.contextConfig.storageType = ContextConfig::StorageType::JSON_FILE;
-config.contextConfig.idleConsolidationSeconds = 60;
+config.memoryConfig.idleConsolidationSeconds = 60;
 
 config.memoryConfig.enabled = true;
 config.memoryConfig.mode = "sdk";

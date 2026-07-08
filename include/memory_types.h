@@ -155,6 +155,12 @@ struct MemoryConsolidationRequest
     std::string sessionId;
     int maxEvents{100};
     bool forceReprocess{false};
+    // Session ids whose events must be skipped by the consolidation batch
+    // builder. Events belonging to these sessions are still persisted by the
+    // memory store (audit trail) and still advance the consolidation cursor,
+    // but they never enter the batch and are not seen by the LLM/rule-based
+    // processors. Empty by default to preserve the legacy behavior.
+    std::vector<std::string> excludedSessionIds;
     nlohmann::json metadata = nlohmann::json::object();
 };
 

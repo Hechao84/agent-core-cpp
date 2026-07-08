@@ -7,6 +7,7 @@
 
 #include "include/model.h"
 #include "include/resource_manager.h"
+#include "src/memory/type_bridge.h"
 #include "src/tools/builtin_tools/memory_read_payload_tool.h"
 #include "test_runner.h"
 #include "third_party/include/nlohmann/json.hpp"
@@ -559,6 +560,93 @@ TEST(memory_runtime, SupersedesRelationMarksOldEntityObsolete)
     TestRunner::AssertTrue(context.memoryText.find("User previously preferred verbose answers") == std::string::npos);
 
     fs::remove_all(base);
+}
+
+TEST(memory_runtime, ConsolidateExcludesConfiguredSessionIds)
+{
+    // Agent-level consolidation (empty sessionId) with excludedSessionIds
+    // set must skip cron/heartbeat events while still persisting them and
+    // advancing the cursor. The long-term memory must only reflect the
+    // real user conversation.
+    fs::path base = fs::temp_directory_path() / "jiuwen_memory_consolidate_exclude_test";
+    fs::remove_all(base);
+
+    MemoryConfig config;
+    config.dataPath = base.string();
+    BuiltinMemoryRuntime runtime(config);
+
+    MemoryEvent userEvent;
+    userEvent.type = MemoryEventType::MESSAGE_APPENDED;
+    userEvent.agentId = "agent";
+    userEvent.sessionId = "user-session";
+    userEvent.role = "user";
+    userEvent.content = "I prefer concise answers about coding";
+    runtime.AppendEvent(userEvent);
+
+    MemoryEvent cronEvent;
+    cronEvent.type = MemoryEventType::MESSAGE_APPENDED;
+    cronEvent.agentId = "agent";
+    cronEvent.sessionId = "__CRON__";
+    cronEvent.role = "user";
+    cronEvent.content = "scheduled cron tick should not be extracted";
+    runtime.AppendEvent(cronEvent);
+
+    MemoryEvent heartbeatEvent;
+    heartbeatEvent.type = MemoryEventType::MESSAGE_APPENDED;
+    heartbeatEvent.agentId = "agent";
+    heartbeatEvent.sessionId = "__HEARTBEAT__";
+    heartbeatEvent.role = "user";
+    heartbeatEvent.content = "heartbeat pulse should not be extracted";
+    runtime.AppendEvent(heartbeatEvent);
+
+    MemoryConsolidationRequest request;
+    request.agentId = "agent";
+    // Agent-level: empty sessionId triggers the cross-session consolidation
+    // path used by Agent::ConsolidationLoop.
+    request.sessionId.clear();
+    request.maxEvents = 100;
+    request.excludedSessionIds = {"__CRON__", "__HEARTBEAT__"};
+    TestRunner::AssertTrue(runtime.Consolidate(request, nullptr));
+
+    MemoryContextRequest contextRequest;
+    contextRequest.agentId = "agent";
+    contextRequest.sessionId = "user-session";
+    MemoryContextPackage context = runtime.BuildContext(contextRequest);
+
+    // The user event contained a preference signal ("I prefer"), so the
+    // rule-based processor must have created a preference entity. Its
+    // presence proves the user event entered the consolidation batch.
+    TestRunner::AssertContains(context.memoryText, "preference");
+    // The cron / heartbeat events must not appear anywhere in the
+    // long-term memory: their exclusion is the whole point of this test.
+    TestRunner::AssertTrue(context.memoryText.find("cron tick") == std::string::npos,
+                           "excluded cron event must not appear in long-term memory");
+    TestRunner::AssertTrue(context.memoryText.find("heartbeat pulse") == std::string::npos,
+                           "excluded heartbeat event must not appear in long-term memory");
+
+    fs::remove_all(base);
+}
+
+TEST(memory_runtime, ToAgentConsolidationRequestPropagatesExcludedSessionIds)
+{
+    // The type bridge must propagate excludedSessionIds from the framework
+    // request mirror into the agent-memory-cpp request, otherwise the
+    // batch builder would not see the exclusion set.
+    MemoryConsolidationRequest request;
+    request.agentId = "agent";
+    request.sessionId = "session";
+    request.maxEvents = 5;
+    request.forceReprocess = true;
+    request.excludedSessionIds = {"__CRON__", "__HEARTBEAT__"};
+
+    auto agentRequest = ToAgentConsolidationRequest(request);
+    TestRunner::AssertEq(agentRequest.agentId, std::string("agent"));
+    TestRunner::AssertEq(agentRequest.sessionId, std::string("session"));
+    TestRunner::AssertEq(agentRequest.maxEvents, 5);
+    TestRunner::AssertTrue(agentRequest.forceReprocess);
+    TestRunner::AssertEq(agentRequest.excludedSessionIds.size(), (size_t)2);
+    TestRunner::AssertEq(agentRequest.excludedSessionIds[0], std::string("__CRON__"));
+    TestRunner::AssertEq(agentRequest.excludedSessionIds[1], std::string("__HEARTBEAT__"));
 }
 #endif // JIUWEN_ENABLE_MEMORY_BUILTIN
 

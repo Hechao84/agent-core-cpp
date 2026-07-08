@@ -383,7 +383,8 @@ contextEngine->SetMemoryEventSink([=](const MemoryEvent& event) {
 | `storagePath` | string | - | 存储路径 |
 | `storageType` | StorageType | JSON_FILE | 存储后端类型 |
 | `enableSummarization` | bool | false | 是否启用旧消息压缩 |
-| `idleConsolidationSeconds` | int | 60 | 空闲整合触发秒数 |
+
+> `idleConsolidationSeconds` 原列于此表，已迁移到 `MemoryConfig`（详见 `docs/cn/config_design.md` MemoryConfig 字段表）。该字段语义属于记忆子系统策略而非上下文引擎，与 `excludedConsolidationSessionIds` 同处管理。
 
 ### 9.2 会话数据路径
 

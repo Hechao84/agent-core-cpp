@@ -515,6 +515,8 @@ extern "C" AGENT_PLUGIN_API void RegisterMemoryPlugin(ResourceManager& rm);
 | `tokenBudget` | int | 4096 | BuildContext 的 token 预算 |
 | `offloadToolResultChars` | int | 8000 | Payload offload 触发阈值 |
 | `enablePayloadOffload` | bool | true | 是否启用 payload offload |
+| `idleConsolidationSeconds` | int | 60 | 整合轮询间隔（原 `ContextConfig`，已迁移至此） |
+| `excludedConsolidationSessionIds` | vector\<string\> | {} | 整合排除集：被排除 session 的事件仍入库、仍推进 cursor，但不进入 batch、不触发 hasNewActivity_。应用层填入系统机械触发会话（如 `__CRON__`/`__HEARTBEAT__`） |
 | `modelEnabled` | bool | false | 运行时是否自拥模型 |
 | `modelFormatType` | string | "openai" | 运行时自拥模型格式 |
 | `modelBaseUrl` | string | - | 运行时自拥模型端点 |
@@ -522,7 +524,34 @@ extern "C" AGENT_PLUGIN_API void RegisterMemoryPlugin(ResourceManager& rm);
 | `modelName` | string | - | 运行时自拥模型名称 |
 | `extraParams` | ConfigNode | - | 运行时自拥模型扩展参数 |
 
-### 10.2 运行时自拥模型
+> **idleConsolidationSeconds 迁移**：原位于 `ContextConfig`，已迁至 `MemoryConfig`（语义属于记忆子系统策略而非上下文引擎）。JSON 反序列化支持双读 fallback：先读 `memoryConfig.idleConsolidationSeconds`，无则读旧位置 `contextConfig.idleConsolidationSeconds`，保证旧配置文件兼容；写回时只写新位置，旧 key 在首次加载+保存后静默消失。
+
+### 10.2 整合排除集：excludedConsolidationSessionIds
+
+#### 10.2.1 设计意图
+
+应用层使用保留会话 ID（如 `__CRON__`、`__HEARTBEAT__`）触发系统机械任务，这些会话的事件不应污染长期记忆——它们的频率远高于真实用户对话，整合时 LLM 会从机械执行日志里提取大量低价值 summary/entity，挤占记忆库、稀释用户偏好/事实的检索权重。**方向 B 语义**：事件仍写入存储（保留 audit trail 与回溯能力），仅整合批构建阶段跳过这些 session 来源的事件。
+
+#### 10.2.2 三层职责分离
+
+排除机制由三层协同实现，**核心库与三方库都不硬编码任何 sessionId**：
+
+| 层 | 职责 | 实现 |
+|----|------|------|
+| 三方库 agent-memory-cpp | 提供通用 `excludedSessionIds` 字段与过滤逻辑 | `MemoryConsolidationRequest.excludedSessionIds`、`ConsolidationBatchBuilder::Build` 过滤、`MemoryEventStore::LoadEventsAfterCursor` SQL `NOT IN` 优化 |
+| 核心库 jiuwen-lite | 配置驱动，应用层注入 | `MemoryConfig.excludedConsolidationSessionIds`、`Agent::ConsolidationLoop` 透传到 `request.excludedSessionIds`、`NotifySessionIdle` 跳过脏标记置位 |
+| 应用层 jiuwenClaw | 填入具体值 | `examples/jiuwenClaw/reserved_sessions.h` 定义 `__CRON__`/`__HEARTBEAT__`、`main.cpp` 启动时填入 `excludedConsolidationSessionIds` |
+
+#### 10.2.3 排除与保留的语义差异
+
+`excludedConsolidationSessionIds`（记忆策略）与 `SessionManager::RegisterReservedSession` 注册集（会话保护）是两个正交概念：
+
+- **保留集**（`reservedSessions_`）：保护 session 不被 `RemoveSession` 删除。核心库自动注册 `__DEFAULT__`；应用层注册 `__CRON__`/`__HEARTBEAT__` 等。
+- **排除集**（`excludedConsolidationSessionIds`）：控制 session 的事件是否参与记忆整合。只列系统机械触发会话，**不含 `__DEFAULT__`**——用户在默认 session 中的对话有整合价值。
+
+两者通常一起配置（一个 session 既是保留又是排除），但语义上互不依赖。`__DEFAULT__` 是保留但不应排除的典型例子。
+
+### 10.3 运行时自拥模型
 
 `MemoryConfig.modelEnabled` 控制运行时是否加载自己的 LLM 客户端：
 

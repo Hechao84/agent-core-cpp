@@ -87,7 +87,7 @@
 - 空闲会话触发后台记忆整合
 - 使用游标记录交互历史
 - Dream 处理器分析近期历史、提取关键事实并更新长期记忆
-- 在 `ContextConfig::idleConsolidationSeconds` 配置的空闲时间后自动执行
+- 在 `MemoryConfig::idleConsolidationSeconds` 配置的空闲时间后自动执行
 
 ### 技能系统
 
@@ -200,7 +200,7 @@ config.modelConfig.extraParams.Set("temperature", 0.2f);
 
 config.contextConfig.sessionId = kDefaultSessionId;
 config.contextConfig.storageType = ContextConfig::StorageType::JSON_FILE;
-config.contextConfig.idleConsolidationSeconds = 60;
+config.memoryConfig.idleConsolidationSeconds = 60;
 
 InitSessionManager(config);
 

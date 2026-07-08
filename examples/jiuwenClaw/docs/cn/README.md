@@ -46,6 +46,7 @@
 ```text
 examples/jiuwenClaw/
 ├── main.cpp                          # 应用入口、CLI、启动流程、reload 辅助函数
+├── reserved_sessions.h               # 应用层保留会话常量（__HEARTBEAT__ / __CRON__）
 ├── heartbeat_manager.{h,cpp}         # 使用 __HEARTBEAT__ 的心跳模块
 ├── cron_watcher.{h,cpp}              # 使用 __CRON__ 的定时调度器
 ├── adapters/

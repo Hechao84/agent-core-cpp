@@ -8,6 +8,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include "include/agent_export.h"
 #include "include/memory_runtime.h"
@@ -24,10 +25,18 @@ class AskUserRouter;
 class WorkerEnv;
 class HistoryStore;
 
-// Reserved session IDs for internal use
+// Reserved session id used by the core library as the MakeSessionKey fallback
+// when both channel and chatId are empty. Application layers should define
+// their own default session constant rather than reusing this one.
+//
+// The former kHeartbeatSessionId / kCronSessionId constants have been moved
+// to the application layer (e.g. examples/jiuwenClaw/reserved_sessions.h).
+// The core library no longer knows about cron / heartbeat semantics; instead,
+// applications register their own reserved sessions via
+// SessionManager::RegisterReservedSession and declare them via
+// MemoryConfig::excludedConsolidationSessionIds so they are excluded from
+// memory consolidation.
 inline constexpr char kDefaultSessionId[] = "__DEFAULT__";
-inline constexpr char kHeartbeatSessionId[] = "__HEARTBEAT__";
-inline constexpr char kCronSessionId[] = "__CRON__";
 
 struct SessionEntry
 {
@@ -136,6 +145,14 @@ public:
     // Generate a session key from channel + chatId
     static std::string MakeSessionKey(const std::string& channel, const std::string& chatId);
 
+    // Register a session id as reserved: it cannot be deleted via
+    // RemoveSession. The core library auto-registers kDefaultSessionId at
+    // construction; application layers register their own system session
+    // ids (e.g. cron / heartbeat) at startup. Reserved status is orthogonal
+    // to MemoryConfig::excludedConsolidationSessionIds: the former protects
+    // a session from deletion, the latter steers memory consolidation.
+    void RegisterReservedSession(std::string id);
+
     // Resolve a pending ask_user request by requestId. Routes the answer
     // to the correct session's AskUserDispatcher regardless of whether
     // the Agent has been hot-reloaded. Returns true if the requestId
@@ -153,6 +170,14 @@ private:
 
     AgentConfig config_;
     bool initialized_{false};
+
+    // Reserved session ids (cannot be deleted via RemoveSession). Always
+    // contains kDefaultSessionId (auto-registered by the constructor) plus
+    // any application-registered ids. Guarded by reservedMutex_; only
+    // non-const methods (RegisterReservedSession / RemoveSession) touch
+    // this set, so a plain std::mutex suffices (no mutable needed).
+    std::mutex reservedMutex_;
+    std::unordered_set<std::string> reservedSessions_;
 
     // Shared memory runtime, owned here (not by Agent) so it outlives an
     // Agent hot-reload and keeps the ContextEngine callbacks that capture it

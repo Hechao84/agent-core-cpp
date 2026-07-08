@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "include/config_node.h"
 
@@ -32,6 +33,23 @@ struct MemoryConfig
     // Requires the memory_read_payload tool to be available in the session so
     // the offloaded content remains reachable.
     bool enablePayloadOffload{true};
+
+    // Idle seconds between memory consolidation passes. Drives the
+    // Agent::ConsolidationLoop poll interval. Semantically a memory-policy
+    // knob (not context-engine state), so it lives here rather than in
+    // ContextConfig. JSON deserialization reads from `memoryConfig.idleConsolidationSeconds`
+    // first and falls back to `contextConfig.idleConsolidationSeconds` for
+    // backward compatibility with older config files.
+    int idleConsolidationSeconds{60};
+
+    // Session ids that must be skipped by memory consolidation. Events
+    // belonging to these sessions are still persisted (audit trail) and
+    // still advance the consolidation cursor, but they never enter the
+    // consolidation batch and do not trigger hasNewActivity_. Empty by
+    // default; application layers populate this with their own system
+    // session ids (e.g. cron / heartbeat reserved sessions) so the long-term
+    // memory reflects real user conversations rather than mechanical ticks.
+    std::vector<std::string> excludedConsolidationSessionIds;
 
     // Runtime-owned (built-in) model for memory consolidation.
     // - false (default): the runtime does NOT load its own model. LLM-backed

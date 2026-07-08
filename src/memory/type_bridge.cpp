@@ -140,6 +140,7 @@ agent_memory::MemoryConsolidationRequest ToAgentConsolidationRequest(const Memor
     out.sessionId = request.sessionId;
     out.maxEvents = request.maxEvents;
     out.forceReprocess = request.forceReprocess;
+    out.excludedSessionIds = request.excludedSessionIds;
     out.metadata = request.metadata;
     return out;
 }

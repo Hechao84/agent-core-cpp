@@ -49,6 +49,7 @@ against `SessionManager`.
 ```text
 examples/jiuwenClaw/
 ├── main.cpp                          # Application entry point, CLI, bootstrapping, reload helpers
+├── reserved_sessions.h               # App-layer reserved session constants (__HEARTBEAT__ / __CRON__)
 ├── heartbeat_manager.{h,cpp}         # Heartbeat module using __HEARTBEAT__
 ├── cron_watcher.{h,cpp}              # Cron scheduler using __CRON__
 ├── adapters/

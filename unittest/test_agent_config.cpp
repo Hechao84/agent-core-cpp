@@ -163,3 +163,85 @@ TEST(agent_config_store, UpsertPersistsAndSurvivesReload)
 
     fs::remove(path);
 }
+
+TEST(agent_config_json, IdleConsolidationSecondsMigratesFromContextConfig)
+{
+    // Old-style config persisted the value under contextConfig. The double
+    // read fallback must pick it up into memoryConfig.idleConsolidationSeconds.
+    // The field no longer exists on ContextConfig (migrated), so this test
+    // only checks the memoryConfig side.
+    nlohmann::json legacy = nlohmann::json::parse(R"({
+        "id": "demo",
+        "contextConfig": { "idleConsolidationSeconds": 77 },
+        "memoryConfig": { "enabled": true }
+    })");
+
+    AgentConfig parsed;
+    MergeAgentConfigFromJson(legacy, parsed);
+    TestRunner::AssertEq(parsed.memoryConfig.idleConsolidationSeconds, 77);
+}
+
+TEST(agent_config_json, IdleConsolidationSecondsPrefersMemoryConfig)
+{
+    // New-style config: memoryConfig wins over the legacy contextConfig
+    // location when both are present (so users can override the legacy
+    // value by setting the new key).
+    nlohmann::json both = nlohmann::json::parse(R"({
+        "id": "demo",
+        "contextConfig": { "idleConsolidationSeconds": 77 },
+        "memoryConfig": { "idleConsolidationSeconds": 33 }
+    })");
+
+    AgentConfig parsed;
+    MergeAgentConfigFromJson(both, parsed);
+    TestRunner::AssertEq(parsed.memoryConfig.idleConsolidationSeconds, 33);
+}
+
+TEST(agent_config_json, IdleConsolidationSecondsSerializedOnlyInMemoryConfig)
+{
+    // Single-source migration: serialization must NOT write the value back
+    // into contextConfig. A load+save cycle should leave contextConfig
+    // without the legacy key.
+    AgentConfig cfg;
+    cfg.id = "demo";
+    cfg.memoryConfig.idleConsolidationSeconds = 55;
+
+    auto j = AgentConfigToJson(cfg);
+    TestRunner::AssertTrue(!j["contextConfig"].contains("idleConsolidationSeconds"),
+                           "contextConfig must not serialize idleConsolidationSeconds");
+    TestRunner::AssertEq(j["memoryConfig"]["idleConsolidationSeconds"].get<int>(), 55);
+
+    // Round-trip back into memoryConfig only.
+    AgentConfig parsed;
+    MergeAgentConfigFromJson(j, parsed);
+    TestRunner::AssertEq(parsed.memoryConfig.idleConsolidationSeconds, 55);
+}
+
+TEST(agent_config_json, ExcludedConsolidationSessionIdsRoundTrip)
+{
+    AgentConfig cfg;
+    cfg.id = "demo";
+    cfg.memoryConfig.excludedConsolidationSessionIds = {"__CRON__", "__HEARTBEAT__"};
+
+    auto j = AgentConfigToJson(cfg);
+    TestRunner::AssertTrue(j["memoryConfig"].contains("excludedConsolidationSessionIds"));
+    auto ids = j["memoryConfig"]["excludedConsolidationSessionIds"];
+    TestRunner::AssertEq(ids.size(), (size_t)2);
+    TestRunner::AssertEq(ids[0].get<std::string>(), std::string("__CRON__"));
+    TestRunner::AssertEq(ids[1].get<std::string>(), std::string("__HEARTBEAT__"));
+
+    AgentConfig parsed;
+    MergeAgentConfigFromJson(j, parsed);
+    TestRunner::AssertEq(parsed.memoryConfig.excludedConsolidationSessionIds.size(), (size_t)2);
+    TestRunner::AssertEq(parsed.memoryConfig.excludedConsolidationSessionIds[0], std::string("__CRON__"));
+    TestRunner::AssertEq(parsed.memoryConfig.excludedConsolidationSessionIds[1], std::string("__HEARTBEAT__"));
+}
+
+TEST(agent_config_json, ExcludedConsolidationSessionIdsDefaultsEmpty)
+{
+    // No key in JSON: stays at the default (empty vector), backward compat.
+    nlohmann::json minimal = nlohmann::json::parse(R"({ "id": "demo" })");
+    AgentConfig parsed;
+    MergeAgentConfigFromJson(minimal, parsed);
+    TestRunner::AssertTrue(parsed.memoryConfig.excludedConsolidationSessionIds.empty());
+}

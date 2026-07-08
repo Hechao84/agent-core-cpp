@@ -211,7 +211,15 @@ std::string SanitizePathName(const std::string& name)
 
 } // namespace
 
-SessionManager::SessionManager() = default;
+SessionManager::SessionManager()
+{
+    // The core library's own reserved id: MakeSessionKey returns it on
+    // (channel, chatId) both-empty, and FindOrCreateEntry pre-creates it
+    // during Initialize. Application layers register additional system
+    // session ids (cron / heartbeat / etc.) at startup via
+    // RegisterReservedSession.
+    reservedSessions_.insert(kDefaultSessionId);
+}
 
 SessionManager::~SessionManager()
 {
@@ -609,13 +617,45 @@ bool SessionManager::IsSessionBusy(const std::string& sessionId) const
     return false;
 }
 
+void SessionManager::RegisterReservedSession(std::string id)
+{
+    if (id.empty()) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(reservedMutex_);
+    reservedSessions_.insert(std::move(id));
+}
+
 void SessionManager::RemoveSession(const std::string& sessionId)
 {
-    if (sessionId.empty() ||
-        sessionId == kDefaultSessionId ||
-        sessionId == kHeartbeatSessionId ||
-        sessionId == kCronSessionId) {
-        LOG(WARN) << "[SessionManager] Cannot delete reserved or empty session.";
+    if (sessionId.empty()) {
+        LOG(WARN) << "[SessionManager] Cannot delete empty session.";
+        return;
+    }
+
+    // Reserved-status check is intentionally a separate short critical
+    // section from the sessionMutex_ find/erase below. Holding
+    // reservedMutex_ across the disk deletion inside sessionMutex_
+    // would block RegisterReservedSession for the duration of
+    // fs::remove_all, which can be slow. The trade-off is a TOCTOU
+    // window: if another thread calls RegisterReservedSession(sameId)
+    // between this check and the erase, the deletion still proceeds.
+    //
+    // Accepted risk: reservedSessions_ is populated only at application
+    // startup (jiuwenClaw registers __HEARTBEAT__/__CRON__ in main.cpp
+    // before any HTTP server starts accepting requests). Runtime
+    // registration is effectively non-existent, so the window is
+    // practically unreachable. Worst case is a just-registered session
+    // getting deleted (data protection failure, not a crash). Re-evaluate
+    // if a future feature starts dynamically registering reserved
+    // sessions at runtime.
+    bool isReserved = false;
+    {
+        std::lock_guard<std::mutex> lock(reservedMutex_);
+        isReserved = reservedSessions_.count(sessionId) > 0;
+    }
+    if (isReserved) {
+        LOG(WARN) << "[SessionManager] Cannot delete reserved session: " << sessionId;
         return;
     }
 

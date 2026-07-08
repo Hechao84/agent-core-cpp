@@ -25,6 +25,7 @@
 // Heartbeat management & Cron watcher module
 #include "examples/jiuwenClaw/cron_watcher.h"
 #include "examples/jiuwenClaw/heartbeat_manager.h"
+#include "examples/jiuwenClaw/reserved_sessions.h"
 // Demo-specific tools
 #include "examples/jiuwenClaw/tools/cron_tool.h"
 #include "examples/jiuwenClaw/tools/notebook_edit_tool.h"
@@ -70,7 +71,13 @@ AgentConfig BuildAgentConfig()
     config.contextConfig.sessionId = kDefaultSessionId;
     config.contextConfig.storageType = ContextConfig::StorageType::JSON_FILE;
     config.contextConfig.storagePath = ""; // SessionManager will set this per-session
-    config.contextConfig.idleConsolidationSeconds = 60;
+
+    // Memory configuration: idle poll interval + system sessions excluded
+    // from consolidation. Cron / heartbeat events are still persisted for
+    // audit but never consolidated into long-term memory, so the memory
+    // reflects real user conversations rather than mechanical ticks.
+    config.memoryConfig.idleConsolidationSeconds = 60;
+    config.memoryConfig.excludedConsolidationSessionIds = {kHeartbeatSessionId, kCronSessionId};
 
     config.skillDirectory = "./my_skills";
 
@@ -555,6 +562,16 @@ int main(int argc, char* argv[])
 
     InitSessionManager(config);
     std::cout << "[Boot] SessionManager initialized\n" << std::flush;
+
+    // Register application-layer reserved sessions with the core library so
+    // they cannot be deleted via /api/sessions DELETE. The core library
+    // already auto-registers __DEFAULT__ (its own MakeSessionKey fallback);
+    // jiuwenClaw additionally protects __HEARTBEAT__ and __CRON__ here. The
+    // same ids are listed in MemoryConfig::excludedConsolidationSessionIds
+    // (set in BuildAgentConfig) so memory consolidation skips their events.
+    GetSessionManager().RegisterReservedSession(kHeartbeatSessionId);
+    GetSessionManager().RegisterReservedSession(kCronSessionId);
+    std::cout << "[Boot] Reserved sessions registered (__HEARTBEAT__, __CRON__)\n" << std::flush;
 
     // Load MCP servers from the application-layer registry (mcp_servers.json).
     // The framework itself only knows how to register/connect McpServerConfig

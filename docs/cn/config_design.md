@@ -42,8 +42,7 @@ AgentConfig
  ├── contextConfig (ContextConfig)  ← 上下文配置
  │   ├── maxContextTokens, maxMessages
  │   ├── sessionId, storagePath, storageType
- │   ├── enableSummarization
- │   └── idleConsolidationSeconds
+ │   └── enableSummarization
  │
  ├── dreamConfig (DreamConfig)     ← Dream 整合配置
  │   ├── dataBasePath, historyPath
@@ -54,6 +53,8 @@ AgentConfig
  │   ├── enabled, mode, provider
  │   ├── dataPath, serverUrl
  │   ├── offloadToolResultChars, enablePayloadOffload
+ │   ├── idleConsolidationSeconds              ← 整合轮询间隔（原 contextConfig，已迁移）
+ │   ├── excludedConsolidationSessionIds       ← 整合排除集（如 __CRON__/__HEARTBEAT__）
  │   ├── modelEnabled, modelBaseUrl, ...
  │   └── extraParams
  │
@@ -90,7 +91,8 @@ AgentConfig
 | storagePath | string | - | 存储路径 |
 | storageType | StorageType | JSON_FILE | 存储类型 |
 | enableSummarization | bool | false | 启用压缩 |
-| idleConsolidationSeconds | int | 60 | 空闲整合触发时间 |
+
+> `idleConsolidationSeconds` 原在此处，已迁移至 `MemoryConfig`（与整合策略字段集中）。旧配置文件中的 `contextConfig.idleConsolidationSeconds` 仍能被反序列化双读 fallback 拾起，但写回时只写新位置。
 
 **DreamConfig** — Dream 整合配置
 
@@ -103,6 +105,39 @@ AgentConfig
 | maxToolResultChars | int | 16000 | 工具结果截断 |
 | historyEntryPreviewMaxChars | int | 4000 | 历史条目预览截断 |
 | memoryFileMaxChars | int | 32000 | 记忆文件截断 |
+
+**MemoryConfig** — 记忆配置（与上下文引擎解耦的记忆子系统策略）
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| enabled | bool | true | 是否启用记忆子系统 |
+| mode | string | "sdk" | 运行模式（`sdk` / `server`） |
+| provider | string | "builtin.compat" | runtime provider |
+| dataPath | string | - | 数据目录 |
+| serverUrl | string | - | HTTP server 模式下的远端 URL |
+| serverApiKey | string | - | HTTP server 鉴权密钥 |
+| serverTimeoutSeconds | int | 10 | HTTP 调用超时 |
+| serverMaxRetries | int | 2 | HTTP 瞬态错误重试次数 |
+| serverCircuitThreshold | int | 5 | 熔断阈值 |
+| serverCircuitCooldownSeconds | int | 30 | 熔断冷却时间 |
+| tokenBudget | int | 4096 | BuildContext token 预算 |
+| offloadToolResultChars | int | 8000 | 工具结果 offload 阈值 |
+| enablePayloadOffload | bool | true | 是否启用 offload |
+| idleConsolidationSeconds | int | 60 | 整合轮询间隔（原 `ContextConfig`，已迁移至此） |
+| excludedConsolidationSessionIds | vector\<string\> | {} | 整合排除集：被排除 session 的事件仍入库、仍推进 cursor，但不进入 batch、不触发 hasNewActivity_。应用层通常填入系统机械触发会话（如 `__CRON__`/`__HEARTBEAT__`） |
+| modelEnabled | bool | false | runtime 自带模型开关 |
+| modelFormatType | string | "openai" | runtime 模型协议格式 |
+| modelBaseUrl | string | - | runtime 模型端点 |
+| modelApiKey | string | - | runtime 模型密钥 |
+| modelName | string | - | runtime 模型名 |
+| modelOrganization | string | - | runtime 组织 |
+| modelAnthropicVersion | string | "2023-06-01" | Anthropic 协议版本 |
+| modelTimeoutSeconds | int | 60 | runtime 模型超时 |
+| modelTemperature | double | 0.0 | runtime 模型温度 |
+| modelMaxTokens | int | 0 | runtime 模型 max tokens |
+| extraParams | ConfigNode | - | 扩展参数 |
+
+> `idleConsolidationSeconds` 与 `excludedConsolidationSessionIds` 共同驱动 `Agent::ConsolidationLoop`：前者控制轮询间隔，后者控制哪些 session 的事件进入整合批次（同时控制 `NotifySessionIdle` 是否唤醒脏标记）。两者均为 Agent 级配置，应用层在启动时填入自己的系统会话标识。
 
 **McpServerConfig** — MCP 服务器配置
 

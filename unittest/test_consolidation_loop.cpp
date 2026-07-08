@@ -104,7 +104,7 @@ AgentConfig MakeConfig(const std::string& dataBasePath)
     config.id = "test-agent";
     config.mode = AgentWorkMode::REACT;
     config.modelConfig.provider = "test-consolidation-loop";
-    config.contextConfig.idleConsolidationSeconds = 1;
+    config.memoryConfig.idleConsolidationSeconds = 1;
     config.dataBasePath = dataBasePath;
     return config;
 }
@@ -213,6 +213,111 @@ TEST(consolidation_loop, NoTriggerAfterCleanup)
     std::this_thread::sleep_for(std::chrono::seconds(3));
     TestRunner::AssertEq(fake.consolidateCalls.load(), countAfterCleanup,
                          "no sessions and no new activity -> no consolidation");
+
+    fs::remove_all(base);
+}
+
+// Sessions listed in MemoryConfig::excludedConsolidationSessionIds must not
+// arm hasNewActivity_ when they go idle, so a cron/heartbeat-style Invoke
+// cannot wake the consolidation loop. Session busy/idle tracking is still
+// updated so the anyIdle gate behaves correctly.
+TEST(consolidation_loop, ExcludedSessionDoesNotArmActivityFlag)
+{
+    fs::path base = fs::current_path() / "test_tmp_consolidation_loop_d";
+    fs::remove_all(base);
+    RegisterStubModel();
+
+    AgentConfig config = MakeConfig(base.string());
+    config.memoryConfig.excludedConsolidationSessionIds = {"__CRON__", "__HEARTBEAT__"};
+
+    MemoryConfig memConfig;
+    FakeMemoryRuntime fake(memConfig);
+    Agent agent(config);
+    agent.SetMemoryRuntime(&fake);
+
+    // Wait for the startup catch-up so firstCycle is cleared.
+    bool catchUp = WaitFor([&] { return fake.consolidateCalls.load() >= 1; }, 4);
+    TestRunner::AssertTrue(catchUp, "startup catch-up should fire unconditionally");
+
+    int callsAfterCatchUp = fake.consolidateCalls.load();
+
+    // A system-triggered session goes through the active -> idle cycle.
+    // NotifySessionIdle must NOT arm hasNewActivity_, so the next poll
+    // cycle should skip the consolidation.
+    agent.NotifySessionActive("__CRON__");
+    agent.NotifySessionIdle("__CRON__");
+
+    // The session must be tracked as idle (busy/idle tracking still works).
+    TestRunner::AssertFalse(agent.IsSessionBusy("__CRON__"),
+                            "excluded session should still report as idle");
+
+    // Wait through at least two poll cycles. No user conversation completed,
+    // so the dirty flag must remain clear and no new Consolidate call fires.
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    TestRunner::AssertEq(fake.consolidateCalls.load(), callsAfterCatchUp,
+                         "excluded session should not trigger consolidation");
+
+    // A real user session completing after the excluded one still arms the
+    // flag and triggers consolidation normally.
+    agent.NotifySessionActive("user-session");
+    agent.NotifySessionIdle("user-session");
+
+    bool fired = WaitFor([&] { return fake.consolidateCalls.load() >= callsAfterCatchUp + 1; }, 4);
+    TestRunner::AssertTrue(fired, "real user session should trigger consolidation after excluded idle");
+
+    fs::remove_all(base);
+}
+
+// The consolidation request built inside ConsolidationLoop must carry the
+// excluded session ids from MemoryConfig so the agent-memory-cpp batch
+// builder skips those events end-to-end.
+TEST(consolidation_loop, ConsolidationRequestCarriesExcludedSessionIds)
+{
+    fs::path base = fs::current_path() / "test_tmp_consolidation_loop_e";
+    fs::remove_all(base);
+    RegisterStubModel();
+
+    AgentConfig config = MakeConfig(base.string());
+    config.memoryConfig.excludedConsolidationSessionIds = {"__CRON__", "__HEARTBEAT__"};
+
+    // Fake runtime that captures the request so we can inspect the field.
+    class CapturingRuntime : public MemoryRuntime
+    {
+    public:
+        explicit CapturingRuntime(MemoryConfig cfg) : MemoryRuntime(std::move(cfg)) {}
+        std::atomic<int> calls{0};
+        MemoryConsolidationRequest lastRequest;
+
+        bool AppendEvent(const MemoryEvent&) override { return true; }
+        MemoryContextPackage BuildContext(const MemoryContextRequest&) override { return {}; }
+        MemoryPayloadWriteResult WritePayload(const MemoryPayloadWriteRequest&) override { return {}; }
+        std::string ReadPayload(const std::string&) override { return {}; }
+        bool Consolidate(const MemoryConsolidationRequest& r) override
+        {
+            lastRequest = r;
+            ++calls;
+            return true;
+        }
+        bool Consolidate(const MemoryConsolidationRequest& r, MemoryModelClient*) override
+        {
+            lastRequest = r;
+            ++calls;
+            return true;
+        }
+        std::vector<MemorySearchHit> SearchMemory(const MemorySearchRequest&) override { return {}; }
+        MemoryStats GetStats() const override { return {}; }
+    };
+
+    CapturingRuntime fake(MemoryConfig{});
+    Agent agent(config);
+    agent.SetMemoryRuntime(&fake);
+
+    bool fired = WaitFor([&] { return fake.calls.load() >= 1; }, 4);
+    TestRunner::AssertTrue(fired, "startup catch-up should fire");
+
+    TestRunner::AssertEq(fake.lastRequest.excludedSessionIds.size(), (size_t)2);
+    TestRunner::AssertEq(fake.lastRequest.excludedSessionIds[0], std::string("__CRON__"));
+    TestRunner::AssertEq(fake.lastRequest.excludedSessionIds[1], std::string("__HEARTBEAT__"));
 
     fs::remove_all(base);
 }

@@ -19,6 +19,7 @@
 #include "examples/jiuwenClaw/channels/channel_manager.h"
 #include "examples/jiuwenClaw/channels/channel_service.h"
 #include "examples/jiuwenClaw/mcp/mcp_server_manager.h"
+#include "examples/jiuwenClaw/reserved_sessions.h"
 #include "examples/jiuwenClaw/utils/logger.h"
 #include "include/agent.h"
 #include "include/config/agent_config_json.h"

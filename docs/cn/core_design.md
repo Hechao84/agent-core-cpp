@@ -62,20 +62,22 @@ Agent
 
 后台线程方法，在构造时启动。存在两个重载：**无参重载**让 runtime 自行决定模型来源，可用于 runtime 自决场景；**带参重载**接收显式提供的 `modelClient`，意图明确。当前调用带参重载（意图明确），无参重载可用于 runtime 自决场景。流程如下：
 
-1. 在 `consolidationMutex_`（L3）上 `cv_.wait_for(idleConsolidationSeconds)`，谓词 `!running_`（仅 `Shutdown` 的 notify 提前退出）；超时后释放 L3
-2. **首轮 catch-up**：`firstCycle` 局部变量在首次迭代为 true，绕过下述 `anyIdle` 与 `hasNewActivity_` 两道门，无条件执行一次整合，拾取旧 Agent 遗留的 pending 事件（见下方说明）；之后置 `firstCycle=false`，恢复常态门控。注意 catch-up 仍发生在首个 `cv_.wait_for(idleConsolidationSeconds)` 轮询周期到期之后（见步骤 1），不抢占启动、不立即执行——最坏延迟 `idleConsolidationSeconds`（默认 60s）
+1. 在 `consolidationMutex_`（L3）上 `cv_.wait_for(memoryConfig.idleConsolidationSeconds)`，谓词 `!running_`（仅 `Shutdown` 的 notify 提前退出）；超时后释放 L3
+2. **首轮 catch-up**：`firstCycle` 局部变量在首次迭代为 true，绕过下述 `anyIdle` 与 `hasNewActivity_` 两道门，无条件执行一次整合，拾取旧 Agent 遗留的 pending 事件（见下方说明）；之后置 `firstCycle=false`，恢复常态门控。注意 catch-up 仍发生在首个 `cv_.wait_for(memoryConfig.idleConsolidationSeconds)` 轮询周期到期之后（见步骤 1），不抢占启动、不立即执行——最坏延迟 `memoryConfig.idleConsolidationSeconds`（默认 60s）
 3. 取 `sessionActivityMutex_`（L4）检查 `sessionActivity_` 有无 `isBusy=false` 的空闲会话；无则 continue，有则继续
 4. 检查活动门 `hasNewActivity_`（atomic load，无锁）：若自上次整合以来无会话完成新对话则 continue，跳过 `CreateModel` 与底层 cursor 查询；有则继续
 5. 清除 `hasNewActivity_`（clear-before，见下方说明），随后创建 Model 实例一次（`CreateModel`），供两条整合路径共享
-6. 若 `MemoryRuntime` 已启用，调用 `MemoryRuntime::Consolidate(request, modelClient)`
+6. 若 `MemoryRuntime` 已启用，构造 `MemoryConsolidationRequest` 时把 `config_.memoryConfig.excludedConsolidationSessionIds` 透传到 `request.excludedSessionIds`，再调用 `MemoryRuntime::Consolidate(request, modelClient)`
 7. 若 `MemoryRuntime` 未处理，调用 `longTermConsolidator_->Run(model, historyStore)`
 8. 循环继续，直到 `running_` 标志变为 false
 
-> **轮询驱动而非事件驱动**：ConsolidationLoop 是**超时轮询**设计——每 `idleConsolidationSeconds` 醒一次检查空闲会话，`cv_` 仅用于 `Shutdown` 提前退出（谓词 `!running_`）。`NotifySessionIdle` 只在 `sessionActivity_` 标记 `isBusy=false`，**不发 `cv_` 信号**。原因：wait 不能在 `sessionActivityMutex_`（L4）上长 wait（会阻塞 `IsSessionBusy`/`NotifySessionIdle`/`CleanupSession` 等所有 session-activity 操作），故 wait 用独立 `consolidationMutex_`（L3）；若在 L4 下 notify 而 wait 持 L3，是经典 CV mutex 不匹配。且无 per-session idle-since 时间戳，"空闲 N 秒"无法真正强制（轮询间隔即近似窗口）。真事件驱动需加 idle-since 时间戳 + 谓词查 idle 时长 + 最近 deadline 计算，属未来增强，不在当前范围。
+> **轮询驱动而非事件驱动**：ConsolidationLoop 是**超时轮询**设计——每 `memoryConfig.idleConsolidationSeconds` 醒一次检查空闲会话，`cv_` 仅用于 `Shutdown` 提前退出（谓词 `!running_`）。`NotifySessionIdle` 只在 `sessionActivity_` 标记 `isBusy=false`，**不发 `cv_` 信号**。原因：wait 不能在 `sessionActivityMutex_`（L4）上长 wait（会阻塞 `IsSessionBusy`/`NotifySessionIdle`/`CleanupSession` 等所有 session-activity 操作），故 wait 用独立 `consolidationMutex_`（L3）；若在 L4 下 notify 而 wait 持 L3，是经典 CV mutex 不匹配。且无 per-session idle-since 时间戳，"空闲 N 秒"无法真正强制（轮询间隔即近似窗口）。真事件驱动需加 idle-since 时间戳 + 谓词查 idle 时长 + 最近 deadline 计算，属未来增强，不在当前范围。
 
-> **首轮 catch-up（`firstCycle`）**：`ConsolidationLoop` 用局部 `bool firstCycle`（初始 true）让首次迭代绕过 `anyIdle` 与 `hasNewActivity_` 两道门，无条件执行一次整合。动机：`ReloadAgent` 构造新 Agent 时，旧 Agent 最后一轮可能 `hasNewActivity_=true` 但未及整合就被销毁，新 Agent 的 `hasNewActivity_=false` 且 `sessionActivity_` 为空（sessions 在 SessionManager 侧保留，但未在新 Agent 的 activity 表注册）——两道门都阻断，pending 事件要等下次正常会话完成才被拾取。catch-up 让新 Agent 在首个轮询周期拾取这些遗留事件。`firstCycle` 是局部变量、与线程同寿：ReloadAgent 构造新 Agent → 新线程 → 新 `firstCycle=true`，天然重置，无需成员。**不抢占启动资源**：catch-up 不跳过步骤 1 的 `cv_.wait_for(idleConsolidationSeconds)`，仍要等首个轮询周期到期才执行（最坏延迟 `idleConsolidationSeconds`，默认 60s）——刻意不与启动初始化抢资源、不立即触发 LLM/模型构造，启动期资源只服务前台。安全性：启动瞬间无活跃会话（`ReloadAgent` 已 drain 到 `concurrentCount_==0`），绕过 `anyIdle` 不会与前台推理抢模型资源；无 pending 事件时 cursor 早退、不调 LLM，成本仅一次 `CreateModel` + 一次 SQLite cursor 查询。
+> **首轮 catch-up（`firstCycle`）**：`ConsolidationLoop` 用局部 `bool firstCycle`（初始 true）让首次迭代绕过 `anyIdle` 与 `hasNewActivity_` 两道门，无条件执行一次整合。动机：`ReloadAgent` 构造新 Agent 时，旧 Agent 最后一轮可能 `hasNewActivity_=true` 但未及整合就被销毁，新 Agent 的 `hasNewActivity_=false` 且 `sessionActivity_` 为空（sessions 在 SessionManager 侧保留，但未在新 Agent 的 activity 表注册）——两道门都阻断，pending 事件要等下次正常会话完成才被拾取。catch-up 让新 Agent 在首个轮询周期拾取这些遗留事件。`firstCycle` 是局部变量、与线程同寿：ReloadAgent 构造新 Agent → 新线程 → 新 `firstCycle=true`，天然重置，无需成员。**不抢占启动资源**：catch-up 不跳过步骤 1 的 `cv_.wait_for(memoryConfig.idleConsolidationSeconds)`，仍要等首个轮询周期到期才执行（最坏延迟 `memoryConfig.idleConsolidationSeconds`，默认 60s）——刻意不与启动初始化抢资源、不立即触发 LLM/模型构造，启动期资源只服务前台。安全性：启动瞬间无活跃会话（`ReloadAgent` 已 drain 到 `concurrentCount_==0`），绕过 `anyIdle` 不会与前台推理抢模型资源；无 pending 事件时 cursor 早退、不调 LLM，成本仅一次 `CreateModel` + 一次 SQLite cursor 查询。
 
-> **活动门 `hasNewActivity_`**：`NotifySessionIdle` 置 `hasNewActivity_=true`（release 序，无条件执行，独立于 `isBusy` 的更新——即便该会话不在 `sessionActivity_` 表中也会置位，更激进地触发整合，无害），表示"有会话刚完成对话、事件已落入存储"。ConsolidationLoop 在通过 `anyIdle` 检查后、构造 Model 之前以 `hasNewActivity_.load()`（acquire 序）做快路径门控：为 false 则 `continue`，**完全跳过 `CreateModel` 与底层 cursor 查询**。这是纯性能提示——正确性仍由 agent-memory-cpp 的 cursor 幂等机制兜底（标记漏置最多延迟一个周期，多置最多多一次 cursor 查询）。清除时机采用 **clear-before**：进入整合分支后立即 `store(false)`，再调 `CreateModel`/`Consolidate`。若新对话在整合执行期间完成，`NotifySessionIdle` 会重新置位、下一周期处理，cursor 保证不漏不重；若整合抛异常，cursor 未推进、事件仍 pending，等下一次新对话触发时重试（后台 best-effort 语义，最坏延迟一个轮询周期）。
+> **活动门 `hasNewActivity_`**：`NotifySessionIdle` 置 `hasNewActivity_=true`（release 序），表示"有会话刚完成对话、事件已落入存储"。**条件置位**：若 `sessionId` 出现在 `config_.memoryConfig.excludedConsolidationSessionIds` 内（如 `__CRON__`/`__HEARTBEAT__` 等系统机械触发会话），则跳过置位——这些会话的事件已被排除出整合批，让它们唤醒脏标记会稀释"无新对话跳过 CreateModel"优化。**仍更新 `isBusy`**：排除集内的会话仍正常更新 `sessionActivity_[sessionId].isBusy`，保留忙闲追踪，不影响 `anyIdle` 门控（第一道门）。ConsolidationLoop 在通过 `anyIdle` 检查后、构造 Model 之前以 `hasNewActivity_.load()`（acquire 序）做快路径门控：为 false 则 `continue`，**完全跳过 `CreateModel` 与底层 cursor 查询**。这是纯性能提示——正确性仍由 agent-memory-cpp 的 cursor 幂等机制兜底（标记漏置最多延迟一个周期，多置最多多一次 cursor 查询）。清除时机采用 **clear-before**：进入整合分支后立即 `store(false)`，再调 `CreateModel`/`Consolidate`。若新对话在整合执行期间完成，`NotifySessionIdle` 会重新置位、下一周期处理，cursor 保证不漏不重；若整合抛异常，cursor 未推进、事件仍 pending，等下一次新对话触发时重试（后台 best-effort 语义，最坏延迟一个轮询周期）。
+
+> **整合排除集**：`MemoryConfig::excludedConsolidationSessionIds` 是配置驱动的通用排除机制，核心库不硬编码任何保留 ID。应用层在启动时填入自己的系统会话标识（jiuwenClaw 填入 `__CRON__`/`__HEARTBEAT__`），`ConsolidationLoop` 把它透传给 `MemoryConsolidationRequest.excludedSessionIds`，再经 `type_bridge` 传到 agent-memory-cpp 的 `ConsolidationBatchBuilder` 与 `MemoryEventStore::LoadEventsAfterCursor`：前者为非 SQL Store 兜底过滤，后者在 SQL 层加 `NOT IN` 减少行加载。被排除事件仍入库（audit trail）、仍推进 cursor，但不进入 batch、不参与 LLM/规则抽取。这同时是 `NotifySessionIdle` 条件置位的数据源（见上段）。
 
 #### `SessionManager::ProvideUserResponse(requestId, answer)` （原 `Agent::ProvideUserResponse`）
 
@@ -450,7 +452,7 @@ Agent ────────────────────────�
   │  └── 返回回答                                                  │
   │                                                                │
   │  ConsolidationLoop (后台线程)                                   │
-  │  ├── cv_.wait_for(idleConsolidationSeconds) 超时或 Shutdown 唤醒 │
+  │  ├── cv_.wait_for(memoryConfig.idleConsolidationSeconds) 超时或 Shutdown 唤醒 │
   │  ├── MemoryRuntime::Consolidate(..., modelClient)               │
   │  │   └── HostMemoryModelClient 适配 Model → MemoryModelClient │
   │  └── 或 LegacyDreamConsolidator::Run(model, historyStore)      │
