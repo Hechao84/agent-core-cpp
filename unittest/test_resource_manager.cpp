@@ -94,10 +94,11 @@ TEST(resource_manager, RegisterAndCreateModel)
     TestRunner::AssertTrue(model != nullptr);
 }
 
-TEST(resource_manager, CreateModelMissingThrows)
+TEST(resource_manager, BuiltinModelAlwaysCreates)
 {
     auto& rm = ResourceManager::GetInstance();
-    // OPENAI is built-in, so it should NOT throw
+    // OPENAI is built-in, so CreateModel must succeed without a registered
+    // config; this guards the built-in-model fallback path.
     ModelConfig cfg;
     cfg.formatType = ModelFormatType::OPENAI;
     auto model = rm.CreateModel(cfg);

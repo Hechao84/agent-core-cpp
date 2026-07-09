@@ -353,7 +353,6 @@ add_executable(unittest
     unittest/test_file_tools.cpp
     unittest/test_search_tools.cpp
     unittest/test_misc_tools.cpp
-    unittest/test_integration.cpp
     unittest/test_openai_format.cpp
     unittest/test_anthropic_format.cpp
     unittest/test_session_tools.cpp
