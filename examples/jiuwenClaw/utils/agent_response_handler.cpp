@@ -24,6 +24,7 @@ std::string AgentResponseHandler::GetFullResponse() const
 void AgentResponseHandler::Reset()
 {
     utf8Carry_.clear();
+    gotStreamText_ = false;
     fullResponse_.clear();
 }
 
@@ -46,6 +47,7 @@ void AgentResponseHandler::HandleResponse(const std::string& resp) const
     if (s.find("[STREAM]") != std::string::npos) {
         std::string content = ExtractTagContent(s, "[STREAM]");
         if (!content.empty()) {
+            gotStreamText_ = true;
             if (enableStreamCarry_) {
                 std::string fixed = FixUTF8Streaming(content, utf8Carry_);
                 std::cout << UTF8ToLocal(fixed) << std::flush;
@@ -63,7 +65,16 @@ void AgentResponseHandler::HandleResponse(const std::string& resp) const
         return;
     }
 
-    if (s.find("[FINAL]") != std::string::npos) return;
+    if (s.find("[FINAL]") != std::string::npos) {
+        if (!gotStreamText_) {
+            std::string content = ExtractTagContent(s, "[FINAL]");
+            std::string finalText = TrimStr(content);
+            if (!finalText.empty()) {
+                std::cout << UTF8ToLocal(finalText) << std::flush;
+            }
+        }
+        return;
+    }
 
     if (!s.empty()) {
         std::cout << UTF8ToLocal(s) << std::flush;

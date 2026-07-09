@@ -25,6 +25,7 @@ private:
     std::string ExtractTagContent(const std::string& s, const std::string& tag) const;
 
     mutable std::string utf8Carry_;
+    mutable bool gotStreamText_{false};
     std::string fullResponse_;
     bool enableStreamCarry_;
 };

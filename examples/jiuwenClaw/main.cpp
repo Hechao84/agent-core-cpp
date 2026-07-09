@@ -228,6 +228,7 @@ void RunCliMode()
         std::cout << "Processing...\n";
 
         std::string utf8Carry;
+        bool gotStreamText = false;
 
         const std::string TAG_STREAM = "[STREAM]";
         const std::string TAG_STATUS = "[STATUS]";
@@ -387,6 +388,7 @@ void RunCliMode()
                         std::string cleanText = s.substr(start_pos);
 
                         if (!cleanText.empty()) {
+                            gotStreamText = true;
                             std::string fixed = FixUTF8Streaming(cleanText, utf8Carry);
                             std::cout << UTF8ToLocal(fixed) << std::flush;
                         }
@@ -409,8 +411,25 @@ void RunCliMode()
                     return;
                 }
 
-                // 5. [FINAL] tag means done, no special handling
+                // 5. [FINAL] carries the final answer. When the model already
+                // streamed its tokens they were printed above; otherwise (e.g.
+                // a retry path where streaming was suppressed) display the
+                // carried text here so the answer is never lost.
                 if (s.find(TAG_FINAL) != std::string::npos) {
+                    if (!gotStreamText) {
+                        size_t pos = s.find(TAG_FINAL);
+                        if (pos != std::string::npos) {
+                            pos += TAG_FINAL.length();
+                            while (pos < s.length() && s[pos] == ' ') ++pos;
+                            std::string finalText = s.substr(pos);
+                            while (!finalText.empty() && (finalText.back() == '\n' || finalText.back() == '\r')) {
+                                finalText.pop_back();
+                            }
+                            if (!finalText.empty()) {
+                                std::cout << UTF8ToLocal(finalText) << std::flush;
+                            }
+                        }
+                    }
                     return;
                 }
 

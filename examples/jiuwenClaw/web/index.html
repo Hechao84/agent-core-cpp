@@ -1666,6 +1666,12 @@ function handleSseEvent(sessionId, evt, data){
       const res = JSON.parse(data);
       if (res && res.success === false && res.error){
         pushStatus(sessionId, 'Error: ' + res.error, 'err');
+      } else if (res && res.success !== false && res.content){
+        const list = messages[sessionId] || [];
+        const last = list[list.length - 1];
+        if (!last || last.type !== 'assistant'){
+          appendAssistantChunk(sessionId, res.content);
+        }
       }
     } catch(e) {}
     return;

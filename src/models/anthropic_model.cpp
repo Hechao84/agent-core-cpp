@@ -386,7 +386,13 @@ ModelResponse AnthropicModel::Invoke(const std::string& formattedInput,
 
         bool isFinalAttempt = (attempt == totalAttempts - 1);
 
-        ModelResponse out = DoInvokeOnce(formattedInput, isFinalAttempt ? onChunk : nullptr, shouldCancel);
+        // Stream tokens only on the first attempt. On a retry we suppress
+        // onChunk so a half-finished response is never pushed to the user;
+        // the successful attempt's full content streams when it arrives
+        // (or is carried by [FINAL] as a fallback). Gating on "is final
+        // attempt" instead would silence streaming on the common no-retry
+        // success path.
+        ModelResponse out = DoInvokeOnce(formattedInput, (attempt > 0) ? nullptr : onChunk, shouldCancel);
 
         // Mid-stream cancel is terminal and must not be retried.
         if (out.finishReason == "cancelled") {
