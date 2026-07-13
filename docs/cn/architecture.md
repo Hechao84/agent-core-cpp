@@ -58,10 +58,10 @@ AgentConfig ──────────────────────�
   │  ├── MemoryConfig                                      │
   │  └── McpServerConfig                                   │
   │                                                         │
-SessionManager ─── 拥有 Agent (shared_ptr)                  │
+SessionManager ─── 拥有 Agent (shared_ptr, 活跃)            │
   │  ├── 拥有 MemoryRuntime (unique_ptr, 跨热重载存活)       │
-  │  ├── 管理 SessionEntry ─── 拥有 ContextEngine           │
-  │  └── 全局并发门控 + 热重载屏障                           │
+  │  ├── 管理 SessionEntry ─── 拥有 ContextEngine + 绑定 Agent │
+  │  └── 全局并发门控（可选限流）+ 热重载优雅退役             │
   │                                                         │
 Agent ─── 拥有 AgentWorker                                  │
   │  ├── 拥有 SkillEngine                                   │
@@ -109,7 +109,7 @@ MCP ─── Model Context Protocol 集成                         │
 
 | 单例 | 访问入口 | 职责 | 持有/管理 |
 |---|---|---|---|
-| `SessionManager` | `InitSessionManager(config)` / `GetSessionManager()` | 路由会话到 `ContextEngine`、持有活跃 `Agent`、全局并发门控、热重载屏障 | `Agent` (shared_ptr)、`MemoryRuntime` (unique_ptr)、`SessionEntry` 表 |
+| `SessionManager` | `InitSessionManager(config)` / `GetSessionManager()` | 路由会话到 `ContextEngine`、持有活跃 `Agent` + 维护 `SessionEntry::agent` 绑定、全局并发门控、热重载优雅退役 | `Agent` (shared_ptr)、`MemoryRuntime` (unique_ptr)、`SessionEntry` 表 |
 | `ResourceManager` | `ResourceManager::GetInstance()` | 工具/模型/记忆运行时/MCP 连接的注册表与工厂 | 各域工厂 + 缓存 + 动态插件 handle |
 | `MCPConfigManager` | `MCPConfigManager::Instance()` | MCP 服务器配置的运行时管理（CRUD + 持久化 + 服务器生命周期） | `McpServerConfig` 表 + 已启动的服务器进程句柄 |
 
@@ -124,9 +124,9 @@ MCP ─── Model Context Protocol 集成                         │
   │
   ▼
 SessionManager::Invoke(sessionId, message, callback)
-  │  1. 入口内联门控: 等待 !reloading_ + 并发槽位
-  │  2. 查找/创建 SessionEntry → ContextEngine
-  │  3. 获取 Agent (shared_ptr，热重载安全)
+  │  1. 入口内联门控: 可选 maxConcurrentSlots 限流（无 reload barrier）
+  │  2. 查找/创建 SessionEntry → ContextEngine；entry->agent 绑定/重绑活跃 Agent
+  │  3. 获取 Agent (entry->agent 的 shared_ptr 快照，热重载安全)
   │
   ▼
 Agent::Invoke(sessionId, query, callback)
@@ -220,9 +220,9 @@ DreamProcessor::Run(model, historyStore)
 
 ```
 全局并发门控 (SessionManager)
-  │  maxConcurrentSessions 限制同时执行的 Invoke 数量
+  │  maxConcurrentSessions 限制同时执行的 Invoke 数量（可选）
   │  Invoke 入口内联门控 + releaseGate 释放（无独立 Acquire/Release 方法）
-  │  热重载屏障: reloading_ flag + reloadCv_
+  │  热重载不再升起 reload barrier（优雅退役：在途调用继续在旧 Agent 上跑完）
   │
   ▼
 每会话串行锁 (SessionEntry::invokeMutex)
@@ -247,7 +247,7 @@ DreamProcessor::Run(model, historyStore)
 | 层号 | Mutex | 所属对象 | 保护范围 |
 |------|-------|----------|----------|
 | L0 | `g_initMutex` | anonymous namespace | SessionManager 单例初始化（启动时单线程） |
-| L1 | `concurrencyMutex_` | SessionManager | 全局并发门控 + reload barrier |
+| L1 | `concurrencyMutex_` | SessionManager | 全局并发门控（可选限流） |
 | L2 | `sessionMutex_` | SessionManager | 会话注册表 (`sessions_`) |
 | L3 | `invokeMutex` | SessionEntry | 每会话调用串行化 |
 | L3 | `consolidationMutex_` | Agent | 整合线程条件变量（与 invokeMutex 独立同层） |
@@ -292,34 +292,35 @@ DreamProcessor::Run(model, historyStore)
 - 取消时递增 100，确保所有正在运行的 invocation 都失效
 - 不同会话共享同一 worker，但各自持有不同的 generation，因此一次取消不会影响其他会话
 
-## 6. 热重载机制
+## 6. 热重载机制（优雅退役）
 
 ```
 SessionManager::ReloadAgent(newConfig)
   │
-  │  1. 设置 reloading_ = true
-  │     → 新的 Invoke 调用被阻塞等待
+  │  1. 构建新 Agent（先构造，失败则不动旧 Agent）
+  │     → Agent(newConfig) + 注入共享依赖
+  │       (SetMemoryRuntime/SetHistoryStore/SetWorkerEnv/AddTools/SyncMcpTools)
+  │     → catch: 返回 false，旧 Agent 原位不动、未标记 draining
   │
-  │  2. 等待并发门控归零 (所有进行中的 Invoke 完成)
-  │     → concurrentCount_ == 0 + concurrencyCv_
+  │  2. swap（持 sessionMutex_，与 Invoke 的 entry->agent 读/重绑同锁）
+  │     → oldAgent = std::move(agent_)
+  │     → agent_ = std::move(newAgent)         ← 活跃 Agent 切换
+  │     → oldAgent->MarkDraining()             ← 旧 Agent 不接新 session 的在途回合
+  │     → SetupAgentContextRouting()           ← contextEngineGetter_ 重绑到新 Agent
   │
-  │  3. 构建新 Agent
-  │     → Agent(newConfig)
-  │     → SetupAgentContextRouting()
-  │     → SetMemoryRuntime(memoryRuntime_.get())
-  │
-  │  4. 原子替换
-  │     → agent_ = make_shared<Agent>(newAgent)
-  │     → 旧 Agent 调用 Cancel()
-  │
-  │  5. 清除 reloading_ 标志
-  │     → 释放阻塞的 Invoke 调用
+  │  3. 旧 Agent 不 Cancel、不显式释放
+  │     → 由 SessionEntry::agent 的 shared_ptr 引用计数驱动：
+  │       存量 session 的在途回合跑完、entry 被下一条消息重绑或 session 终止
+  │       时引用减；最后一个引用释放 → ~Agent → Shutdown join consolidation 线程
   │
   │  关键保障:
-  │  - GetAgent() 返回 shared_ptr，调用者持有强引用
-  │  - MemoryRuntime 由 SessionManager 拥有，不随 Agent 替换
-  │  - 所有 SessionEntry 和 ContextEngine 保持不变
-  │  - 旧 Agent 在最后一个 shared_ptr 释放后销毁
+  │  - 换 Agent 只发生在回合之间，回合内始终单 Agent
+  │  - 在途回合（含 ask_user 阻塞）由旧 Agent 服务到 final answer，不被 Cancel
+  │  - 存量 session 下一条新消息 → Invoke 发现 entry->agent 处于 draining
+  │    → 重绑到活跃 agent_ → 路由切换到新 Agent
+  │  - GetAgent() 返回 shared_ptr，调用者持有强引用，跨 reload 不悬空
+  │  - MemoryRuntime/HistoryStore/WorkerEnv 由 SessionManager 拥有，不随 Agent 替换
+  │  - 不 drain、不阻塞：运维立即返回，不等在途 Invoke 排空
 ```
 
 ## 7. 流式协议设计

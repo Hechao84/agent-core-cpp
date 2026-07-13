@@ -73,7 +73,7 @@ Agent
 
 > **轮询驱动而非事件驱动**：ConsolidationLoop 是**超时轮询**设计——每 `memoryConfig.idleConsolidationSeconds` 醒一次检查空闲会话，`cv_` 仅用于 `Shutdown` 提前退出（谓词 `!running_`）。`NotifySessionIdle` 只在 `sessionActivity_` 标记 `isBusy=false`，**不发 `cv_` 信号**。原因：wait 不能在 `sessionActivityMutex_`（L4）上长 wait（会阻塞 `IsSessionBusy`/`NotifySessionIdle`/`CleanupSession` 等所有 session-activity 操作），故 wait 用独立 `consolidationMutex_`（L3）；若在 L4 下 notify 而 wait 持 L3，是经典 CV mutex 不匹配。且无 per-session idle-since 时间戳，"空闲 N 秒"无法真正强制（轮询间隔即近似窗口）。真事件驱动需加 idle-since 时间戳 + 谓词查 idle 时长 + 最近 deadline 计算，属未来增强，不在当前范围。
 
-> **首轮 catch-up（`firstCycle`）**：`ConsolidationLoop` 用局部 `bool firstCycle`（初始 true）让首次迭代绕过 `anyIdle` 与 `hasNewActivity_` 两道门，无条件执行一次整合。动机：`ReloadAgent` 构造新 Agent 时，旧 Agent 最后一轮可能 `hasNewActivity_=true` 但未及整合就被销毁，新 Agent 的 `hasNewActivity_=false` 且 `sessionActivity_` 为空（sessions 在 SessionManager 侧保留，但未在新 Agent 的 activity 表注册）——两道门都阻断，pending 事件要等下次正常会话完成才被拾取。catch-up 让新 Agent 在首个轮询周期拾取这些遗留事件。`firstCycle` 是局部变量、与线程同寿：ReloadAgent 构造新 Agent → 新线程 → 新 `firstCycle=true`，天然重置，无需成员。**不抢占启动资源**：catch-up 不跳过步骤 1 的 `cv_.wait_for(memoryConfig.idleConsolidationSeconds)`，仍要等首个轮询周期到期才执行（最坏延迟 `memoryConfig.idleConsolidationSeconds`，默认 60s）——刻意不与启动初始化抢资源、不立即触发 LLM/模型构造，启动期资源只服务前台。安全性：启动瞬间无活跃会话（`ReloadAgent` 已 drain 到 `concurrentCount_==0`），绕过 `anyIdle` 不会与前台推理抢模型资源；无 pending 事件时 cursor 早退、不调 LLM，成本仅一次 `CreateModel` + 一次 SQLite cursor 查询。
+> **首轮 catch-up（`firstCycle`）**：`ConsolidationLoop` 用局部 `bool firstCycle`（初始 true）让首次迭代绕过 `anyIdle` 与 `hasNewActivity_` 两道门，无条件执行一次整合。动机：新构造的 Agent（`Initialize` 或 `ReloadAgent` 优雅退役构造的新 Agent）的 `hasNewActivity_=false` 且 `sessionActivity_` 为空（sessions 在 SessionManager 侧保留，但未在新 Agent 的 activity 表注册）——两道门都阻断，pending 事件要等下次正常会话完成才被拾取。catch-up 让新 Agent 在首个轮询周期拾取这些遗留事件。`firstCycle` 是局部变量、与线程同寿：ReloadAgent 构造新 Agent → 新线程 → 新 `firstCycle=true`，天然重置，无需成员。**不抢占启动资源**：catch-up 不跳过步骤 1 的 `cv_.wait_for(memoryConfig.idleConsolidationSeconds)`，仍要等首个轮询周期到期才执行（最坏延迟 `memoryConfig.idleConsolidationSeconds`，默认 60s）——刻意不与启动初始化抢资源、不立即触发 LLM/模型构造，启动期资源只服务前台。安全性：新 Agent 的 `sessionActivity_` 为空，catch-up 绕过 `anyIdle` 也不会与前台推理抢模型资源（整合用的是独立 `CreateModel` 调用，与前台 Invoke 各自独立）；无 pending 事件时 cursor 早退、不调 LLM，成本仅一次 `CreateModel` + 一次 SQLite cursor 查询。优雅退役下旧 Agent 不被立即销毁（由 `SessionEntry::agent` 引用计数保活至在途回合跑完），其 consolidation 线程在析构前仍会继续整合；catch-up 主要服务 `Initialize` 启动场景与新 Agent 拾取 cursor 遗留事件。
 
 > **活动门 `hasNewActivity_`**：`NotifySessionIdle` 置 `hasNewActivity_=true`（release 序），表示"有会话刚完成对话、事件已落入存储"。**条件置位**：若 `sessionId` 出现在 `config_.memoryConfig.excludedConsolidationSessionIds` 内（如 `__CRON__`/`__HEARTBEAT__` 等系统机械触发会话），则跳过置位——这些会话的事件已被排除出整合批，让它们唤醒脏标记会稀释"无新对话跳过 CreateModel"优化。**仍更新 `isBusy`**：排除集内的会话仍正常更新 `sessionActivity_[sessionId].isBusy`，保留忙闲追踪，不影响 `anyIdle` 门控（第一道门）。ConsolidationLoop 在通过 `anyIdle` 检查后、构造 Model 之前以 `hasNewActivity_.load()`（acquire 序）做快路径门控：为 false 则 `continue`，**完全跳过 `CreateModel` 与底层 cursor 查询**。这是纯性能提示——正确性仍由 agent-memory-cpp 的 cursor 幂等机制兜底（标记漏置最多延迟一个周期，多置最多多一次 cursor 查询）。清除时机采用 **clear-before**：进入整合分支后立即 `store(false)`，再调 `CreateModel`/`Consolidate`。若新对话在整合执行期间完成，`NotifySessionIdle` 会重新置位、下一周期处理，cursor 保证不漏不重；若整合抛异常，cursor 未推进、事件仍 pending，等下一次新对话触发时重试（后台 best-effort 语义，最坏延迟一个轮询周期）。
 
@@ -417,19 +417,19 @@ SessionManager ─────────────────────�
   │      └── ContextEngine::SetMemoryEventSink(                    │
   │              [=](event){ memoryRuntime->AppendEvent(event) })  │
   │                                                                │
-  │  Invoke(sessionId, message, callback)                          │
-  │  ├── 入口内联门控: 等待 !reloading_ + 并发槽位, ++count       │
-  │  ├── GetOrCreateSession → ContextEngine                        │
-  │  ├── agent_->Invoke(sessionId, message, callback)              │
-  │  └── releaseGate(): --count + 通知 concurrency/reload          │
-  │                                                                │
-  │  ReloadAgent(newConfig)                                        │
-  │  ├── 设置屏障，排空并发                                         │
-  │  ├── 构建新 Agent                                              │
-  │  ├── agent_ = make_shared(newAgent)                            │
-  │  ├── Cancel 旧 Agent                                          │
-  │  └── 释放屏障                                                  │
-  └───────────────────────────────────────────────────────────── │
+   │  Invoke(sessionId, message, callback)                          │
+   │  ├── 入口内联门控: 可选 maxConcurrent_ 限流, ++count            │
+   │  ├── GetOrCreateSession → ContextEngine                        │
+   │  ├── entry->agent（若 draining 则重绑到活跃 agent_）           │
+   │  ├── agentPtr->Invoke(sessionId, message, callback)            │
+   │  └── releaseGate(): --count + 通知 concurrency                 │
+   │                                                                │
+   │  ReloadAgent(newConfig)  —— 优雅退役（不 drain/Cancel）        │
+   │  ├── 构建新 Agent（失败则不动旧 Agent）                        │
+   │  ├── swap: agent_ = newAgent（持 sessionMutex_）                │
+   │  ├── oldAgent->MarkDraining()（旧 Agent 不接新 session）        │
+   │  └── 旧 Agent 由 SessionEntry::agent 引用计数自然消亡           │
+   └───────────────────────────────────────────────────────────── │
                                                                  │
 Agent ───────────────────────────────────────────────────────── │
   │  Invoke(sessionId, query, callback)                            │

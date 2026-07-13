@@ -44,6 +44,12 @@ struct SessionEntry
     std::shared_ptr<ContextEngine> contextEngine;
     std::unique_ptr<SessionTodoList> todoList;
     std::unique_ptr<AskUserDispatcher> askUser;
+    // 该 session 绑定的 Agent；ReloadAgent 后旧 Agent 由本引用保活，继续服务
+    // 该 session 的在途回合直至自然跑完。存量 session 的下一条新消息会因旧
+    // Agent 处于 draining 而重新绑定到当前活跃 Agent。与 contextEngine /
+    // todoList / askUser 同属会话级状态，生命周期跟随 SessionEntry（由
+    // shared_ptr 管理，跨 RemoveSession 的 in-flight 引用兜底）。
+    std::shared_ptr<Agent> agent;
     std::mutex invokeMutex; // Lock layer L3 (per-session call serialization)
     std::atomic<bool> isBusy{false};
     std::map<std::string, std::string> metadata; // channel, sender, etc.
@@ -118,11 +124,17 @@ public:
     //
     // The returned shared_ptr keeps the underlying Agent alive for the
     // caller's full use, even if ReloadAgent runs concurrently and swaps
-    // in a new Agent. In that case the old Agent is Cancel()ed during the
-    // swap and is destroyed only after the last external shared_ptr to it
-    // is released. Callers should therefore hold the shared_ptr only for
-    // the duration of a single request/command.
-    std::shared_ptr<Agent> GetAgent() const { return agent_; }
+    // in a new Agent (the old Agent is marked draining rather than
+    // cancelled, and is destroyed only after the last shared_ptr to it is
+    // released). The agent_ read is guarded by sessionMutex_ (the same lock
+    // ReloadAgent swaps agent_ under) so the shared_ptr copy cannot race
+    // with a reload. Callers should hold the shared_ptr only for the
+    // duration of a single request/command.
+    std::shared_ptr<Agent> GetAgent() const
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        return agent_;
+    }
 
     // Access the shared memory runtime owned by SessionManager. Returns
     // nullptr when memory is disabled or initialization failed. The runtime is
@@ -135,11 +147,15 @@ public:
     // fallback). Survives an Agent hot-reload (like memoryRuntime_).
     HistoryStore* GetHistoryStore() const { return historyStore_.get(); }
 
-    // Atomically rebuild the underlying Agent with a new config.
-    // Existing sessions (history/context) are preserved; in-flight calls are
-    // drained via the concurrency gate before the swap. Returns false if the
-    // new Agent could not be constructed - the old Agent stays in place in
-    // that case. On false, 'errorOut' (when non-null) receives a diagnostic.
+    // 优雅退役式热重载：构造新 Agent → 设为活跃（后续新 session 绑它）→
+    // 旧 Agent 标记 draining（不再接新 session 的在途回合，继续服务已绑定
+    // 它的存量 session 直至跑完）。不 drain、不 Cancel 旧 Agent，运维完全
+    // 不阻塞。旧 Agent 的析构由绑定它的 SessionEntry 的 shared_ptr 引用
+    // 计数驱动。Existing sessions (history/context) are preserved; in-flight
+    // calls are NOT interrupted — they keep running on the (now draining) old
+    // Agent until the turn completes. Returns false if the new Agent could
+    // not be constructed - the old Agent stays in place in that case. On
+    // false, 'errorOut' (when non-null) receives a diagnostic.
     bool ReloadAgent(const AgentConfig& newConfig, std::string* errorOut = nullptr);
 
     // Generate a session key from channel + chatId
@@ -217,15 +233,14 @@ private:
     mutable std::mutex sessionMutex_;  // Lock layer L2 (session registry)
     std::unordered_map<std::string, std::shared_ptr<SessionEntry>> sessions_;
 
-    // Global concurrency gate
-    mutable std::mutex concurrencyMutex_;  // Lock layer L1 (global concurrency gate + reload barrier)
+    // Global concurrency gate: optional maxConcurrentSessions limiter.
+    // ReloadAgent no longer raises a reload barrier (graceful shutdown:
+    // in-flight calls keep running on the draining old Agent). The gate
+    // is now purely an optional concurrency cap.
+    mutable std::mutex concurrencyMutex_;  // Lock layer L1 (global concurrency gate)
     std::condition_variable concurrencyCv_;
     int concurrentCount_{0};
     int maxConcurrent_{0};
-
-    // Reload barrier: when set, new Invoke calls wait until clear.
-    bool reloading_{false};
-    std::condition_variable reloadCv_;
 
     // requestId → sessionId index for routing ask_user responses.
     // Populated when AskUserDispatcher::EmitAskUser fires, cleared on

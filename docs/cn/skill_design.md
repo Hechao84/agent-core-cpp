@@ -245,7 +245,7 @@ RegisterSessionTool("skill_search", [](const ToolBuildContext& ctx) {
 });
 ```
 
-`ctx.skillEngine` 由 `AgentWorker::ExecuteTool` 构建 ctx 时从 `WorkerEnv::GetSkillEngine()` 填充，后者返回**当前活跃 Agent** 的 `SkillEngine`（`SessionManager::agent_->GetSkillEngine()`）。由于 `ReloadAgent` 先 drain 所有在飞 Invoke（`concurrencyCv_` 等待 `concurrentCount_==0`）再 swap `agent_`，Invoke 期间无并发写 `agent_`，故每次取的都是当前 Agent 的 SkillEngine——热重载后下一次 Invoke 自动拿到新 Agent 的 SkillEngine，无悬空指针。
+`ctx.skillEngine` 由 `AgentWorker::ExecuteTool` 构建 ctx 时从 `WorkerEnv::GetSkillEngine()` 填充。`SmWorkerEnv::GetSkillEngine()` 读的是**本回合绑定的 Agent**（`tlCurrentEntry_->agent`，即 `SessionEntry::agent`）而非全局活跃 `agent_`——这是"回合内始终单 Agent"语义的关键：在途回合执行 skill_search 时，即便中途 `ReloadAgent` 把活跃 `agent_` 换成新 Agent，本回合仍用旧（draining）Agent 的 `SkillEngine`。`ReloadAgent` 的 swap 在 `sessionMutex_` 下完成，`GetSkillEngine` 在回合内走 `tlCurrentEntry_->agent`（thread_local 缓存的 entry，其 `agent` 字段在 Invoke 入口已绑定/重绑、回合内不再被写），无锁读安全；仅在 Invoke 之外的兜底路径才持 `sessionMutex_` 读活跃 `agent_`。热重载后该 session 的下一条新消息因旧 Agent 处于 draining 而重绑到新 Agent，自动拿到新 Agent 的 `SkillEngine`，无悬空指针。
 
 > **所有权语义**：`SkillEngine` 仍是 Agent 级资源（所有会话共享、Agent 拥有），`ToolBuildContext` 只是 invoke 时的交付通道（非拥有指针）。"Agent 级 vs 会话级"是所有权区分，不影响经 ctx 交付——与 `todoList`/`askUser`/`memoryRuntime` 同模式。
 

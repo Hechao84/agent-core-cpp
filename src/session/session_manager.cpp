@@ -81,11 +81,26 @@ public:
 
     SkillEngine* GetSkillEngine() override
     {
-        // Safe without sessionMutex_: ReloadAgent drains all in-flight
-        // Invokes (concurrencyCv_ waits until concurrentCount_ == 0) before
-        // swapping agent_, so no concurrent writer exists during an Invoke.
-        // The read is fresh each call, so it always reflects the current
-        // Agent's SkillEngine (no stale pointer across reloads).
+        // During an Invoke, the cached SessionEntry holds the Agent bound to
+        // THIS turn (entry->agent, set/rebound under sessionMutex_ before
+        // SetCurrentEntry was called). Returning its SkillEngine upholds the
+        // "one turn, one Agent" invariant: even if ReloadAgent swaps the
+        // active agent_ mid-turn, this turn keeps using the bound (possibly
+        // draining) Agent's SkillEngine — never the new Agent's.
+        //
+        // Reading tlCurrentEntry_->agent is safe without sessionMutex_: the
+        // entry is held by a thread-local shared_ptr (only SetCurrentEntry /
+        // ClearCurrentEntry on this same thread touch it), and entry->agent is
+        // written only at Invoke entry (under sessionMutex_, before
+        // SetCurrentEntry) and never mutated by ReloadAgent. No concurrent
+        // writer exists during the turn.
+        if (tlCurrentEntry_ && tlCurrentEntry_->agent) {
+            return tlCurrentEntry_->agent->GetSkillEngine();
+        }
+        // Fallback (outside an Invoke, no cached entry): read the active
+        // agent_ under the same lock ReloadAgent swaps under, so the
+        // shared_ptr read does not race with a concurrent reload.
+        std::lock_guard<std::mutex> lock(sm_->sessionMutex_);
         return sm_->agent_ ? sm_->agent_->GetSkillEngine() : nullptr;
     }
 
@@ -408,6 +423,12 @@ std::shared_ptr<SessionEntry> SessionManager::FindOrCreateEntry(const std::strin
     auto entry = std::make_shared<SessionEntry>();
     entry->sessionId = sessionId;
 
+    // 绑定此刻的活跃 Agent。调用方（Initialize / Invoke / GetOrCreateSession）
+    // 均持 sessionMutex_，agent_ 在该锁下被 ReloadAgent swap，故绑定读到的是
+    // 一致的活跃 Agent。ReloadAgent 后旧 Agent 由本引用保活直至该 session
+    // 在途回合跑完。
+    entry->agent = agent_;
+
     entry->todoList = std::make_unique<SessionTodoList>();
     entry->askUser = std::make_unique<AskUserDispatcher>(sessionId, askRouter_.get());
 
@@ -476,21 +497,17 @@ SessionInvokeResult SessionManager::Invoke(
               << "\n[SessionManager] [" << sessionId << "] User query end";
 
     if (!initialized_) {
-        return SessionInvokeResult{"[ERROR] SessionManager not initialized", false, "Not initialized", sessionId};
+        return SessionInvokeResult{sessionId, false, "Not initialized", "[ERROR] SessionManager not initialized"};
     }
 
-    // Wait if a reload is in progress, then mark ourselves as in-flight.
-    // 'concurrentCount_' is reused as the reload-drain counter; it always
-    // tracks the number of Invoke calls currently between the gate enter
-    // and gate exit, regardless of whether the optional maxConcurrent gate
-    // is active.
+    // Optional concurrency cap (maxConcurrentSessions). ReloadAgent no longer
+    // raises a reload barrier (graceful shutdown: in-flight calls keep running
+    // on the draining old Agent), so this gate is purely a limiter.
     {
         std::unique_lock<std::mutex> lock(concurrencyMutex_);
-        reloadCv_.wait(lock, [this](){ return !reloading_; });
-        // If the optional concurrency cap is enabled, also wait for a slot.
         if (maxConcurrent_ > 0) {
             concurrencyCv_.wait(lock, [this](){
-                return !reloading_ && concurrentCount_ < maxConcurrent_;
+                return concurrentCount_ < maxConcurrent_;
             });
         }
         ++concurrentCount_;
@@ -500,13 +517,17 @@ SessionInvokeResult SessionManager::Invoke(
         std::lock_guard<std::mutex> lock(concurrencyMutex_);
         if (concurrentCount_ > 0) --concurrentCount_;
         concurrencyCv_.notify_all();
-        reloadCv_.notify_all();
     };
 
-    // Snapshot the current Agent; if a reload swaps after this point we
-    // still safely use the prior Agent for this call. The shared_ptr copy
-    // also guarantees the Agent stays alive even though the drain in
-    // ReloadAgent already waits for releaseGate before destruction.
+    // Snapshot the Agent bound to this session. New sessions bind the active
+    // agent_ at creation (FindOrCreateEntry); ReloadAgent swaps agent_ under
+    // sessionMutex_ and marks the old Agent draining. If this session's
+    // bound Agent is draining (a prior reload retired it), rebind to the
+    // current active Agent so this NEW turn runs on the new Agent. All of
+    // this happens under sessionMutex_ (same lock as the swap), so the
+    // read/rebind is race-free with ReloadAgent. The shared_ptr copy also
+    // guarantees the Agent stays alive for the full turn even if another
+    // reload retires it mid-turn.
     std::shared_ptr<Agent> agentPtr;
 
     // Find or create session entry
@@ -514,12 +535,15 @@ SessionInvokeResult SessionManager::Invoke(
     {
         std::lock_guard<std::mutex> lock(sessionMutex_);
         entry = FindOrCreateEntry(sessionId);
-        agentPtr = agent_;
+        if (entry->agent && entry->agent->IsDraining()) {
+            entry->agent = agent_;  // rebind to current active Agent
+        }
+        agentPtr = entry->agent;
     }
 
     if (!entry || !entry->contextEngine || !agentPtr) {
         releaseGate();
-        return SessionInvokeResult{"[ERROR] Failed to create session", false, "Create failed", sessionId};
+        return SessionInvokeResult{sessionId, false, "Create failed", "[ERROR] Failed to create session"};
     }
 
     // Cache the session entry in SmWorkerEnv so that subsequent
@@ -544,14 +568,14 @@ SessionInvokeResult SessionManager::Invoke(
         std::string err = "Invoke failed: " + std::string(e.what());
         LOG(ERR) << "[SessionManager] [" << sessionId << "] " << err;
 
-        return SessionInvokeResult{"", false, e.what(), sessionId};
+        return SessionInvokeResult{sessionId, false, e.what(), ""};
     }
 
     entry->isBusy = false;
     workerEnv_->ClearCurrentEntry();
     releaseGate();
 
-    return SessionInvokeResult{result, true, "", sessionId};
+    return SessionInvokeResult{sessionId, true, "", result};
 }
 
 SessionInvokeResult SessionManager::InvokeChannel(
@@ -567,25 +591,71 @@ SessionInvokeResult SessionManager::InvokeChannel(
 
 void SessionManager::Cancel()
 {
-    if (agent_) {
-        agent_->Cancel();
+    // Cancels the ACTIVE Agent's in-flight worker only. Draining (retired)
+    // Agents are intentionally not cancelled: their in-flight calls belong
+    // to existing sessions and the operator "abort current generation"
+    // semantics should not cross Agent boundaries. Per-session / per-Agent
+    // cancel is out of scope (full AgentPool territory).
+    // The agent_ read is guarded by sessionMutex_ (the same lock ReloadAgent
+    // swaps agent_ under) so the shared_ptr read cannot race with a reload.
+    // Agent::Cancel just bumps an atomic generation counter, so the lock hold
+    // is brief and acquires no nested locks.
+    std::shared_ptr<Agent> active;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        active = agent_;
+    }
+    if (active) {
+        active->Cancel();
     }
 }
 
 void SessionManager::Shutdown()
 {
-    // Stop the Agent's background consolidation thread so it is joined here
-    // rather than at static teardown. The singleton itself is never deleted
-    // (see InitSessionManager), so we only drain the Agent. Idempotent:
-    // Agent::Shutdown is safe to call repeatedly.
-    std::shared_ptr<Agent> agent = agent_;
-    if (agent) {
-        agent->Shutdown();
+    // Stop background consolidation threads so they are joined here rather
+    // than at static teardown. With graceful shutdown there may be multiple
+    // live Agents at once (the active one plus any draining ones still
+    // servicing in-flight turns on sessions bound to them). We collect the
+    // deduped set of all surviving Agent shared_ptrs (active + every
+    // session's bound agent) under sessionMutex_, then Shutdown each one
+    // outside the lock. Agent::Shutdown is idempotent, so the dedup is only
+    // to reduce noise. This guarantees no consolidation thread is left
+    // running when the process exits (which would risk data loss / UB at
+    // static destruction). Note: in-flight Invokes holding their own
+    // shared_ptr keep the Agent alive past this point; that is expected —
+    // Shutdown joins the consolidation thread, it does NOT abort in-flight
+    // turns. Callers must still stop all curl-using threads (heartbeat,
+    // cron, channels, HTTP) BEFORE invoking Shutdown.
+    std::vector<std::shared_ptr<Agent>> agents;
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        if (agent_) {
+            agents.push_back(agent_);
+        }
+        for (const auto& p : sessions_) {
+            if (p.second && p.second->agent) {
+                agents.push_back(p.second->agent);
+            }
+        }
+    }
+    // Dedupe (same Agent may be bound to multiple sessions).
+    std::sort(agents.begin(), agents.end(),
+              [](const std::shared_ptr<Agent>& a, const std::shared_ptr<Agent>& b) {
+                  return a.get() < b.get();
+              });
+    agents.erase(std::unique(agents.begin(), agents.end(),
+                             [](const std::shared_ptr<Agent>& a, const std::shared_ptr<Agent>& b) {
+                                 return a.get() == b.get();
+                             }),
+                 agents.end());
+
+    for (auto& a : agents) {
+        a->Shutdown();
     }
     // GlobalCleanup contract: curl_global_cleanup must run AFTER all
     // thread_local CURL handles are destroyed (i.e. after all curl-using
     // threads exit). SessionManager only owns the Agent consolidation
-    // thread (joined above); the caller MUST stop all other curl-using
+    // threads (joined above); the caller MUST stop all other curl-using
     // threads (heartbeat, cron, channels, HTTP) BEFORE invoking Shutdown —
     // see main.cpp's stop order (ConfigWatcher/Channels/HttpServer/cron/
     // heartbeat all stopped before Shutdown). GlobalCleanup is idempotent
@@ -594,26 +664,26 @@ void SessionManager::Shutdown()
     // thread_local destruction); it does NOT defend against the contract
     // violation of calling Shutdown while curl threads are still running —
     // that case needs explicit thread joining by the caller.
-    // TODO(future hardening): consider switching GlobalCleanup to atexit-only
-    // (drop the explicit call here) to remove the caller contract entirely,
-    // or add an active-handle counter assert. Tracked in round2 reply.
     CurlClient::GlobalCleanup();
 }
 
 bool SessionManager::IsSessionBusy(const std::string& sessionId) const
 {
-    // Release sessionMutex_ before calling agent_->IsSessionBusy (which
-    // acquires sessionActivityMutex_) to avoid lock-ordering violation:
-    // the protocol requires sessionMutex_ (L2) to be released before
-    // acquiring sessionActivityMutex_ (L4).
+    // Query the Agent the session is BOUND to (entry->agent), not the global
+    // active agent_. A session bound to a draining old Agent is tracked in
+    // THAT Agent's sessionActivity_; querying the active Agent would yield a
+    // false negative. Capture entry->agent under sessionMutex_ (same lock
+    // ReloadAgent swaps agent_ under, so the shared_ptr read cannot race),
+    // then release before calling Agent::IsSessionBusy (which acquires
+    // sessionActivityMutex_ L4) to respect the L2→L4 lock ordering.
+    std::shared_ptr<Agent> bound;
     {
         std::lock_guard<std::mutex> lock(sessionMutex_);
         auto it = sessions_.find(sessionId);
-        if (it == sessions_.end()) return false;
+        if (it == sessions_.end() || !it->second) return false;
+        bound = it->second->agent;
     }
-
-    auto amu = agent_.get();
-    if (amu) return amu->IsSessionBusy(sessionId);
+    if (bound) return bound->IsSessionBusy(sessionId);
     return false;
 }
 
@@ -716,9 +786,22 @@ void SessionManager::RemoveSession(const std::string& sessionId)
 
     // Clean up Agent::sessionActivity_ for the removed session. Called outside
     // sessionMutex_ to avoid lock-ordering violation (session > activity).
-    std::shared_ptr<Agent> agent = agent_;
-    if (agent) {
-        agent->CleanupSession(sessionId);
+    // Use the Agent the session was BOUND to (removed->agent), not the global
+    // active agent_: a session bound to a draining old Agent is tracked in
+    // THAT Agent's sessionActivity_; cleaning the active Agent would be a
+    // no-op and leave a stale entry in the old Agent's map. removed->agent is
+    // safe to read here: the entry is no longer in sessions_ (so no Invoke can
+    // rebind it) and ReloadAgent never mutates entry->agent, so there is no
+    // concurrent writer for THIS entry's agent field.
+    std::shared_ptr<Agent> boundAgent = removed ? removed->agent : nullptr;
+    // If the session was never in memory, fall back to the active agent so a
+    // stale activity entry (if any) is still cleaned.
+    if (!boundAgent) {
+        std::lock_guard<std::mutex> lock(sessionMutex_);
+        boundAgent = agent_;
+    }
+    if (boundAgent) {
+        boundAgent->CleanupSession(sessionId);
     }
 }
 
@@ -814,22 +897,10 @@ bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* erro
         return false;
     }
 
-    LOG(INFO) << "[SessionManager] ReloadAgent: draining in-flight requests...";
+    LOG(INFO) << "[SessionManager] ReloadAgent: graceful swap (no drain, no cancel)...";
 
-    // 1. Raise the reload barrier so new Invokes wait.
-    {
-        std::lock_guard<std::mutex> lock(concurrencyMutex_);
-        reloading_ = true;
-    }
-
-    // 2. Wait until all in-flight Invoke calls have completed.
-    {
-        std::unique_lock<std::mutex> lock(concurrencyMutex_);
-        concurrencyCv_.wait(lock, [this](){ return concurrentCount_ == 0; });
-    }
-
-    // 3. Build the new Agent BEFORE swapping; if construction fails,
-    //    we keep the old one and lower the barrier.
+    // 1. Construct the new Agent BEFORE touching the old one; if construction
+    //    fails we keep the old Agent untouched (no drain barrier to lower).
     std::shared_ptr<Agent> newAgent;
     try {
         AgentConfig effective = newConfig;
@@ -858,18 +929,19 @@ bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* erro
                       << " MCP tool(s) into reloaded agent";
         }
     } catch (const std::exception& e) {
-        {
-            std::lock_guard<std::mutex> lock(concurrencyMutex_);
-            reloading_ = false;
-        }
-        reloadCv_.notify_all();
         LOG(ERR) << "[SessionManager] ReloadAgent: new Agent construction failed: "
                  << e.what() << ". Keeping old Agent.";
         if (errorOut) *errorOut = e.what();
-        return false;
+        return false;  // old Agent untouched
     }
 
-    // 4. Atomic swap (under sessionMutex_ to serialize with new Invokes).
+    // 2. Atomic swap under sessionMutex_ (same lock Invoke uses for the
+    //    entry->agent read/rebind): active Agent becomes the new Agent; the
+    //    old Agent is marked draining — it no longer accepts NEW turns from
+    //    sessions bound to it (Invoke rebinds draining-bound sessions to the
+    //    active Agent), but it continues servicing in-flight turns already
+    //    running on it (those calls hold a shared_ptr to it). The old Agent
+    //    is NOT cancelled: in-flight turns must run to completion.
     std::shared_ptr<Agent> oldAgent;
     {
         std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -881,25 +953,22 @@ bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* erro
         }
         oldAgent = std::move(agent_);
         agent_ = std::move(newAgent);
+        if (oldAgent) {
+            oldAgent->MarkDraining();  // no new turns; in-flight ones continue
+        }
         SetupAgentContextRouting();
     }
 
-    // 5. Lower the barrier — let waiting Invokes proceed.
-    {
-        std::lock_guard<std::mutex> lock(concurrencyMutex_);
-        reloading_ = false;
-    }
-    reloadCv_.notify_all();
-    concurrencyCv_.notify_all();
-
-    // 6. Cancel and release the old agent OUTSIDE the lock.
-    if (oldAgent) {
-        oldAgent->Cancel();
-        oldAgent.reset();
-    }
-
-    LOG(INFO) << "[SessionManager] ReloadAgent: swap complete. Sessions preserved="
-              << GetSessionIds().size();
+    // 3. The old Agent is NOT cancelled and NOT explicitly released here.
+    //    Its shared_ptr is kept alive by every SessionEntry that bound it
+    //    (entry->agent). As each bound session's in-flight turn completes
+    //    and the entry is reused for a new turn, Invoke rebinds entry->agent
+    //    to the active Agent, dropping the old reference. When the last
+    //    reference drops, ~Agent -> Shutdown joins the consolidation thread
+    //    and the old Agent is reclaimed naturally. 'oldAgent' here only
+    //    releases ReloadAgent's own local reference.
+    LOG(INFO) << "[SessionManager] ReloadAgent: graceful swap complete. Old agent draining, "
+              << "sessions preserved=" << GetSessionIds().size();
     return true;
 }
 

@@ -40,6 +40,13 @@ public:
     bool IsSessionBusy(const std::string& sessionId) const;
     void Cancel();
 
+    // 退役标志：由 SessionManager::ReloadAgent 在新建替换 Agent 后对旧 Agent 置位。
+    // draining 的 Agent 不再接新 session 的在途回合（Invoke 路由会重绑到活跃 Agent），
+    // 但继续服务已绑定它的存量 session 的在途 Invoke 直至自然跑完。仅 advisory
+    // 路由提示，不改变 Invoke 内部行为。
+    void MarkDraining() { draining_.store(true, std::memory_order_release); }
+    bool IsDraining() const { return draining_.load(std::memory_order_acquire); }
+
     // Stop background work (the consolidation thread) and join it. Idempotent:
     // safe to call multiple times and is also invoked by the destructor. Lets
     // the application drain the agent gracefully on shutdown without relying on
@@ -95,6 +102,10 @@ private:
     mutable std::mutex consolidationMutex_;  // Lock layer L3 (consolidation thread CV)
     std::condition_variable cv_;
     std::atomic<bool> running_{true};
+
+    // 退役标志：跨 Agent 对象实例的读写（写在 ReloadAgent 持 sessionMutex_、
+    // 读在 Invoke 持 sessionMutex_），故必须原子。仅 advisory 路由提示。
+    std::atomic<bool> draining_{false};
 
     HistoryStore* historyStore_{nullptr};  // non-owning, owned by SessionManager
     std::unique_ptr<LongTermConsolidator> longTermConsolidator_;
