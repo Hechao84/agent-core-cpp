@@ -6,6 +6,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unordered_set>
@@ -16,6 +17,7 @@
 #include "src/context_engine/context_engine.h"
 #include "src/core/ask_user_dispatcher.h"
 #include "src/core/session_todo_list.h"
+#include "src/core/tool_turn_state.h"
 #include "src/core/worker_env.h"
 #include "src/skills/skill_engine.h"
 #include "src/tools/tool_selector.h"
@@ -30,6 +32,19 @@ namespace jiuwen {
 AgentWorker::AgentWorker(AgentConfig config) : config_(std::move(config))
 {
     toolSelector_ = std::make_unique<ToolSelector>();
+    // v1 fallback warnings (one-shot per Agent construction; ReloadAgent
+    // re-constructs so a reloaded config re-evaluates). AUTO is not
+    // implemented (no budget-driven selection), so it degrades to DISABLED
+    // behavior. SELECTIVE is implemented for the FC/catalog mechanics but
+    // findRelevant (turn-start active-set seeding) is v2; in v1 SELECTIVE
+    // falls back to PROGRESSIVE active-set behavior (seed full pool).
+    if (config_.toolDisclosureMode == ToolDisclosureMode::AUTO) {
+        LOG(WARN) << "[AgentWorker] toolDisclosureMode=auto is not implemented in v1; "
+                  << "falling back to disabled behavior. Set disabled/progressive/selective explicitly.";
+    } else if (config_.toolDisclosureMode == ToolDisclosureMode::SELECTIVE) {
+        LOG(WARN) << "[AgentWorker] toolDisclosureMode=selective: findRelevant is v2; v1 seeds the "
+                  << "active set with the full pool (progressive behavior). FC/catalog mechanics are active.";
+    }
 }
 
 void AgentWorker::Cancel()
@@ -123,13 +138,64 @@ void AgentWorker::SetWorkerEnv(WorkerEnv* env)
     workerEnv_ = env;
 }
 
+bool AgentWorker::IsProgressiveDisclosureActive() const
+{
+    // AUTO resolves to DISABLED in v1 (no budget-driven selection); the
+    // constructor logs the fallback. PROGRESSIVE and SELECTIVE both use the
+    // Tier 1 catalog + load + tool_search mechanics (SELECTIVE's findRelevant
+    // is the v2 delta, orthogonal to this FC/catalog branch).
+    return config_.toolDisclosureMode == ToolDisclosureMode::PROGRESSIVE
+        || config_.toolDisclosureMode == ToolDisclosureMode::SELECTIVE;
+}
+
+std::set<std::string> AgentWorker::ComputeAlwaysOn() const
+{
+    return ComputeAlwaysOnFor(config_);
+}
+
+std::set<std::string> ComputeAlwaysOnFor(const AgentConfig& config)
+{
+    std::set<std::string> alwaysOn = MetaToolNames();
+    for (const auto& t : config.alwaysOnTools) {
+        alwaysOn.insert(t);
+    }
+    return alwaysOn;
+}
+
+const std::set<std::string>& MetaToolNames()
+{
+    static const std::set<std::string> kMetaTools = {"tool_search", "skill_search"};
+    return kMetaTools;
+}
+
 std::vector<ToolSchema> AgentWorker::BuildToolSchemas() const
 {
-    std::vector<std::string> names;
-    {
-        std::lock_guard<std::mutex> lock(toolMutex_);
-        names = toolNames_;
+    if (!IsProgressiveDisclosureActive()) {
+        // disabled / auto(v1→disabled): full toolNames_ resident (current
+        // behavior, zero regression). Snapshot under toolMutex_, call RM
+        // outside the lock (RM acquires its own toolMutex_).
+        std::vector<std::string> names;
+        {
+            std::lock_guard<std::mutex> lock(toolMutex_);
+            names = toolNames_;
+        }
+        return ResourceManager::GetInstance().BuildToolSchemas(names);
     }
+    // progressive/selective: FC = alwaysOn ∪ loadedTools. loadedTools lives
+    // on the current SessionEntry (per-turn, read via TLS); alwaysOn is
+    // computed here from config_. Both contribute only names; RM renders
+    // the full schemas (and skips unknown names silently, so an alwaysOn
+    // name that isn't registered — e.g. tool_search under a misconfig — is
+    // just absent rather than crashing).
+    std::set<std::string> fcNames = ComputeAlwaysOn();
+    if (workerEnv_ != nullptr) {
+        ToolTurnState* ts = workerEnv_->GetCurrentTurnState();
+        if (ts != nullptr) {
+            const auto& loaded = ts->getLoadedTools();
+            fcNames.insert(loaded.begin(), loaded.end());
+        }
+    }
+    std::vector<std::string> names(fcNames.begin(), fcNames.end());
     return ResourceManager::GetInstance().BuildToolSchemas(names);
 }
 
@@ -223,7 +289,38 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
     }
 
     // 6. Get tool schema into {$tools}
-    vars["tools"] = GetToolSchemaForQuery(query);
+    if (IsProgressiveDisclosureActive() && workerEnv_ != nullptr) {
+        // progressive/selective: Tier 1 catalog = name+desc (no params) for
+        // visibleNames = active ∪ alwaysOn. BuildPrompt runs every React
+        // iteration (react_worker.cpp:89, inside the for loop), so the
+        // catalog reflects the current active set (which grows via
+        // tool_search.search across iterations). Native FC: flat list
+        // (protocol restricts calls). Prompt-mode: split into "directly
+        // callable" / "requires load first" sections.
+        ToolTurnState* ts = workerEnv_->GetCurrentTurnState();
+        if (ts != nullptr) {
+            const auto& active = ts->getActiveSet();
+            const auto& loaded = ts->getLoadedTools();
+            auto alwaysOn = ComputeAlwaysOn();
+            std::set<std::string> visible, callable;
+            visible.insert(active.begin(), active.end());
+            visible.insert(alwaysOn.begin(), alwaysOn.end());
+            callable.insert(loaded.begin(), loaded.end());
+            callable.insert(alwaysOn.begin(), alwaysOn.end());
+            auto renderMode = config_.modelConfig.useNativeFunctionCalling
+                ? ResourceManager::CatalogRenderMode::NativeFc
+                : ResourceManager::CatalogRenderMode::PromptMode;
+            vars["tools"] = ResourceManager::GetInstance().GetToolCatalog(visible, renderMode, callable);
+        } else {
+            // Outside an Invoke context (offline probe): fall back to full
+            // schemas so BuildPrompt still produces something usable.
+            vars["tools"] = GetToolSchemaForQuery(query);
+        }
+    } else {
+        // disabled / auto(v1→disabled): full schemas resident (current
+        // behavior, zero regression).
+        vars["tools"] = GetToolSchemaForQuery(query);
+    }
 
     // 7. Load memory context into {$memory}
     if (contextEngine) {
@@ -293,6 +390,14 @@ std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::str
                 ctx.askUser = workerEnv_->GetAskUserDispatcher(ctx.sessionId);
                 ctx.memoryRuntime = workerEnv_->GetMemoryRuntime();
                 ctx.skillEngine = workerEnv_->GetSkillEngine();
+                // Per-turn disclosure state (§5.2 turnState channel). The
+                // proxy on the current SessionEntry (lazily created by
+                // SmWorkerEnv::GetCurrentTurnState); tool_search reads
+                // getActiveSet/getLoadedTools/isActiveFullPool through it.
+                // The short-circuit decision for search is based on
+                // isActiveFullPool() (runtime state), not a mode label, so
+                // no toolDisclosureMode value is threaded into the ctx.
+                ctx.turnState = workerEnv_->GetCurrentTurnState();
             }
             tool = rm.CreateSessionTool(toolName, ctx);
         } else {

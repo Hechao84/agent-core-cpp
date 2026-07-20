@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -24,6 +25,7 @@ class AskUserDispatcher;
 class AskUserRouter;
 class WorkerEnv;
 class HistoryStore;
+class ToolTurnState;  // Per-turn disclosure state proxy (full def in src/core/tool_turn_state.h; internal, not exported)
 
 // Reserved session id used by the core library as the MakeSessionKey fallback
 // when both channel and chatId are empty. Application layers should define
@@ -53,6 +55,23 @@ struct SessionEntry
     std::mutex invokeMutex; // Lock layer L3 (per-session call serialization)
     std::atomic<bool> isBusy{false};
     std::map<std::string, std::string> metadata; // channel, sender, etc.
+
+    // Progressive tool disclosure per-turn state (round5 design §5.2).
+    // activeSet/loadedTools are cleared at the start of each Invoke (per-turn
+    // reset) while the SessionEntry itself persists across turns (per-session
+    // host). turnStateProxy is the ToolTurnState implementation that forwards
+    // load/search/getActiveSet/getLoadedTools to these two sets; lazily
+    // constructed once per SessionEntry by SmWorkerEnv::GetCurrentTurnState()
+    // and stable thereafter (only the set contents reset, not the proxy).
+    std::set<std::string> activeSet;
+    std::set<std::string> loadedTools;
+    std::unique_ptr<ToolTurnState> turnStateProxy;
+
+    // Defined out-of-line in the .cpp (where ToolTurnState is complete) so
+    // the std::unique_ptr<ToolTurnState> member can be destroyed without the
+    // full type definition leaking into this public header (tool_turn_state.h
+    // is an internal header under src/core/ — only forward-declared here).
+    ~SessionEntry();
 };
 
 class AGENT_API SessionManager

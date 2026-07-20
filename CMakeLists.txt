@@ -144,6 +144,7 @@ add_library(agent_framework SHARED
     src/context_engine/storage_base.cpp
     src/context_engine/json_storage.cpp
     src/context_engine/db_storage.cpp
+    src/core/tool_turn_state_proxy.cpp
     src/memory/http_memory_runtime.cpp
     src/memory/long_term_consolidator.cpp
     src/tools/builtin_tools/memory_read_payload_tool.cpp
@@ -167,6 +168,7 @@ add_library(agent_framework SHARED
     src/tools/builtin_tools/grep_tool.cpp
     src/tools/builtin_tools/exec_tool.cpp
     src/tools/builtin_tools/skill_search_tool.cpp
+    src/tools/builtin_tools/tool_search_tool.cpp
     src/tools/builtin_tools/file_state_tool.cpp
     src/tools/builtin_tools/todo_tool.cpp
     src/tools/builtin_tools/ask_user_tool.cpp
@@ -360,6 +362,7 @@ add_executable(unittest
     unittest/test_consolidation_loop.cpp
     unittest/test_session_manager.cpp
     unittest/test_reload_agent_graceful.cpp
+    unittest/test_progressive_disclosure.cpp
 )
 target_include_directories(unittest PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 

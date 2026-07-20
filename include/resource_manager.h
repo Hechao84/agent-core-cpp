@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -19,6 +20,7 @@ class MCPConnection;
 class SessionTodoList;
 class AskUserDispatcher;
 class SkillEngine;
+class ToolTurnState;  // Per-turn tool disclosure state (full def in src/core/tool_turn_state.h; internal, not exported)
 
 // Context for session-scoped tool construction. When a tool instance is
 // created for actual execution (via CreateSessionTool), the pointers are
@@ -33,6 +35,12 @@ struct ToolBuildContext {
     AskUserDispatcher* askUser{nullptr};
     MemoryRuntime* memoryRuntime{nullptr};
     SkillEngine* skillEngine{nullptr};  // Agent-scoped (shared across sessions), non-owning
+    // Per-turn tool disclosure state. nullptr in the null-ctx probe path
+    // (schema extraction only); populated at runtime by ExecuteTool via
+    // workerEnv_->GetCurrentTurnState() pointing at the current SessionEntry's
+    // proxy. tool_search uses it for load/search/getActiveSet/getLoadedTools/
+    // isActiveFullPool.
+    ToolTurnState* turnState{nullptr};
     std::function<void(const std::string&)> streamCallback;
     std::string sessionId;
 };
@@ -78,6 +86,26 @@ public:
     // Build native function-calling tool schemas for the requested tools.
     // Unknown tool names are silently skipped.
     std::vector<ToolSchema> BuildToolSchemas(const std::vector<std::string>& toolNames);
+
+    // Rendering mode for the Tier 1 name+description catalog (no parameters).
+    // NativeFc: single list (the native FC protocol hard-restricts calls to
+    //   the FC array, so a flat catalog suffices).
+    // PromptMode: split into "directly callable" / "requires tool_search load
+    //   first" sections, since prompt-mode has no protocol-level call gate
+    //   and the model could otherwise hallucinate a tool_call for a tool it
+    //   never loaded.
+    enum class CatalogRenderMode { NativeFc, PromptMode };
+
+    // Tier 1 short catalog: name+description only (no parameters) for the
+    // names in visibleNames. Description is sourced from the ToolSchema cache
+    // (functionCallSchemas_) when present, else probed from Tool::GetDescription()
+    // and cached. renderMode selects flat vs two-section layout (see
+    // CatalogRenderMode); callableNames (= alwaysOn ∪ loadedTools) is used only
+    // in PromptMode to split the catalog. Non-const because the probe path
+    // populates functionCallSchemas_ (mirrors GetToolSchema/BuildToolSchemas).
+    std::string GetToolCatalog(const std::set<std::string>& visibleNames,
+                               CatalogRenderMode renderMode,
+                               const std::set<std::string>& callableNames);
 
     std::vector<std::string> GetAvailableTools() const;
     std::vector<std::string> GetAvailableModels() const;

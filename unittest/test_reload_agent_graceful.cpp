@@ -438,7 +438,7 @@ TEST(reload_graceful, InFlightTurnUsesBoundAgentSkillEngineAcrossReload)
             return std::make_unique<ImmediateStubModel>("new-done");
         });
     // Session tool: factory writes ctx.skillEngine (populated from
-    // WorkerEnv::GetSkillEngine at agent_worker.cpp:295) into the probe, then
+    // WorkerEnv::GetSkillEngine at agent_worker.cpp:392) into the probe, then
     // constructs the no-op recorder tool.
     ResourceManager::GetInstance().RegisterSessionTool(
         "record_skill_engine",

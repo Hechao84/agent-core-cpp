@@ -289,6 +289,107 @@ std::vector<ToolSchema> ResourceManager::BuildToolSchemas(const std::vector<std:
     return schemas;
 }
 
+std::string ResourceManager::GetToolCatalog(const std::set<std::string>& visibleNames,
+                                            CatalogRenderMode renderMode,
+                                            const std::set<std::string>& callableNames)
+{
+    // Resolve description for each visible name: prefer the functionCallSchemas_
+    // cache (already populated for FC tools by BuildToolSchemas); probe
+    // Tool::GetDescription() for the rest. Probing mirrors BuildToolSchemas'
+    // pattern (lock-internal lookup → lock-external instantiate → lock-internal
+    // cache write) so we never nest two L5 acquisitions.
+    auto resolveDescription = [this](const std::string& name) -> std::string {
+        {
+            std::lock_guard<std::mutex> lock(toolMutex_);
+            auto cached = functionCallSchemas_.find(name);
+            if (cached != functionCallSchemas_.end()) {
+                return cached->second.description;
+            }
+        }
+        // Probe path: look up the factory under the lock, instantiate outside.
+        bool isSession = false;
+        SessionToolFactory sessionFactory;
+        std::function<std::unique_ptr<Tool>()> statelessFactory;
+        {
+            std::lock_guard<std::mutex> lock(toolMutex_);
+            auto sit = sessionToolFactories_.find(name);
+            if (sit != sessionToolFactories_.end()) {
+                isSession = true;
+                sessionFactory = sit->second;
+            } else {
+                auto tit = toolFactories_.find(name);
+                if (tit != toolFactories_.end()) {
+                    statelessFactory = tit->second;
+                } else {
+                    return "";  // unknown tool — skip in catalog
+                }
+            }
+        }
+        ToolBuildContext probeCtx;  // null-ctx probe (no runtime deps)
+        std::unique_ptr<Tool> probe;
+        try {
+            if (isSession) {
+                probe = sessionFactory(probeCtx);
+            } else {
+                probe = statelessFactory();
+            }
+        } catch (const std::exception&) {
+            return "";
+        }
+        if (!probe) return "";
+        std::string desc = probe->GetDescription();
+        // Cache the full ToolSchema so subsequent calls (and BuildToolSchemas)
+        // hit the cache rather than re-probing.
+        ToolSchema s;
+        s.name = probe->GetName();
+        s.description = desc;
+        s.parameters = probe->GetJsonSchema();
+        {
+            std::lock_guard<std::mutex> lock(toolMutex_);
+            functionCallSchemas_[name] = s;
+        }
+        return desc;
+    };
+
+    if (renderMode == CatalogRenderMode::NativeFc) {
+        // Flat list: name+desc for all visible names. No "requires load"
+        // split — the native FC protocol hard-restricts calls to the FC
+        // array, so a flat catalog suffices (§5.1 native FC catalog).
+        std::string result = "Available Tools (name + description; use tool_search load to enable a tool):\n";
+        for (const auto& name : visibleNames) {
+            std::string desc = resolveDescription(name);
+            if (desc.empty()) continue;
+            result += "- " + name + ": " + desc + "\n";
+        }
+        return result;
+    }
+
+    // PromptMode: two-section split so the model can tell which tools it can
+    // call directly (full schema in system prompt via Format) vs which need
+    // a prior tool_search load (§5.1 prompt-mode catalog). callableNames =
+    // alwaysOn ∪ loadedTools; "requires load" = visibleNames ∖ callableNames.
+    std::string direct = "## Available Tools (可直接调用)\n";
+    std::string needsLoad = "## Tools requiring tool_search load first (调用前必须先 load)\n";
+    bool anyDirect = false;
+    bool anyNeedsLoad = false;
+    for (const auto& name : visibleNames) {
+        std::string desc = resolveDescription(name);
+        if (desc.empty()) continue;
+        if (callableNames.count(name) > 0) {
+            direct += "- " + name + ": " + desc + "\n";
+            anyDirect = true;
+        } else {
+            needsLoad += "- " + name + ": " + desc + "\n";
+            anyNeedsLoad = true;
+        }
+    }
+    std::string result;
+    if (anyDirect) result += direct + "\n";
+    if (anyNeedsLoad) result += needsLoad + "\n";
+    if (result.empty()) result = "No tools available.";
+    return result;
+}
+
 void ResourceManager::RegisterModel(
     ModelFormatType type, std::function<std::unique_ptr<Model>(const ModelConfig&)> factory)
 {

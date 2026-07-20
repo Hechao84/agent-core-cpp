@@ -10,6 +10,7 @@ class SessionTodoList;
 class AskUserDispatcher;
 class MemoryRuntime;
 class SkillEngine;
+class ToolTurnState;
 
 struct SessionEntry;
 
@@ -39,6 +40,20 @@ public:
 
     virtual void SetCurrentEntry(std::shared_ptr<SessionEntry> entry) = 0;
     virtual void ClearCurrentEntry() = 0;
+
+    // Returns the per-turn tool disclosure state for the current session
+    // (the ToolTurnState proxy owned by the current SessionEntry). Both
+    // AgentWorker::BuildToolSchemas (reads loadedTools to rebuild FC =
+    // alwaysOn ∪ loadedTools each iteration) and the tool_search tool
+    // (writes loadedTools/activeSet via ToolBuildContext.turnState) must
+    // reach the SAME per-turn state object — this returns it.
+    //
+    // Single-path (not the GetSkillEngine() double-path): if tlCurrentEntry_
+    // is set, lazily constructs the proxy on it (once per SessionEntry) and
+    // returns it; if tlCurrentEntry_ is null (outside an Invoke), returns
+    // nullptr. turnState is per-SessionEntry (not per-Agent like SkillEngine),
+    // so there is no global fallback to query when no current entry exists.
+    virtual ToolTurnState* GetCurrentTurnState() = 0;
 };
 
 } // namespace jiuwen

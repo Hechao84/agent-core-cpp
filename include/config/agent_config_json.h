@@ -35,6 +35,9 @@ AGENT_API bool PromptResourceTypeFromString(const std::string& s, PromptResource
 AGENT_API std::string StorageTypeToString(ContextConfig::StorageType t);
 AGENT_API bool StorageTypeFromString(const std::string& s, ContextConfig::StorageType& out);
 
+AGENT_API std::string ToolDisclosureModeToString(ToolDisclosureMode m);
+AGENT_API bool ToolDisclosureModeFromString(const std::string& s, ToolDisclosureMode& out);
+
 // ConfigNode <-> JSON (used by ModelConfig.extraParams).
 AGENT_API nlohmann::json ConfigNodeToJson(const ConfigNode& node);
 AGENT_API void ConfigNodeFromJson(const nlohmann::json& j, ConfigNode& out);

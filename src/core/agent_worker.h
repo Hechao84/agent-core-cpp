@@ -5,6 +5,7 @@
 #include <functional>
 #include <mutex>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -68,6 +69,17 @@ protected:
     std::string ExecuteTool(const std::string& toolName, const std::string& input,
                             const std::function<void(const std::string&)>& streamCallback);
     std::string GetToolSchemaForQuery(const std::string& query);
+    // Returns true when progressive disclosure is active (PROGRESSIVE or
+    // SELECTIVE mode). AUTO resolves to DISABLED in v1 (no budget-driven
+    // selection yet), so it returns false for AUTO. Centralizes the mode
+    // branch so BuildToolSchemas/BuildPrompt/Invoke share one resolution point.
+    bool IsProgressiveDisclosureActive() const;
+    // alwaysOn = MetaToolNames() ∪ config_.alwaysOnTools, via
+    // ComputeAlwaysOnFor(config_). Computed here (AgentWorker holds config_)
+    // and consumed by BuildToolSchemas (FC = alwaysOn ∪ loadedTools) and
+    // BuildPrompt (visible = active ∪ alwaysOn, callable = alwaysOn ∪
+    // loaded).
+    std::set<std::string> ComputeAlwaysOn() const;
     // Returns true when the invocation identified by myGeneration has been
     // cancelled (i.e. Cancel() advanced cancelGeneration_ past myGeneration).
     bool IsCancelled(uint64_t myGeneration) const;
@@ -81,5 +93,23 @@ protected:
 };
 
 std::unique_ptr<AgentWorker> CreateAgentWorker(AgentConfig config);
+
+// The meta-tools that the progressive-disclosure mechanism itself introduces
+// (the escape valves: tool_search for tool recall, skill_search for skill
+// recall). They are always in the alwaysOn set under PROGRESSIVE/SELECTIVE
+// modes (otherwise the escape valve deadlocks). Single source for this list
+// — consumed by ComputeAlwaysOnFor() below and by SessionManager's
+// tool_search registration lambda (which injects the full alwaysOn set into
+// ToolSearchTool so its load action can idempotently short-circuit on ANY
+// alwaysOn name, not just the meta-tools). Returns a reference to a static
+// set so callers can compare addresses / use without copying.
+const std::set<std::string>& MetaToolNames();
+
+// alwaysOn = MetaToolNames() ∪ config.alwaysOnTools. Free function form so
+// callers without an AgentWorker instance (notably SessionManager's
+// tool_search registration lambda, which has only the AgentConfig at
+// registration time) can compute the same set AgentWorker::ComputeAlwaysOn()
+// produces. Keeps the meta-tools name list and the union logic in one place.
+std::set<std::string> ComputeAlwaysOnFor(const AgentConfig& config);
 
 } // namespace jiuwen

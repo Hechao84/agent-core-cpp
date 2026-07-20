@@ -80,6 +80,26 @@ bool StorageTypeFromString(const std::string& s, ContextConfig::StorageType& out
     return false;
 }
 
+std::string ToolDisclosureModeToString(ToolDisclosureMode m)
+{
+    switch (m) {
+        case ToolDisclosureMode::DISABLED:    return "disabled";
+        case ToolDisclosureMode::PROGRESSIVE: return "progressive";
+        case ToolDisclosureMode::SELECTIVE:   return "selective";
+        case ToolDisclosureMode::AUTO:        return "auto";
+    }
+    return "disabled";
+}
+
+bool ToolDisclosureModeFromString(const std::string& s, ToolDisclosureMode& out)
+{
+    if (s == "disabled")    { out = ToolDisclosureMode::DISABLED;    return true; }
+    if (s == "progressive") { out = ToolDisclosureMode::PROGRESSIVE; return true; }
+    if (s == "selective")   { out = ToolDisclosureMode::SELECTIVE;   return true; }
+    if (s == "auto")        { out = ToolDisclosureMode::AUTO;       return true; }
+    return false;
+}
+
 // ConfigNode <-> JSON helpers (recursive)
 nlohmann::json ConfigNodeToJson(const ConfigNode& node)
 {
@@ -418,6 +438,21 @@ void MergeAgentConfigFromJson(const nlohmann::json& j, AgentConfig& out)
         }
         out.mcpServerIds = std::move(ids);
     }
+    if (j.contains("toolDisclosureMode")) {
+        ToolDisclosureMode m;
+        if (ToolDisclosureModeFromString(j["toolDisclosureMode"].get<std::string>(), m)) {
+            out.toolDisclosureMode = m;
+        }
+    }
+    if (j.contains("toolSchemaTokenBudget"))  out.toolSchemaTokenBudget  = j["toolSchemaTokenBudget"].get<int>();
+    if (j.contains("toolCatalogTokenBudget")) out.toolCatalogTokenBudget = j["toolCatalogTokenBudget"].get<int>();
+    if (j.contains("alwaysOnTools") && j["alwaysOnTools"].is_array()) {
+        std::vector<std::string> tools;
+        for (const auto& t : j["alwaysOnTools"]) {
+            if (t.is_string()) tools.push_back(t.get<std::string>());
+        }
+        out.alwaysOnTools = std::move(tools);
+    }
 }
 
 nlohmann::json AgentConfigToJson(const AgentConfig& cfg)
@@ -439,6 +474,10 @@ nlohmann::json AgentConfigToJson(const AgentConfig& cfg)
     j["maxConcurrentSessions"] = cfg.maxConcurrentSessions;
     j["defaultTools"]          = cfg.defaultTools;
     j["mcpServerIds"]          = cfg.mcpServerIds;
+    j["toolDisclosureMode"]   = ToolDisclosureModeToString(cfg.toolDisclosureMode);
+    j["toolSchemaTokenBudget"]  = cfg.toolSchemaTokenBudget;
+    j["toolCatalogTokenBudget"] = cfg.toolCatalogTokenBudget;
+    j["alwaysOnTools"]        = cfg.alwaysOnTools;
     return j;
 }
 

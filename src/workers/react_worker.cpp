@@ -9,6 +9,7 @@
 
 #include "include/memory_runtime.h"
 #include "src/context_engine/context_engine.h"
+#include "src/core/tool_turn_state.h"
 #include "src/core/worker_env.h"
 #include "src/utils/logger.h"
 #include "src/utils/tool_parser.h"
@@ -204,6 +205,26 @@ std::string ReactAgentWorker::Invoke(const std::string& query, ContextEngine* co
                                       std::function<void(const std::string&)> callback)
 {
     uint64_t myGeneration = CurrentCancelGeneration();
+
+    // Progressive disclosure per-turn state setup (§5.2): reset the previous
+    // turn's activeSet/loadedTools and seed activeSet with the full pool.
+    // progressive: active = full pool; selective v1: falls back to progressive
+    // seeding (findRelevant is v2); disabled/auto(v1→disabled): skip (no
+    // active set concept). Runs before ReactLoop so BuildPrompt's first
+    // iteration already sees a populated active set.
+    if (IsProgressiveDisclosureActive() && workerEnv_ != nullptr) {
+        ToolTurnState* ts = workerEnv_->GetCurrentTurnState();
+        if (ts != nullptr) {
+            ts->reset();
+            std::vector<std::string> pool;
+            {
+                std::lock_guard<std::mutex> lock(toolMutex_);
+                pool = toolNames_;
+            }
+            ts->seedActive(pool);
+        }
+    }
+
     return ReactLoop(query, contextEngine, std::move(callback), myGeneration);
 }
 

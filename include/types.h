@@ -160,6 +160,20 @@ struct McpServerConfig
     int requestTimeoutSeconds{10};
 };
 
+// Progressive capability disclosure mode. Controls whether tool schemas
+// are fully resident in the prompt/FC array (disabled = current behavior)
+// or progressively disclosed via a Tier 1 name+description catalog plus a
+// per-turn tool_search/load mechanism (progressive/selective). `auto` is a
+// placeholder for future budget-driven selection and currently maps to
+// `disabled` with a warning.
+enum class ToolDisclosureMode
+{
+    DISABLED,     // Small scale: full schemas resident (current behavior)
+    PROGRESSIVE,  // Medium scale: Tier 1 catalog + on-demand load
+    SELECTIVE,    // Large scale: findRelevant seeds Tier 1 (v2; v1 falls back to progressive)
+    AUTO,         // Reserved: pick by token budget (v1 maps to disabled + warning)
+};
+
 struct AgentConfig 
 {
     std::string id;
@@ -179,6 +193,17 @@ struct AgentConfig
     std::string dataBasePath; // "./data" - root of all data
     int maxConcurrentSessions{3}; // Global concurrency gate (0 = unlimited)
     std::vector<std::string> defaultTools; // Tools registered for all sessions
+
+    // Progressive capability disclosure (§5.0 of round5 design). Controls
+    // whether tool schemas are fully resident (DISABLED) or progressively
+    // disclosed via a Tier 1 name+description catalog + on-demand
+    // tool_search/load (PROGRESSIVE/SELECTIVE). v1 implements the three-piece
+    // suite for all modes; SELECTIVE falls back to PROGRESSIVE behavior (no
+    // findRelevant) and AUTO falls back to DISABLED, both with a warning.
+    ToolDisclosureMode toolDisclosureMode{ToolDisclosureMode::DISABLED};
+    int toolSchemaTokenBudget{0};   // Tier 2 budget hint (0 = unused; for future AUTO)
+    int toolCatalogTokenBudget{0};  // Tier 1 budget hint (0 = unused; for future AUTO)
+    std::vector<std::string> alwaysOnTools; // Extra tools always in FC (besides meta-tools)
 
     // MCP server ids referenced by this agent (servers are managed by the
     // application layer, e.g. McpServerManager, and registered with

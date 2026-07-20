@@ -3,15 +3,19 @@
 #include <atomic>
 #include <filesystem>
 #include <mutex>
+#include <set>
 #include <string>
 #include <system_error>
 #include "include/agent.h"
 #include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
+#include "src/core/agent_worker.h"
 #include "src/core/ask_user_dispatcher.h"
 #include "src/core/history_store.h"
 #include "src/core/session_todo_list.h"
+#include "src/core/tool_turn_state_proxy.h"
 #include "src/core/worker_env.h"
+#include "src/tools/builtin_tools/tool_search_tool.h"
 #include "src/utils/data_dir.h"
 #include "src/utils/logger.h"
 #include "src/utils/curl_client.h"
@@ -24,6 +28,11 @@ namespace {
     std::atomic<SessionManager*> g_sessionManager{nullptr};
     std::mutex g_initMutex;  // Lock layer L0 (singleton init)
 }
+
+// Out-of-line destructor: ToolTurnState is complete in this TU (via the
+// proxy header included above), so the unique_ptr<ToolTurnState> member can
+// be destroyed here without leaking the full type into the public header.
+SessionEntry::~SessionEntry() = default;
 
 // WorkerEnv adapter that resolves session-scoped resources through
 // SessionManager. This eliminates the AgentWorker → WorkerEnv → Agent
@@ -117,6 +126,28 @@ public:
     void ClearCurrentEntry() override
     {
         tlCurrentEntry_.reset();
+    }
+
+    ToolTurnState* GetCurrentTurnState() override
+    {
+        // Single-path (not GetSkillEngine()'s fast+slow double-path): turnState
+        // is per-SessionEntry, and with no tlCurrentEntry_ there is no current
+        // session to fall back to (no sessionId param either). Callers
+        // (BuildToolSchemas, ExecuteTool's ctx fill) always run inside an
+        // Invoke where tlCurrentEntry_ is set; a nullptr return covers the
+        // off-Invoke probe/offline path only.
+        if (!tlCurrentEntry_) {
+            return nullptr;
+        }
+        // Lazily construct the proxy once per SessionEntry. Subsequent hits
+        // return the stable proxy (per-turn reset clears activeSet/loadedTools
+        // CONTENTS, the proxy object is NOT rebuilt). The raw SessionEntry*
+        // back-pointer is safe: SessionEntry owns this unique_ptr, so the
+        // proxy cannot outlive its host.
+        if (!tlCurrentEntry_->turnStateProxy) {
+            tlCurrentEntry_->turnStateProxy = std::make_unique<ToolTurnStateProxy>(tlCurrentEntry_.get());
+        }
+        return tlCurrentEntry_->turnStateProxy.get();
     }
 
 private:
@@ -304,6 +335,35 @@ void SessionManager::Initialize(const AgentConfig& config)
     agent_->SetMemoryRuntime(memoryRuntime_.get());
     agent_->SetHistoryStore(historyStore_.get());
     agent_->SetWorkerEnv(workerEnv_.get());
+
+    // Progressive tool disclosure: register the tool_search escape valve as
+    // a session-scoped tool when toolDisclosureMode is PROGRESSIVE or
+    // SELECTIVE. DISABLED (and AUTO, which v1 resolves to DISABLED) skip
+    // registration so tool_search is absent from FC and the {$tools} prompt
+    // (zero regression). Registration lives here (not in
+    // ResourceManager::RegisterBuiltinTools) because ResourceManager is a
+    // no-config singleton and cannot read toolDisclosureMode; the factory
+    // captures only ctx.turnState per invocation plus the full alwaysOn set
+    // (meta-tools ∪ config_.alwaysOnTools, computed once at registration
+    // time and captured by value) so the load action can idempotently
+    // short-circuit on any alwaysOn name (§5.3 注册站点 + §5.3 越界处理:
+    // alwaysOn 工具被 load → 幂等返 "already in the FC"). No mode label is
+    // threaded into the tool: the search action's short-circuit is driven by
+    // ToolTurnState::isActiveFullPool() (runtime active-set state), not a
+    // mode value — see tool_search_tool.cpp. ReloadAgent re-registers
+    // symmetrically (idempotent overwrite, captures fresh alwaysOn).
+    if (config_.toolDisclosureMode == ToolDisclosureMode::PROGRESSIVE
+        || config_.toolDisclosureMode == ToolDisclosureMode::SELECTIVE) {
+        // Compute the full alwaysOn set once (config-derived static; not
+        // per-turn state, so it does not belong on ToolTurnState). Captured
+        // by value — the lambda outlives the registration call.
+        std::set<std::string> alwaysOnNames = ComputeAlwaysOnFor(config_);
+        ResourceManager::GetInstance().RegisterSessionTool(
+            "tool_search",
+            [alwaysOnNames = std::move(alwaysOnNames)](const ToolBuildContext& ctx) {
+                return std::make_unique<ToolSearchTool>(ctx.turnState, alwaysOnNames);
+            });
+    }
 
     // Register default tools
     if (!config_.defaultTools.empty()) {
@@ -917,6 +977,51 @@ bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* erro
         // Inject the SessionManager-owned WorkerEnv so the worker can resolve
         // session-scoped resources without a back-reference to Agent.
         newAgent->SetWorkerEnv(workerEnv_.get());
+        // Progressive disclosure: re-register tool_search if the reloaded
+        // config enables it (PROGRESSIVE/SELECTIVE). RegisterSessionTool is
+        // an idempotent overwrite (operator[] + cache erase), so re-registering
+        // on each reload is safe. If the new config is DISABLED/AUTO, the
+        // branch is skipped and any previous progressive registration lingers
+        // in the shared RM — this is DELIBERATE, not a leak to fix:
+        //   - Graceful drain: a draining (old) progressive Agent's FC still
+        //     contains tool_search (alwaysOn hardcodes it), so an in-flight
+        //     turn may legitimately call it; unregistering from the shared
+        //     RM would break that call and violate "in-flight turns must run
+        //     to completion". The stale factory keeps draining Agents working.
+        //   - New disabled Agent is unaffected: its toolNames_ does not include
+        //     tool_search (defaultTools comes from config, not re-fetched from
+        //     RM), so BuildToolSchemas/BuildPrompt never emit it → the model
+        //     cannot legitimately call it under native FC.
+        //   - Residual reachability is only via the direct ExecuteTool path
+        //     under prompt-mode hallucination (§8 invariant 3 soft constraint,
+        //     §10 TODO) or an explicit tool_search entry in defaultTools (user
+        //     misconfig). If reached:
+        //       * load writes to loadedTools (dead state — disabled
+        //         BuildToolSchemas reads toolNames_, not loadedTools).
+        //       * search branches on isActiveFullPool(). The flag's value
+        //         depends on session history, not just the current disabled
+        //         mode: a FRESH session (proxy never seeded) has flag=false
+        //         → real-recall branch → v1 stub returns empty → "No tools
+        //         found"; but a session that ran progressive turns BEFORE
+        //         this PROGRESSIVE→DISABLED reload has a stale flag=true
+        //         (disabled's Invoke skips the IsProgressiveDisclosureActive()
+        //         reset+seed block, and reset() is the only flag-clearing
+        //         path), so search short-circuits → "No recall needed...".
+        //         Both responses are inert (no state mutation, no correctness
+        //         impact); the difference is only which inert message shows.
+        // A DISABLED→PROGRESSIVE transition re-registers below, overwriting.
+        if (effective.toolDisclosureMode == ToolDisclosureMode::PROGRESSIVE
+            || effective.toolDisclosureMode == ToolDisclosureMode::SELECTIVE) {
+            // Re-compute alwaysOn from the effective (post-reload) config so
+            // a changed alwaysOnTools takes effect immediately (mirrors the
+            // Initialize-time registration above).
+            std::set<std::string> alwaysOnNames = ComputeAlwaysOnFor(effective);
+            ResourceManager::GetInstance().RegisterSessionTool(
+                "tool_search",
+                [alwaysOnNames = std::move(alwaysOnNames)](const ToolBuildContext& ctx) {
+                    return std::make_unique<ToolSearchTool>(ctx.turnState, alwaysOnNames);
+                });
+        }
         if (!effective.defaultTools.empty()) {
             newAgent->AddTools(effective.defaultTools);
         }
