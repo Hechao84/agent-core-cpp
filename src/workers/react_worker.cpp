@@ -1,16 +1,20 @@
 #include "src/workers/react_worker.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "include/memory_runtime.h"
 #include "src/context_engine/context_engine.h"
-#include "src/core/tool_turn_state.h"
+#include "src/core/capability_selector.h"
+#include "src/core/turn_state.h"
 #include "src/core/worker_env.h"
+#include "src/skills/skill_engine.h"
 #include "src/utils/logger.h"
 #include "src/utils/tool_parser.h"
 #include "third_party/include/nlohmann/json.hpp"
@@ -202,26 +206,110 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
 }
 
 std::string ReactAgentWorker::Invoke(const std::string& query, ContextEngine* contextEngine,
-                                      std::function<void(const std::string&)> callback)
+                                       std::function<void(const std::string&)> callback)
 {
     uint64_t myGeneration = CurrentCancelGeneration();
 
-    // Progressive disclosure per-turn state setup (§5.2): reset the previous
-    // turn's activeSet/loadedTools and seed activeSet with the full pool.
-    // progressive: active = full pool; selective v1: falls back to progressive
-    // seeding (findRelevant is v2); disabled/auto(v1→disabled): skip (no
-    // active set concept). Runs before ReactLoop so BuildPrompt's first
-    // iteration already sees a populated active set.
+    // V2 (round5 §5.4.1 条 3-7 + 条 9): per-turn capability disclosure state
+    // setup. Per-side seed strategy 解法 X — compare findRelevant output to
+    // the full pool at the Invoke entry (the only point with both pieces in
+    // scope; proxy doesn't hold pool reference). Branches:
+    //   - SELECTIVE + non-empty findRelevant subset → seedActiveSubset
+    //     (flag=false → search routes to real recall)
+    //   - SELECTIVE + findRelevant returns == pool (全相关) → seedActive
+    //     (flag=true → search short-circuits; 条 5 全相关短路)
+    //   - SELECTIVE + findRelevant empty/failed → seedActive(pool)
+    //     (flag=true; 条 6 行 3 降级 — 退化 progressive)
+    //   - PROGRESSIVE → seedActive(pool) (flag=true always; 条 4)
+    // Same logic mirrored for skills side (seedSkillActive /
+    // seedSkillActiveSubset / isActiveFullSkillPool).
     if (IsProgressiveDisclosureActive() && workerEnv_ != nullptr) {
-        ToolTurnState* ts = workerEnv_->GetCurrentTurnState();
+        TurnState* ts = workerEnv_->GetCurrentTurnState();
         if (ts != nullptr) {
             ts->reset();
+            // Snapshot tool pool under toolMutex_ (locks L5).
             std::vector<std::string> pool;
             {
                 std::lock_guard<std::mutex> lock(toolMutex_);
                 pool = toolNames_;
             }
-            ts->seedActive(pool);
+            // Skill pool: SkillEngine is Agent-scoped; GetSkillIds() takes
+            // its own mutex internally. Empty when no skills configured.
+            std::vector<std::string> skillPool;
+            if (skillEngine_ != nullptr) {
+                skillPool = skillEngine_->GetSkillIds();
+            }
+            if (config_.toolDisclosureMode == ToolDisclosureMode::SELECTIVE
+                && capabilitySelector_ != nullptr) {
+                // V2: run findRelevant once at turn-start. sessionContext is
+                // the windowed conversation history (条 7: reuse
+                // ContextEngine::GetContextWindow — already window-limited).
+                auto sessionContext = contextEngine != nullptr
+                    ? contextEngine->GetContextWindow()
+                    : std::vector<Message>{};
+                CapabilitySelection rr;
+                try {
+                    rr = capabilitySelector_->findRelevant(query, sessionContext);
+                } catch (const std::exception& e) {
+                    LOG(ERR) << "[Invoke] findRelevant failed: " << e.what()
+                             << "; falling back to full pool seed (退化 progressive).";
+                    rr = {};
+                }
+                // Per-side seed decision (条 6 降级判定表, applied per-side).
+                // Three distinct branches per side:
+                //   行 3 降级 (empty)          → seedActive(pool)      flag=true  [+WARN]
+                //   行 2 全相关短路 (== pool)   → seedActive(pool)      flag=true
+                //   行 1 正常子集               → seedActiveSubset(rr)  flag=false
+                // 行 4 "全在 alwaysOn" subsumed by 正常子集 branch (names ⊆ pool
+                // but ≠ pool — findRelevant 返非空子集就走这里, even if all
+                // returned names happen to be in alwaysOn, that's still a subset
+                // of pool so search routes to real recall per 条 6 行 4).
+                //
+                // Splitting 降级 and 全相关 makes the per-side consequence
+                // observable in logs; previously both collapsed into
+                // seedActive(pool) silently. Root cause (exception / empty
+                // response / parse failure) is already logged inside
+                // CapabilitySelector (LOG ERR/WARN); the WARN here marks the
+                // CONSEQUENCE (this side退化d to progressive behavior) so
+                // operators can grep "SELECTIVE degraded" to find降级 events
+                // without parsing root cause logs.
+                std::set<std::string> toolsSet(rr.tools.begin(), rr.tools.end());
+                std::set<std::string> poolSet(pool.begin(), pool.end());
+                if (rr.tools.empty()) {
+                    LOG(WARN) << "[Invoke] SELECTIVE degraded to PROGRESSIVE on tool side "
+                              << "(findRelevant returned empty tool set; seeding full pool of "
+                              << pool.size() << " tools). Root cause logged by CapabilitySelector.";
+                    ts->seedActive(pool);  // flag=true → search short-circuits
+                } else if (toolsSet == poolSet) {
+                    // 行 2 全相关短路: subset happens to equal full pool —
+                    // short-circuit (no WARN, this is a successful recall where
+                    // everything happens to be relevant).
+                    ts->seedActive(pool);  // flag=true
+                } else {
+                    // 行 1 正常子集 (条 6 行 4 "全在 alwaysOn" subsumed here:
+                    // names ⊆ pool, ≠ pool).
+                    ts->seedActiveSubset(rr.tools);  // flag=false → search routes to real recall
+                }
+                // Skills side (symmetric):
+                std::set<std::string> skillsSet(rr.skills.begin(), rr.skills.end());
+                std::set<std::string> skillPoolSet(skillPool.begin(), skillPool.end());
+                if (rr.skills.empty()) {
+                    LOG(WARN) << "[Invoke] SELECTIVE degraded to PROGRESSIVE on skill side "
+                              << "(findRelevant returned empty skill set; seeding full pool of "
+                              << skillPool.size() << " skills). Root cause logged by CapabilitySelector.";
+                    ts->seedSkillActive(skillPool);  // flag=true
+                } else if (skillsSet == skillPoolSet) {
+                    ts->seedSkillActive(skillPool);  // flag=true
+                } else {
+                    ts->seedSkillActiveSubset(rr.skills);  // flag=false
+                }
+            } else {
+                // PROGRESSIVE (or SELECTIVE without capabilitySelector_ —
+                // shouldn't happen but be defensive): seed full pool on both
+                // sides. Flag=true → search short-circuits for both.
+                ts->seedActive(pool);
+                ts->seedSkillActive(skillPool);
+            }
         }
     }
 

@@ -132,6 +132,14 @@ AgentConfig MakeConfig(const std::string& dataBasePath, const std::string& provi
     config.mode = AgentWorkMode::REACT;
     config.modelConfig.provider = provider;
     config.dataBasePath = dataBasePath;
+    // V2 default is SELECTIVE (which calls findRelevant → consumes a model
+    // call at turn-start). These reload tests use stub models with
+    // latch-based blocking and don't exercise progressive disclosure, so
+    // force DISABLED to keep the V1 single-model-call flow that the tests
+    // were written against. findRelevant would otherwise park on the same
+    // latch the in-flight turn is supposed to enter, breaking the
+    // "blocking on old Agent, reload, release, observe" protocol.
+    config.toolDisclosureMode = ToolDisclosureMode::DISABLED;
     // Keep the consolidation thread's first poll far away so it does not call
     // CreateModel (and thus the blocking model) during the test window.
     config.memoryConfig.idleConsolidationSeconds = 3600;

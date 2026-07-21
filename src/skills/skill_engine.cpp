@@ -167,6 +167,28 @@ std::string SkillEngine::GetSkillCatalog() const
     return result;
 }
 
+std::string SkillEngine::GetSkillCatalog(const std::set<std::string>& visibleSkillNames) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (skills_.empty() || visibleSkillNames.empty()) {
+        return "No skills available.";
+    }
+    // Render only skills whose name (or id, since name and id may differ)
+    // appears in visibleSkillNames. Mirrors ResourceManager::GetToolCatalog's
+    // by-subset rendering. Skills not in the visible set are omitted (the
+    // model has no way to know about them without first calling
+    // skill_search's search action to discover them).
+    std::string result = "Available Skills (use skill_search tool to load full instructions):\n";
+    for (const auto& [id, skill] : skills_) {
+        bool visible = visibleSkillNames.count(skill.name) > 0
+            || visibleSkillNames.count(id) > 0;
+        if (visible) {
+            result += "- " + skill.name + ": " + skill.description + "\n";
+        }
+    }
+    return result;
+}
+
 std::string SkillEngine::GetSkillInstructions(const std::string& skillName) const
 {
     std::lock_guard<std::mutex> lock(mutex_);

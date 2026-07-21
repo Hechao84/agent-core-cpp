@@ -197,10 +197,21 @@ struct AgentConfig
     // Progressive capability disclosure (§5.0 of round5 design). Controls
     // whether tool schemas are fully resident (DISABLED) or progressively
     // disclosed via a Tier 1 name+description catalog + on-demand
-    // tool_search/load (PROGRESSIVE/SELECTIVE). v1 implements the three-piece
-    // suite for all modes; SELECTIVE falls back to PROGRESSIVE behavior (no
-    // findRelevant) and AUTO falls back to DISABLED, both with a warning.
-    ToolDisclosureMode toolDisclosureMode{ToolDisclosureMode::DISABLED};
+    // tool_search/load (PROGRESSIVE/SELECTIVE). V1 defaulted to DISABLED as
+    // a safe initial value (zero regression). V2 (round5 §5.4.1) implements
+    // findRelevant (LLM-backed capability recall via CapabilitySelector), so
+    // SELECTIVE is now real and is the new default — large pools trigger
+    // turn-start recall to seed the active set, turn-mid search is
+    // LLM-backed when the active set is a subset. PROGRESSIVE remains a
+    // middle ground (full pool always visible, load on demand). AUTO is
+    // still a placeholder (maps to DISABLED + warning until §10 TODO
+    // budget-driven selection is implemented).
+    //
+    // Performance note: SELECTIVE adds +1 LLM call per user turn (the
+    // findRelevant call). For small-scale agents (under ~20 tools) where
+    // full schemas fit comfortably, configure DISABLED explicitly to skip
+    // the +1 call (behavior reverts to V1).
+    ToolDisclosureMode toolDisclosureMode{ToolDisclosureMode::SELECTIVE};
     int toolSchemaTokenBudget{0};   // Tier 2 budget hint (0 = unused; for future AUTO)
     int toolCatalogTokenBudget{0};  // Tier 1 budget hint (0 = unused; for future AUTO)
     std::vector<std::string> alwaysOnTools; // Extra tools always in FC (besides meta-tools)

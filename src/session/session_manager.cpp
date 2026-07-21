@@ -13,7 +13,7 @@
 #include "src/core/ask_user_dispatcher.h"
 #include "src/core/history_store.h"
 #include "src/core/session_todo_list.h"
-#include "src/core/tool_turn_state_proxy.h"
+#include "src/core/turn_state_proxy.h"
 #include "src/core/worker_env.h"
 #include "src/tools/builtin_tools/tool_search_tool.h"
 #include "src/utils/data_dir.h"
@@ -29,9 +29,9 @@ namespace {
     std::mutex g_initMutex;  // Lock layer L0 (singleton init)
 }
 
-// Out-of-line destructor: ToolTurnState is complete in this TU (via the
-// proxy header included above), so the unique_ptr<ToolTurnState> member can
-// be destroyed here without leaking the full type into the public header.
+// Out-of-line destructor: TurnState is complete in this TU (via the proxy
+// header included above), so the unique_ptr<TurnState> member can be
+// destroyed here without leaking the full type into the public header.
 SessionEntry::~SessionEntry() = default;
 
 // WorkerEnv adapter that resolves session-scoped resources through
@@ -128,7 +128,7 @@ public:
         tlCurrentEntry_.reset();
     }
 
-    ToolTurnState* GetCurrentTurnState() override
+    TurnState* GetCurrentTurnState() override
     {
         // Single-path (not GetSkillEngine()'s fast+slow double-path): turnState
         // is per-SessionEntry, and with no tlCurrentEntry_ there is no current
@@ -141,11 +141,11 @@ public:
         }
         // Lazily construct the proxy once per SessionEntry. Subsequent hits
         // return the stable proxy (per-turn reset clears activeSet/loadedTools
-        // CONTENTS, the proxy object is NOT rebuilt). The raw SessionEntry*
-        // back-pointer is safe: SessionEntry owns this unique_ptr, so the
-        // proxy cannot outlive its host.
+        // /skillActiveSet CONTENTS, the proxy object is NOT rebuilt). The raw
+        // SessionEntry* back-pointer is safe: SessionEntry owns this
+        // unique_ptr, so the proxy cannot outlive its host.
         if (!tlCurrentEntry_->turnStateProxy) {
-            tlCurrentEntry_->turnStateProxy = std::make_unique<ToolTurnStateProxy>(tlCurrentEntry_.get());
+            tlCurrentEntry_->turnStateProxy = std::make_unique<TurnStateProxy>(tlCurrentEntry_.get());
         }
         return tlCurrentEntry_->turnStateProxy.get();
     }
@@ -347,21 +347,24 @@ void SessionManager::Initialize(const AgentConfig& config)
     // (meta-tools ∪ config_.alwaysOnTools, computed once at registration
     // time and captured by value) so the load action can idempotently
     // short-circuit on any alwaysOn name (§5.3 注册站点 + §5.3 越界处理:
-    // alwaysOn 工具被 load → 幂等返 "already in the FC"). No mode label is
-    // threaded into the tool: the search action's short-circuit is driven by
-    // ToolTurnState::isActiveFullPool() (runtime active-set state), not a
-    // mode value — see tool_search_tool.cpp. ReloadAgent re-registers
-    // symmetrically (idempotent overwrite, captures fresh alwaysOn).
+    // alwaysOn 工具被 load → 幂等返 "already in the FC"). V2: ctx.capabilitySelector
+    // is also passed for the search action's real-recall branch (round5
+    // §5.4.1 条 8/9: CapabilitySelector reuses main modelConfig for LLM-backed
+    // recall). No mode label is threaded into the tool: the search action's
+    // short-circuit is driven by TurnState::isActiveFullPool() (runtime
+    // active-set state), not a mode value — see tool_search_tool.cpp.
+    // ReloadAgent re-registers symmetrically (idempotent overwrite, captures
+    // fresh alwaysOn).
     if (config_.toolDisclosureMode == ToolDisclosureMode::PROGRESSIVE
         || config_.toolDisclosureMode == ToolDisclosureMode::SELECTIVE) {
         // Compute the full alwaysOn set once (config-derived static; not
-        // per-turn state, so it does not belong on ToolTurnState). Captured
+        // per-turn state, so it does not belong on TurnState). Captured
         // by value — the lambda outlives the registration call.
         std::set<std::string> alwaysOnNames = ComputeAlwaysOnFor(config_);
         ResourceManager::GetInstance().RegisterSessionTool(
             "tool_search",
             [alwaysOnNames = std::move(alwaysOnNames)](const ToolBuildContext& ctx) {
-                return std::make_unique<ToolSearchTool>(ctx.turnState, alwaysOnNames);
+                return std::make_unique<ToolSearchTool>(ctx.turnState, alwaysOnNames, ctx.capabilitySelector);
             });
     }
 
@@ -1019,7 +1022,7 @@ bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* erro
             ResourceManager::GetInstance().RegisterSessionTool(
                 "tool_search",
                 [alwaysOnNames = std::move(alwaysOnNames)](const ToolBuildContext& ctx) {
-                    return std::make_unique<ToolSearchTool>(ctx.turnState, alwaysOnNames);
+                    return std::make_unique<ToolSearchTool>(ctx.turnState, alwaysOnNames, ctx.capabilitySelector);
                 });
         }
         if (!effective.defaultTools.empty()) {

@@ -25,7 +25,7 @@ class AskUserDispatcher;
 class AskUserRouter;
 class WorkerEnv;
 class HistoryStore;
-class ToolTurnState;  // Per-turn disclosure state proxy (full def in src/core/tool_turn_state.h; internal, not exported)
+class TurnState;  // Per-turn capability disclosure state proxy (full def in src/core/turn_state.h; internal, not exported)
 
 // Reserved session id used by the core library as the MakeSessionKey fallback
 // when both channel and chatId are empty. Application layers should define
@@ -56,20 +56,25 @@ struct SessionEntry
     std::atomic<bool> isBusy{false};
     std::map<std::string, std::string> metadata; // channel, sender, etc.
 
-    // Progressive tool disclosure per-turn state (round5 design §5.2).
-    // activeSet/loadedTools are cleared at the start of each Invoke (per-turn
-    // reset) while the SessionEntry itself persists across turns (per-session
-    // host). turnStateProxy is the ToolTurnState implementation that forwards
-    // load/search/getActiveSet/getLoadedTools to these two sets; lazily
-    // constructed once per SessionEntry by SmWorkerEnv::GetCurrentTurnState()
-    // and stable thereafter (only the set contents reset, not the proxy).
+    // Progressive capability disclosure per-turn state (round5 design §5.2).
+    // activeSet/loadedTools/skillActiveSet are cleared at the start of each
+    // Invoke (per-turn reset) while the SessionEntry itself persists across
+    // turns (per-session host). turnStateProxy is the TurnState implementation
+    // that forwards load/search/getActiveSet/getLoadedTools/searchSkill/
+    // getSkillActiveSet to these sets; lazily constructed once per
+    // SessionEntry by SmWorkerEnv::GetCurrentTurnState() and stable
+    // thereafter (only the set contents reset, not the proxy).
+    // V2 (round5 §5.4.1 条 11): skillActiveSet is symmetric with activeSet
+    // (tool side) — the same per-session state bag manages both tool and
+    // skill active sets.
     std::set<std::string> activeSet;
     std::set<std::string> loadedTools;
-    std::unique_ptr<ToolTurnState> turnStateProxy;
+    std::set<std::string> skillActiveSet;
+    std::unique_ptr<TurnState> turnStateProxy;
 
-    // Defined out-of-line in the .cpp (where ToolTurnState is complete) so
-    // the std::unique_ptr<ToolTurnState> member can be destroyed without the
-    // full type definition leaking into this public header (tool_turn_state.h
+    // Defined out-of-line in the .cpp (where TurnState is complete) so
+    // the std::unique_ptr<TurnState> member can be destroyed without the
+    // full type definition leaking into this public header (turn_state.h
     // is an internal header under src/core/ — only forward-declared here).
     ~SessionEntry();
 };

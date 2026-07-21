@@ -7,7 +7,7 @@
 - `Tool` 抽象基类 — 所有工具的统一接口
 - 12 个无状态内置工具 — 独立于会话的通用能力
 - 6 个会话级工具 — 依赖会话上下文的交互能力
-- `ToolSelector` — 工具选择与排序引擎
+- `CapabilitySelector` — V2 LLM-backed 能力召回（替代废弃的 `ToolSelector`，按 name 经 `ResourceManager`/`SkillEngine` 取 desc，复用主 `modelConfig` 调 LLM 选 top-K）
 - `MCPTool` — MCP 服务器工具的本地代理
 
 ## 2. Tool 抽象基类
@@ -191,59 +191,43 @@ MemoryReadPayloadTool::Invoke(input)
   │  3. 返回完整 payload 内容
 ```
 
-## 5. ToolSelector 工具选择器
+## 5. CapabilitySelector 能力召回
 
 ### 5.1 设计意图
 
-`ToolSelector` 为工具选择提供排序和筛选能力。当前实现为 stub（所有工具返回均匀分数 1.0），预留了关键词匹配和 embedding 相似度的扩展接口。
+`CapabilitySelector`（`src/core/capability_selector.{h,cpp}`）为 V2 渐进披露（round5 §5.4.1）提供 LLM-backed 能力召回，替代被废弃的 `ToolSelector`（其选择方法是 `return 1.0;` 桩、`toolPool_` 只持 name 不持 desc，数据通道双重缺陷）。`findRelevant(rawQuery, sessionContext) -> CapabilitySelection{tools, skills}` 一次调用同时选 tool + skill，复用主 `modelConfig`（不引入 `recallModelConfig`），按 name 经 `ResourceManager::GetToolCatalog` / `SkillEngine::GetSkillCatalog` 取 desc（不攒死副本）。
 
 ### 5.2 类结构
 
 ```cpp
-class ToolSelector {
+struct CapabilitySelection {
+    std::vector<std::string> tools;   // tool 名列表，种入 activeSet
+    std::vector<std::string> skills;  // skill 名列表，种入 skillActiveSet
+};
+
+class CapabilitySelector {
 public:
-    ToolSelector(SearchConfig config = {});
-    void AddToolToPool(const std::string& toolName);
-    void RemoveToolFromPool(const std::string& toolName);
-    std::string SelectTool(const std::string& query, const std::vector<string>& available);
-    std::vector<string> SelectTopTools(const std::string& query, const std::vector<string>& available, int maxCount);
-    std::vector<ToolMatchResult> RankTools(const std::string& query, const std::vector<string>& available);
+    explicit CapabilitySelector(AgentConfig config, SkillEngine* skillEngine = nullptr);
+    CapabilitySelection findRelevant(const std::string& rawQuery,
+                                      const std::vector<Message>& sessionContext);
 private:
-    SearchConfig config_;
-    std::vector<string> toolPool_;
-    selectionStrategy_ (function);
-    vector<ToolMatchResult> ScoreTools(query, available);
-    double CalculateKeywordScore(query, toolName, toolDesc);
-    double CalculateEmbeddingScore(query, toolName);
+    AgentConfig config_;
+    SkillEngine* skillEngine_;
+    std::string BuildRecallPrompt(const std::string& rawQuery,
+                                  const std::vector<Message>& sessionContext) const;
+    static CapabilitySelection ParseRecallResponse(const std::string& response);
 };
 ```
 
-### 5.3 SearchConfig
+### 5.3 调用契约
 
-```cpp
-struct SearchConfig {
-    double keywordWeight{0.5};
-    double embeddingWeight{0.5};
-    string embeddingModelName;
-};
-```
+- **turn 起点**：`ReactAgentWorker::Invoke` 入口在 `SELECTIVE` 模式下调一次 `findRelevant`，结果按 §5.4.1 条 6 降级判定表的 4 行分支种入 active set / skillActiveSet（返空/异常 → `seedActive(pool)` 退化 progressive；返 == 全量 → `seedActive(pool)` 全相关短路；返正常子集 → `seedActiveSubset`；返非空但全在 alwaysOn → 仍 `seedActiveSubset` 不退化）。
+- **turn 中途**：`tool_search` / `skill_search` 的 search action 在 `isActiveFullPool()` / `isActiveFullSkillPool()` 返 false 时（即子集 seed 路径）调用 `findRelevant(query, {})`（空 sessionContext，因主 LLM 自写的 search query 已带 context）。
+- **失败模式**：JSON 解析失败 / LLM 调用异常 / 返空 → 返空 `CapabilitySelection`，由调用方识别为降级触发条件。
 
-### 5.4 ToolMatchResult
+### 5.4 演进路径
 
-```cpp
-struct ToolMatchResult {
-    string toolName;
-    double score;
-    string reason;
-};
-```
-
-### 5.5 未来扩展
-
-当工具数量超过模型原生 function calling 的限制时，`ToolSelector` 可用于：
-- 根据查询筛选最相关的 N 个工具
-- 减少发送给模型的工具 Schema 数量
-- 提高模型选择正确工具的准确率
+V3（skill-hub 量级 >1000）可升级 embedding 预筛（descriptor embedding 注册时算一次缓存，query embedding 每轮算一次，接入外部 embedding 端点）。届时 `CapabilitySelector` 接口不变、后端换。未来还可引入独立 `recallModelConfig`（V2 当前复用主 `modelConfig` 以求最简落地）。
 
 ## 6. MCPTool 代理模式
 

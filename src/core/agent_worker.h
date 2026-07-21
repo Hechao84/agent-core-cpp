@@ -11,7 +11,7 @@
 
 #include "include/model.h"
 #include "include/types.h"
-#include "src/tools/tool_selector.h"
+#include "src/core/capability_selector.h"
 
 namespace jiuwen {
 
@@ -45,7 +45,12 @@ protected:
     std::atomic<uint64_t> cancelGeneration_{0};
     std::vector<std::string> toolNames_;
     std::vector<std::string> ownedMcpTools_;  // MCP tools this worker added (for SyncMcpTools diff)
-    std::unique_ptr<ToolSelector> toolSelector_;
+    // V2 (round5 §5.4.1 条 10): LLM-backed capability recall engine, replaces
+    // the deprecated ToolSelector (whose selection methods were stubs and
+    // whose pool only held names). Held here so Invoke entry (react_worker.cpp)
+    // can call findRelevant once at turn-start under SELECTIVE mode.
+    // Forward-declared above; full type in src/core/capability_selector.h.
+    std::unique_ptr<CapabilitySelector> capabilitySelector_;
     std::shared_ptr<SkillEngine> skillEngine_;
     WorkerEnv* workerEnv_{nullptr};
 

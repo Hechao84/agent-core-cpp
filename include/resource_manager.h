@@ -20,7 +20,8 @@ class MCPConnection;
 class SessionTodoList;
 class AskUserDispatcher;
 class SkillEngine;
-class ToolTurnState;  // Per-turn tool disclosure state (full def in src/core/tool_turn_state.h; internal, not exported)
+class TurnState;  // Per-turn capability disclosure state (full def in src/core/turn_state.h; internal, not exported)
+class CapabilitySelector;  // LLM-backed capability recall (full def in src/core/capability_selector.h; internal, not exported)
 
 // Context for session-scoped tool construction. When a tool instance is
 // created for actual execution (via CreateSessionTool), the pointers are
@@ -35,12 +36,20 @@ struct ToolBuildContext {
     AskUserDispatcher* askUser{nullptr};
     MemoryRuntime* memoryRuntime{nullptr};
     SkillEngine* skillEngine{nullptr};  // Agent-scoped (shared across sessions), non-owning
-    // Per-turn tool disclosure state. nullptr in the null-ctx probe path
-    // (schema extraction only); populated at runtime by ExecuteTool via
+    // Per-turn capability disclosure state. nullptr in the null-ctx probe
+    // path (schema extraction only); populated at runtime by ExecuteTool via
     // workerEnv_->GetCurrentTurnState() pointing at the current SessionEntry's
     // proxy. tool_search uses it for load/search/getActiveSet/getLoadedTools/
-    // isActiveFullPool.
-    ToolTurnState* turnState{nullptr};
+    // isActiveFullPool; skill_search uses it for searchSkill/getSkillActiveSet/
+    // isActiveFullSkillPool.
+    TurnState* turnState{nullptr};
+    // LLM-backed capability recall engine (round5 §5.4.1 条 10). nullptr in
+    // the null-ctx probe path and under disabled mode (no progressive
+    // disclosure active — substring matching runs in skill_search instead).
+    // Populated at runtime by ExecuteTool when IsProgressiveDisclosureActive().
+    // tool_search/skill_search use it for the real-recall branch (turn-mid
+    // search action when isActiveFullPool()/isActiveFullSkillPool() is false).
+    CapabilitySelector* capabilitySelector{nullptr};
     std::function<void(const std::string&)> streamCallback;
     std::string sessionId;
 };

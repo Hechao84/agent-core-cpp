@@ -75,7 +75,7 @@ Agent ─── 拥有 AgentWorker                                  │
 AgentWorker (WorkerEnv 接口隔离)                             │
   │  ├── 使用 ContextEngine (由 SessionManager 注入)        │
   │  ├── 使用 ResourceManager (创建工具/模型)               │
-  │  ├── 使用 ToolSelector                                  │
+  │  ├── 使用 CapabilitySelector (V2 LLM-backed 能力召回，替代废弃的 ToolSelector)
   │  └── 使用 SkillEngine                                   │
   │                                                         │
 ResourceManager ─── Meyers 单例注册表                        │

@@ -16,11 +16,11 @@
 #include "include/resource_manager.h"
 #include "src/context_engine/context_engine.h"
 #include "src/core/ask_user_dispatcher.h"
+#include "src/core/capability_selector.h"
 #include "src/core/session_todo_list.h"
-#include "src/core/tool_turn_state.h"
+#include "src/core/turn_state.h"
 #include "src/core/worker_env.h"
 #include "src/skills/skill_engine.h"
-#include "src/tools/tool_selector.h"
 #include "src/utils/logger.h"
 #include "src/utils/time_utils.h"
 #include "src/utils/prompt_utils.h"
@@ -31,20 +31,21 @@ namespace jiuwen {
 
 AgentWorker::AgentWorker(AgentConfig config) : config_(std::move(config))
 {
-    toolSelector_ = std::make_unique<ToolSelector>();
     // v1 fallback warnings (one-shot per Agent construction; ReloadAgent
     // re-constructs so a reloaded config re-evaluates). AUTO is not
     // implemented (no budget-driven selection), so it degrades to DISABLED
-    // behavior. SELECTIVE is implemented for the FC/catalog mechanics but
-    // findRelevant (turn-start active-set seeding) is v2; in v1 SELECTIVE
-    // falls back to PROGRESSIVE active-set behavior (seed full pool).
+    // behavior. SELECTIVE in v1 fell back to progressive behavior (no
+    // findRelevant); v2 implements findRelevant so SELECTIVE is now real.
     if (config_.toolDisclosureMode == ToolDisclosureMode::AUTO) {
         LOG(WARN) << "[AgentWorker] toolDisclosureMode=auto is not implemented in v1; "
                   << "falling back to disabled behavior. Set disabled/progressive/selective explicitly.";
-    } else if (config_.toolDisclosureMode == ToolDisclosureMode::SELECTIVE) {
-        LOG(WARN) << "[AgentWorker] toolDisclosureMode=selective: findRelevant is v2; v1 seeds the "
-                  << "active set with the full pool (progressive behavior). FC/catalog mechanics are active.";
     }
+    // V2 (round5 §5.4.1 条 10): CapabilitySelector replaces the deprecated
+    // ToolSelector. Constructed here with the agent's config (for the
+    // modelConfig) and the SkillEngine (set later via SetSkillEngine, which
+    // also rebinds the CapabilitySelector's SkillEngine pointer). Lives for
+    // the Agent's lifetime; ReloadAgent re-constructs.
+    capabilitySelector_ = std::make_unique<CapabilitySelector>(config_, nullptr);
 }
 
 void AgentWorker::Cancel()
@@ -73,7 +74,6 @@ void AgentWorker::AddTools(const std::vector<std::string>& toolNames)
             continue;
         }
         toolNames_.push_back(name);
-        toolSelector_->AddToolToPool(name);
     }
 }
 
@@ -82,9 +82,6 @@ void AgentWorker::RemoveTools(const std::vector<std::string>& toolNames)
     std::lock_guard<std::mutex> lock(toolMutex_);
     for (const auto& name : toolNames) {
         toolNames_.erase(std::remove(toolNames_.begin(), toolNames_.end(), name), toolNames_.end());
-        if (toolSelector_) {
-            toolSelector_->RemoveToolFromPool(name);
-        }
     }
 }
 
@@ -116,13 +113,11 @@ int AgentWorker::SyncMcpTools()
     for (const auto& name : toAdd) {
         if (std::find(toolNames_.begin(), toolNames_.end(), name) == toolNames_.end()) {
             toolNames_.push_back(name);
-            if (toolSelector_) toolSelector_->AddToolToPool(name);
         }
         ownedMcpTools_.push_back(name);
     }
     for (const auto& name : toRemove) {
         toolNames_.erase(std::remove(toolNames_.begin(), toolNames_.end(), name), toolNames_.end());
-        if (toolSelector_) toolSelector_->RemoveToolFromPool(name);
         ownedMcpTools_.erase(std::remove(ownedMcpTools_.begin(), ownedMcpTools_.end(), name), ownedMcpTools_.end());
     }
     return static_cast<int>(toAdd.size() + toRemove.size());
@@ -131,6 +126,13 @@ int AgentWorker::SyncMcpTools()
 void AgentWorker::SetSkillEngine(std::shared_ptr<SkillEngine> engine)
 {
     skillEngine_ = engine;
+    // Rebind the CapabilitySelector's SkillEngine pointer so it tracks the
+    // active Agent's SkillEngine (which is Agent-scoped and shared across
+    // sessions). ReloadAgent re-constructs CapabilitySelector with nullptr
+    // and then this method rebinds it to the new SkillEngine.
+    if (capabilitySelector_ != nullptr) {
+        capabilitySelector_ = std::make_unique<CapabilitySelector>(config_, engine.get());
+    }
 }
 
 void AgentWorker::SetWorkerEnv(WorkerEnv* env)
@@ -189,7 +191,7 @@ std::vector<ToolSchema> AgentWorker::BuildToolSchemas() const
     // just absent rather than crashing).
     std::set<std::string> fcNames = ComputeAlwaysOn();
     if (workerEnv_ != nullptr) {
-        ToolTurnState* ts = workerEnv_->GetCurrentTurnState();
+        TurnState* ts = workerEnv_->GetCurrentTurnState();
         if (ts != nullptr) {
             const auto& loaded = ts->getLoadedTools();
             fcNames.insert(loaded.begin(), loaded.end());
@@ -283,7 +285,39 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
     // 4. Hot-reload skills and load into {$skills}
     if (skillEngine_) {
         skillEngine_->Load(true);
-        vars["skills"] = skillEngine_->GetSkillCatalog();
+        // V2 (round5 §5.4.1 条 11): by-subset rendering under progressive
+        // disclosure. The caller (BuildPrompt) holds workerEnv_, which gives
+        // access to the per-turn TurnState via TLS — read the skill active
+        // set and pass it as the visible names to the by-subset overload.
+        // SkillEngine stays Agent-scoped (no WorkerEnv dependency); the
+        // active-set read happens here in the caller.
+        //
+        // Note: skill side has NO alwaysOn concept — visible = skillActive
+        // only (no union with ComputeAlwaysOn()). Rationale: tools need
+        // alwaysOn because the FC protocol hard-restricts calls to the FC
+        // array (escape valves like tool_search/skill_search must always be
+        // callable under SELECTIVE). Skills have no protocol gate — they're
+        // text references in the prompt, not callable endpoints. The escape
+        // valve for skills IS skill_search (a tool, alwaysOn meta-tool,
+        // belongs to the tool-side alwaysOn set); the model uses it to
+        // discover/load skills. So a "skill alwaysOn" would be a concept
+        // without a structural purpose. Extends the "tool/skill load
+        // asymmetry" of §5.4.1 条 11 to the alwaysOn dimension: tools need
+        // it (FC gate bypass), skills don't (no gate).
+        if (IsProgressiveDisclosureActive() && workerEnv_ != nullptr) {
+            TurnState* ts = workerEnv_->GetCurrentTurnState();
+            if (ts != nullptr) {
+                const auto& skillActive = ts->getSkillActiveSet();
+                std::set<std::string> visible(skillActive.begin(), skillActive.end());
+                vars["skills"] = skillEngine_->GetSkillCatalog(visible);
+            } else {
+                // Off-Invoke probe path: fall back to full catalog.
+                vars["skills"] = skillEngine_->GetSkillCatalog();
+            }
+        } else {
+            // disabled/auto(v1→disabled): full catalog (V1 behavior).
+            vars["skills"] = skillEngine_->GetSkillCatalog();
+        }
     } else {
         vars["skills"] = "";
     }
@@ -297,7 +331,7 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
         // tool_search.search across iterations). Native FC: flat list
         // (protocol restricts calls). Prompt-mode: split into "directly
         // callable" / "requires load first" sections.
-        ToolTurnState* ts = workerEnv_->GetCurrentTurnState();
+        TurnState* ts = workerEnv_->GetCurrentTurnState();
         if (ts != nullptr) {
             const auto& active = ts->getActiveSet();
             const auto& loaded = ts->getLoadedTools();
@@ -394,10 +428,13 @@ std::string AgentWorker::ExecuteTool(const std::string& toolName, const std::str
                 // proxy on the current SessionEntry (lazily created by
                 // SmWorkerEnv::GetCurrentTurnState); tool_search reads
                 // getActiveSet/getLoadedTools/isActiveFullPool through it.
-                // The short-circuit decision for search is based on
-                // isActiveFullPool() (runtime state), not a mode label, so
-                // no toolDisclosureMode value is threaded into the ctx.
+                // V2: capabilitySelector is filled for both tool_search and
+                // skill_search's real-recall branch (round5 §5.4.1 条 8/9).
+                // Only populated under progressive disclosure (disabled
+                // mode keeps stateless substring matching in skill_search).
                 ctx.turnState = workerEnv_->GetCurrentTurnState();
+                ctx.capabilitySelector = IsProgressiveDisclosureActive()
+                    ? capabilitySelector_.get() : nullptr;
             }
             tool = rm.CreateSessionTool(toolName, ctx);
         } else {

@@ -115,9 +115,9 @@ Agent
 AgentWorker
  ├── config_ (AgentConfig)
  ├── toolNames_ (vector<string>)      ← 注册的工具名称（唯一拥有，toolMutex_ 保护）
- ├── ownedMcpTools_ (vector<string>)  ← 本 worker 加过的 MCP 工具（SyncMcpTools diff 用）
- ├── toolSelector_ (unique_ptr<ToolSelector>) ← 工具选择器
- ├── skillEngine_ (shared_ptr<SkillEngine>)   ← 技能引擎
+  ├── ownedMcpTools_ (vector<string>)  ← 本 worker 加过的 MCP 工具（SyncMcpTools diff 用）
+  ├── capabilitySelector_ (unique_ptr<CapabilitySelector>) ← V2 LLM-backed 能力召回（替代废弃的 ToolSelector）
+  ├── skillEngine_ (shared_ptr<SkillEngine>)   ← 技能引擎
  ├── workerEnv_ (WorkerEnv*)          ← 接口隔离，非拥有
  ├── cancelGeneration_ (atomic<uint64_t>) ← 取消代数计数器
  │
