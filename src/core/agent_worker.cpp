@@ -13,7 +13,9 @@
 #include <vector>
 
 #include "include/model.h"
+#include "include/config/agent_config_json.h"
 #include "include/resource_manager.h"
+#include "include/session_manager.h"
 #include "src/context_engine/context_engine.h"
 #include "src/core/ask_user_dispatcher.h"
 #include "src/core/capability_selector.h"
@@ -31,15 +33,13 @@ namespace jiuwen {
 
 AgentWorker::AgentWorker(AgentConfig config) : config_(std::move(config))
 {
-    // v1 fallback warnings (one-shot per Agent construction; ReloadAgent
-    // re-constructs so a reloaded config re-evaluates). AUTO is not
-    // implemented (no budget-driven selection), so it degrades to DISABLED
-    // behavior. SELECTIVE in v1 fell back to progressive behavior (no
-    // findRelevant); v2 implements findRelevant so SELECTIVE is now real.
-    if (config_.toolDisclosureMode == ToolDisclosureMode::AUTO) {
-        LOG(WARN) << "[AgentWorker] toolDisclosureMode=auto is not implemented in v1; "
-                  << "falling back to disabled behavior. Set disabled/progressive/selective explicitly.";
-    }
+    // V3 (round5 §5.4.2): AUTO is now a real mode — resolves lazily via
+    // call_once on first IsProgressiveDisclosureActive() call (effectiveMode_
+    // starts as AUTO, gets resolved to DISABLED/PROGRESSIVE/SELECTIVE based
+    // on pool token budget). No construction-time WARN; the old "AUTO maps
+    // to disabled + warning" v1/v2 fallback is gone.
+    // PROGRESSIVE/SELECTIVE skip resolution (effectiveMode_ already equals
+    // config_.toolDisclosureMode for those).
     // V2 (round5 §5.4.1 条 10): CapabilitySelector replaces the deprecated
     // ToolSelector. Constructed here with the agent's config (for the
     // modelConfig) and the SkillEngine (set later via SetSkillEngine, which
@@ -142,12 +142,114 @@ void AgentWorker::SetWorkerEnv(WorkerEnv* env)
 
 bool AgentWorker::IsProgressiveDisclosureActive() const
 {
-    // AUTO resolves to DISABLED in v1 (no budget-driven selection); the
-    // constructor logs the fallback. PROGRESSIVE and SELECTIVE both use the
-    // Tier 1 catalog + load + tool_search mechanics (SELECTIVE's findRelevant
-    // is the v2 delta, orthogonal to this FC/catalog branch).
-    return config_.toolDisclosureMode == ToolDisclosureMode::PROGRESSIVE
-        || config_.toolDisclosureMode == ToolDisclosureMode::SELECTIVE;
+    // V3 (round5 §5.4.2): AUTO triggers lazy resolution via std::call_once
+    // on first call. effectiveMode_ starts as config_.toolDisclosureMode
+    // (AUTO stays unresolved); once call_once runs, effectiveMode_ is
+    // resolved to one of DISABLED/PROGRESSIVE/SELECTIVE based on pool token
+    // budget via ResolveByBudget. PROG/SEL skip resolution (their
+    // effectiveMode_ already equals config_.toolDisclosureMode at
+    // construction). Subsequent calls return effectiveMode_ directly
+    // (call_once is a no-op for already-resolved once_flag).
+    //
+    // call_once guarantees one-shot resolution under multi-session concurrent
+    // first-call (§5.2: up to 3 concurrent sessions). The lambda body
+    // (including the LOG(INFO) at the end) runs exactly once across all
+    // concurrent callers — others block on the call_once until the first
+    // finishes, then proceed to the return statement with effectiveMode_
+    // already populated. This is why the "resolved to <mode>" LOG lives
+    // INSIDE the lambda (call_once ensures one emission); putting it
+    // outside would re-emit on every IsProgressiveDisclosureActive() call
+    // (BuildToolSchemas/BuildPrompt/ExecuteTool ctx fill all call this —
+    // would spam logs).
+    if (effectiveMode_ == ToolDisclosureMode::AUTO) {
+        std::call_once(resolveOnce_, [&] {
+            effectiveMode_ = ResolveByBudget(GetToolNames());
+            LOG(INFO) << "[AgentWorker] auto resolved to "
+                      << ToolDisclosureModeToString(effectiveMode_);
+        });
+    }
+    return effectiveMode_ == ToolDisclosureMode::PROGRESSIVE
+        || effectiveMode_ == ToolDisclosureMode::SELECTIVE;
+}
+
+ToolDisclosureMode AgentWorker::GetEffectiveMode() const
+{
+    // Triggers lazy resolution if AUTO; the bool return value of
+    // IsProgressiveDisclosureActive() is ignored — only its side effect
+    // (populating effectiveMode_ via call_once) matters. Reuses the entry
+    // method instead of duplicating call_once logic, so all "read effective
+    // mode" sites route through one resolution path.
+    IsProgressiveDisclosureActive();
+    return effectiveMode_;
+}
+
+ToolDisclosureMode AgentWorker::ResolveByBudget(const std::vector<std::string>& pool) const
+{
+    // V3 (round5 §5.4.2): data-fetch phase — calls RM (non-pure), stays as
+    // member. Tier 2 excludes alwaysOn (meta-tools + config_.alwaysOnTools
+    // are always FC-resident regardless of mode, so counting them would
+    // inflate Tier 2 and may falsely elevate a disabled-sized pool to
+    // progressive). Tier 1 (name+desc catalog) does NOT exclude alwaysOn —
+    // the catalog naturally contains all tools' name+desc (alwaysOn's
+    // name+desc included), progressive Tier 1 is full-pool-visible by design.
+    auto alwaysOn = ComputeAlwaysOn();  // MetaToolNames() ∪ config_.alwaysOnTools
+    std::vector<std::string> nonAlwaysOn;
+    for (const auto& name : pool) {
+        if (alwaysOn.find(name) == alwaysOn.end()) {
+            nonAlwaysOn.push_back(name);
+        }
+    }
+
+    auto& rm = ResourceManager::GetInstance();
+    // Tier 2: full schema (with params) of non-alwaysOn tools, composed into
+    // text and fed to ContextEngine::EstimateTokens.
+    auto schemas = rm.BuildToolSchemas(nonAlwaysOn);
+    std::string schemaText;
+    for (const auto& s : schemas) {
+        schemaText += s.name + s.description + s.parameters.dump();
+    }
+    int tier2 = ContextEngine::EstimateTokens(schemaText);
+
+    // Tier 1: name+desc catalog of ALL tools (alwaysOn included). Visible
+    // set = full pool; callable set empty (recall doesn't care about
+    // loadedTools); NativeFc render mode for consistency with progressive
+    // catalog rendering.
+    std::set<std::string> allVisible(pool.begin(), pool.end());
+    std::set<std::string> emptyCallable;
+    std::string catalogText = rm.GetToolCatalog(allVisible,
+        ResourceManager::CatalogRenderMode::NativeFc, emptyCallable);
+    int tier1 = ContextEngine::EstimateTokens(catalogText);
+
+    LOG(INFO) << "[AgentWorker] auto tier2=" << tier2 << " tokens (budget "
+              << config_.toolSchemaTokenBudget << "), tier1=" << tier1
+              << " tokens (budget " << config_.toolCatalogTokenBudget
+              << "), pool size=" << pool.size()
+              << ", nonAlwaysOn=" << nonAlwaysOn.size();
+
+    return ResolveModeByTokenBudget(tier2, tier1,
+                                     config_.toolSchemaTokenBudget,
+                                     config_.toolCatalogTokenBudget);
+}
+
+// V3 (round5 §5.4.2 条 12): judge phase — pure function, no RM side effects.
+// Free function so unit tests can call directly (declared in agent_worker.h,
+// same pattern as MetaToolNames). Eats 4 ints (tier2/tier1 token counts +
+// schemaBudget/catalogBudget thresholds), returns the resolved mode.
+// budget=0 means "this tier's budget unset, skip judgment at that level"
+// — both budgets 0 → DISABLED (default AUTO config with no explicit budgets
+// = zero +1 LLM/turn, conservative).
+ToolDisclosureMode ResolveModeByTokenBudget(int tier2, int tier1,
+                                            int schemaBudget, int catalogBudget)
+{
+    if (schemaBudget > 0 && tier2 > schemaBudget) {
+        // Full schemas exceed Tier 2 budget → disabled can't hold, at least
+        // progressive (FC = alwaysOn ∪ loadedTools, schema count drops).
+        if (catalogBudget > 0 && tier1 > catalogBudget) {
+            return ToolDisclosureMode::SELECTIVE;  // Tier 1 also exceeds → progressive's full catalog can't hold → selective
+        }
+        return ToolDisclosureMode::PROGRESSIVE;  // Tier 2 exceeds but Tier 1 doesn't → progressive (FC drops, Tier 1 catalog still full-pool visible)
+    }
+    return ToolDisclosureMode::DISABLED;  // Neither exceeds → disabled (full schemas resident, zero +1 LLM/turn)
 }
 
 std::set<std::string> AgentWorker::ComputeAlwaysOn() const

@@ -337,26 +337,21 @@ void SessionManager::Initialize(const AgentConfig& config)
     agent_->SetWorkerEnv(workerEnv_.get());
 
     // Progressive tool disclosure: register the tool_search escape valve as
-    // a session-scoped tool when toolDisclosureMode is PROGRESSIVE or
-    // SELECTIVE. DISABLED (and AUTO, which v1 resolves to DISABLED) skip
-    // registration so tool_search is absent from FC and the {$tools} prompt
-    // (zero regression). Registration lives here (not in
-    // ResourceManager::RegisterBuiltinTools) because ResourceManager is a
-    // no-config singleton and cannot read toolDisclosureMode; the factory
-    // captures only ctx.turnState per invocation plus the full alwaysOn set
-    // (meta-tools ∪ config_.alwaysOnTools, computed once at registration
-    // time and captured by value) so the load action can idempotently
-    // short-circuit on any alwaysOn name (§5.3 注册站点 + §5.3 越界处理:
-    // alwaysOn 工具被 load → 幂等返 "already in the FC"). V2: ctx.capabilitySelector
-    // is also passed for the search action's real-recall branch (round5
-    // §5.4.1 条 8/9: CapabilitySelector reuses main modelConfig for LLM-backed
-    // recall). No mode label is threaded into the tool: the search action's
-    // short-circuit is driven by TurnState::isActiveFullPool() (runtime
-    // active-set state), not a mode value — see tool_search_tool.cpp.
-    // ReloadAgent re-registers symmetrically (idempotent overwrite, captures
-    // fresh alwaysOn).
+    // a session-scoped tool when toolDisclosureMode is PROGRESSIVE, SELECTIVE,
+    // or AUTO. DISABLED skips registration so tool_search is absent from FC
+    // and the {$tools} prompt (zero regression). V3 (round5 §5.4.2): AUTO
+    // now also triggers registration — resolution happens lazily in
+    // IsProgressiveDisclosureActive() on first call, but tool_search must
+    // be registered unconditionally under AUTO since AUTO may resolve to
+    // SELECTIVE (which requires tool_search as escape valve). If AUTO
+    // resolves to DISABLED, the extra registration is a benign "tool visible
+    // but unused" degradation (DISABLED's BuildToolSchemas returns full
+    // toolNames_ schemas including tool_search; the model can call any tool
+    // directly without load/search, and tool_search invoked in DISABLED
+    // mode returns the short-circuit prompt without state mutation).
     if (config_.toolDisclosureMode == ToolDisclosureMode::PROGRESSIVE
-        || config_.toolDisclosureMode == ToolDisclosureMode::SELECTIVE) {
+        || config_.toolDisclosureMode == ToolDisclosureMode::SELECTIVE
+        || config_.toolDisclosureMode == ToolDisclosureMode::AUTO) {
         // Compute the full alwaysOn set once (config-derived static; not
         // per-turn state, so it does not belong on TurnState). Captured
         // by value — the lambda outlives the registration call.
@@ -1014,10 +1009,12 @@ bool SessionManager::ReloadAgent(const AgentConfig& newConfig, std::string* erro
         //         impact); the difference is only which inert message shows.
         // A DISABLED→PROGRESSIVE transition re-registers below, overwriting.
         if (effective.toolDisclosureMode == ToolDisclosureMode::PROGRESSIVE
-            || effective.toolDisclosureMode == ToolDisclosureMode::SELECTIVE) {
-            // Re-compute alwaysOn from the effective (post-reload) config so
-            // a changed alwaysOnTools takes effect immediately (mirrors the
-            // Initialize-time registration above).
+            || effective.toolDisclosureMode == ToolDisclosureMode::SELECTIVE
+            || effective.toolDisclosureMode == ToolDisclosureMode::AUTO) {
+            // V3: AUTO included — see Initialize-time registration comment
+            // above. Resolution happens lazily in IsProgressiveDisclosureActive();
+            // tool_search must be registered under AUTO regardless of what
+            // the eventual resolution will be.
             std::set<std::string> alwaysOnNames = ComputeAlwaysOnFor(effective);
             ResourceManager::GetInstance().RegisterSessionTool(
                 "tool_search",

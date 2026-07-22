@@ -239,7 +239,15 @@ std::string ReactAgentWorker::Invoke(const std::string& query, ContextEngine* co
             if (skillEngine_ != nullptr) {
                 skillPool = skillEngine_->GetSkillIds();
             }
-            if (config_.toolDisclosureMode == ToolDisclosureMode::SELECTIVE
+            // V3 (round5 §5.4.2): read effectiveMode (lazily resolved from
+            // AUTO if needed) instead of config_.toolDisclosureMode. AUTO may
+            // resolve to SELECTIVE, in which case the findRelevant path
+            // below must fire. Reading config_.toolDisclosureMode would
+            // return AUTO (unresolved) and miss the SELECTIVE branch.
+            // GetEffectiveMode() triggers IsProgressiveDisclosureActive()
+            // for its side effect (call_once resolution), then returns
+            // effectiveMode_.
+            if (GetEffectiveMode() == ToolDisclosureMode::SELECTIVE
                 && capabilitySelector_ != nullptr) {
                 // V2: run findRelevant once at turn-start. sessionContext is
                 // the windowed conversation history (条 7: reuse

@@ -363,6 +363,7 @@ add_executable(unittest
     unittest/test_reload_agent_graceful.cpp
     unittest/test_progressive_disclosure.cpp
     unittest/test_capability_selector.cpp
+    unittest/test_auto_resolution.cpp
 )
 target_include_directories(unittest PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 

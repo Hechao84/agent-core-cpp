@@ -39,6 +39,13 @@ public:
     void SetMemoryEventSink(std::function<void(const MemoryEvent&)> sink);
     std::string GetConsolidationPayload(int maxMessages = 100) const;
 
+    // V3 (round5 §5.4.2): exposed public so AgentWorker::ResolveByBudget can
+    // estimate tool schema / catalog token counts for AUTO mode budget
+    // resolution. Pure utility (no instance state, len/4 coarse estimate
+    // with CJK-friendly ascii/4 + wide*3/4 weighting). Made public rather
+    // than duplicating the estimation logic in AgentWorker.
+    static int EstimateTokens(const std::string& text);
+
 private:
     ContextConfig config_;
     std::vector<Message> memoryBuffer_;
@@ -49,7 +56,6 @@ private:
 
     struct MessageSegment;
 
-    static int EstimateTokens(const std::string& text);
     int CalculateMessageTokens(const Message& msg) const;
     int CalculateMessagesTokens(const std::vector<Message>& messages) const;
     int CalculateMessagesTokens(std::vector<Message>::const_iterator begin,

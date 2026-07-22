@@ -171,7 +171,7 @@ enum class ToolDisclosureMode
     DISABLED,     // Small scale: full schemas resident (current behavior)
     PROGRESSIVE,  // Medium scale: Tier 1 catalog + on-demand load
     SELECTIVE,    // Large scale: findRelevant seeds Tier 1 (v2; v1 falls back to progressive)
-    AUTO,         // Reserved: pick by token budget (v1 maps to disabled + warning)
+    AUTO,         // Budget-driven: resolves to DISABLED/PROGRESSIVE/SELECTIVE via ResolveByBudget (§5.4.2)
 };
 
 struct AgentConfig 
@@ -212,8 +212,8 @@ struct AgentConfig
     // full schemas fit comfortably, configure DISABLED explicitly to skip
     // the +1 call (behavior reverts to V1).
     ToolDisclosureMode toolDisclosureMode{ToolDisclosureMode::SELECTIVE};
-    int toolSchemaTokenBudget{0};   // Tier 2 budget hint (0 = unused; for future AUTO)
-    int toolCatalogTokenBudget{0};  // Tier 1 budget hint (0 = unused; for future AUTO)
+    int toolSchemaTokenBudget{0};   // Tier 2 budget hint (consumed by auto's ResolveByBudget §5.4.2; 0 = unused, 该档不参与判定)
+    int toolCatalogTokenBudget{0};  // Tier 1 budget hint (consumed by auto's ResolveByBudget §5.4.2; 0 = unused, 该档不参与判定)
     std::vector<std::string> alwaysOnTools; // Extra tools always in FC (besides meta-tools)
 
     // MCP server ids referenced by this agent (servers are managed by the
