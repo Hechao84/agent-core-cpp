@@ -434,7 +434,7 @@ body{
 .pane-body{ padding:14px; flex:1; min-height:0; overflow:auto; }
 
 /* ---------- Chat ---------- */
-.chat-wrap{ flex:1; display:flex; flex-direction:column; min-height:0; gap:0; }
+.chat-wrap{ flex:1; display:flex; flex-direction:column; min-height:0; gap:0; position:relative; }
 .chat-messages{
   flex:1; min-height:0; overflow:auto;
   padding:16px 24px; display:flex; flex-direction:column; gap:14px;
@@ -631,6 +631,22 @@ body{
 }
 .skill-tags{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
 
+/* ---------- Jump-to-bottom floating button ---------- */
+.jump-to-bottom{
+  position:absolute; right:20px; bottom:96px;
+  display:inline-flex; align-items:center; gap:4px;
+  background:var(--accent); color:var(--bg-primary);
+  border:none; border-radius:16px;
+  padding:6px 14px; font-size:12px; font-weight:600;
+  cursor:pointer; user-select:none;
+  box-shadow:0 2px 10px rgba(0,0,0,.25);
+  z-index:20;
+  opacity:1; transform:translateY(0);
+  transition:opacity .15s ease, transform .15s ease;
+}
+.jump-to-bottom:hover{ filter:brightness(1.08); }
+.jump-to-bottom.hidden{ opacity:0; transform:translateY(8px); pointer-events:none; }
+
 </style>
 </head>
 <body>
@@ -717,6 +733,9 @@ body{
         <section class="pane" style="background:var(--card);">
           <div class="chat-wrap">
             <div class="chat-messages" id="messages"></div>
+            <button class="jump-to-bottom hidden" id="jumpToBottomBtn" onclick="jumpToBottom()" title="回到底部">
+              <span>↓ 新消息</span>
+            </button>
             <div class="chat-input-area">
               <div class="chat-input-row">
                 <textarea id="messageInput" placeholder="输入消息…(Enter 发送 / Shift+Enter 换行)" rows="1" onkeydown="handleKeyDown(event)" oninput="autoResize(this)"></textarea>
@@ -1208,11 +1227,13 @@ function renderMessages(scrollBottom){
       <div class="title">尚未选择会话</div>
       <div>点击侧边栏「新建会话」或在左侧列表中选一个</div>
     </div>`;
+    updateJumpToBottomBtn();
     return;
   }
   const list = messages[currentSessionId] || [];
   if (!list.length){
     c.innerHTML = `<div class="empty-state"><div class="title">开始对话</div><div>在下方输入消息发送给智能体</div></div>`;
+    updateJumpToBottomBtn();
     return;
   }
   list.forEach((m, i) => {
@@ -1275,7 +1296,58 @@ function renderMessages(scrollBottom){
     }
     c.appendChild(el);
   });
-  if (scrollBottom) c.scrollTop = c.scrollHeight;
+  if (scrollBottom === true) {
+    requestAnimationFrame(() => {
+      c.scrollTop = c.scrollHeight;
+      updateJumpToBottomBtn();
+    });
+  } else {
+    smartScrollToBottom(c);
+  }
+}
+
+// Auto-scroll only when the user is already near the bottom. If the user has
+// scrolled up to read earlier output, leave the viewport alone so streaming
+// content doesn't yank the view back down.
+function smartScrollToBottom(container){
+  requestAnimationFrame(() => {
+    const isAtBottom = container.scrollHeight - container.scrollTop
+                     <= container.clientHeight + 120;
+    if (isAtBottom) container.scrollTop = container.scrollHeight;
+    updateJumpToBottomBtn();
+  });
+}
+
+// Floating "↓ 新消息" button visibility. Visible when there is unread
+// content below the current viewport; hidden when already at the bottom.
+function updateJumpToBottomBtn(){
+  const c = $('messages');
+  const btn = $('jumpToBottomBtn');
+  if (!c || !btn) return;
+  const isAtBottom = c.scrollHeight - c.scrollTop <= c.clientHeight + 120;
+  btn.classList.toggle('hidden', isAtBottom);
+}
+
+function jumpToBottom(){
+  const c = $('messages');
+  if (!c) return;
+  c.scrollTop = c.scrollHeight;
+  updateJumpToBottomBtn();
+}
+
+// Watch manual scrolling on #messages so the floating button stays in sync
+// with the user's actual viewport position. Throttled via requestAnimationFrame
+// because the native scroll event fires many times per gesture.
+let _scrollTick = false;
+function attachScrollWatcher(){
+  const c = $('messages');
+  if (!c || c._scrollWatched) return;
+  c._scrollWatched = true;
+  c.addEventListener('scroll', () => {
+    if (_scrollTick) return;
+    _scrollTick = true;
+    requestAnimationFrame(() => { _scrollTick = false; updateJumpToBottomBtn(); });
+  }, { passive: true });
 }
 
 function toggleTool(idx){
@@ -1413,7 +1485,7 @@ function appendAssistantChunk(sessionId, chunk){
   } else {
     list.push({ type:'assistant', content: chunk });
   }
-  if (currentSessionId === sessionId) renderMessages(true);
+  if (currentSessionId === sessionId) renderMessages();
 }
 
 function appendToolCall(sessionId, name, args, callId){
@@ -1435,7 +1507,7 @@ function appendToolCall(sessionId, name, args, callId){
     result: null,
     expanded: false,
   });
-  if (currentSessionId === sessionId) renderMessages(true);
+  if (currentSessionId === sessionId) renderMessages();
 }
 
 // Strip a trailing JSON tool-call from the last assistant bubble. Looks for
@@ -1521,7 +1593,7 @@ function setLastToolResult(sessionId, result, callId){
     for (let i = list.length - 1; i >= 0; i--){
       if (list[i].type === 'tool' && list[i].callId === callId){
         list[i].result = result;
-        if (currentSessionId === sessionId) renderMessages(true);
+        if (currentSessionId === sessionId) renderMessages();
         return;
       }
     }
@@ -1532,7 +1604,7 @@ function setLastToolResult(sessionId, result, callId){
       break;
     }
   }
-  if (currentSessionId === sessionId) renderMessages(true);
+  if (currentSessionId === sessionId) renderMessages();
 }
 
 function pushStatus(sessionId, content, severity){
@@ -1544,7 +1616,7 @@ function pushStatus(sessionId, content, severity){
   if (/^Thinking\.\.\./i.test(t)) kind = 'iter';
   else if (!sev && /Cancelled|Max iterations|empty response/i.test(t)) sev = 'warn';
   list.push({ type:'status', content: t, kind, severity: sev });
-  if (currentSessionId === sessionId) renderMessages(true);
+  if (currentSessionId === sessionId) renderMessages();
 }
 
 function renderAskUser(sessionId, data){
@@ -1561,7 +1633,7 @@ function renderAskUser(sessionId, data){
     timeoutSec: payload.timeout_seconds || 60,
     answered: false,
   });
-  if (currentSessionId === sessionId) renderMessages(true);
+  if (currentSessionId === sessionId) renderMessages();
 }
 
 async function submitAskUser(requestId, answerObj, btnEl){
@@ -2270,6 +2342,7 @@ async function init(){
   refreshSkillList();
   refreshChannelTree();
   refreshMcpList();
+  attachScrollWatcher();
   // Restore last session
   const last=localStorage.getItem('jiuwen_session_id');
   if(last && sessions.some(s=>s.id===last))switchSession(last);
@@ -2284,6 +2357,7 @@ window.switchSession = switchSession;
 window.sendMessage = sendMessage;
 window.cancelRequest = cancelRequest;
 window.clearChat = clearChat;
+window.jumpToBottom = jumpToBottom;
 window.handleKeyDown = handleKeyDown;
 window.autoResize = autoResize;
 window.toggleTool = toggleTool;
