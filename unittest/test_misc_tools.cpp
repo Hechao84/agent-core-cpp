@@ -7,6 +7,7 @@
 #include "src/tools/builtin_tools/exec_tool.h"
 #include "src/tools/builtin_tools/file_state_tool.h"
 #include "src/tools/builtin_tools/time_info_tool.h"
+#include "src/tools/builtin_tools/web_fetch_tool.h"
 #include "test_runner.h"
 
 using namespace jiuwen;
@@ -130,4 +131,53 @@ TEST(file_state_tool, RecordReadMissingFile)
     std::string result = tool.Invoke("{\"action\":\"record_read\",\"path\":\"nonexistent_file_12345.txt\"}");
     TestRunner::AssertContains(result, "Error");
     TestRunner::AssertContains(result, "not found");
+}
+
+// WebFetcherTool URL extraction tests.
+// Regression coverage for an off-by-one in the previous hand-rolled JSON
+// substring extractor that prefixed the URL with a stray opening quote
+// ("\"https://..."), which curl then rejected as
+// "URL using bad/illegal format or missing URL".
+TEST(web_fetch_tool, ExtractsUrlFromJsonObject)
+{
+    std::string url = WebFetcherTool::ExtractUrl("{\"url\":\"https://example.com/path\"}");
+    TestRunner::AssertEq(url, std::string("https://example.com/path"),
+        "URL must be extracted without leading quote");
+}
+
+TEST(web_fetch_tool, ExtractsUrlFromJsonWithSpaces)
+{
+    std::string url = WebFetcherTool::ExtractUrl("{\"url\": \"https://example.com/path/\"}");
+    TestRunner::AssertEq(url, std::string("https://example.com/path/"),
+        "URL with trailing slash and JSON spaces must be extracted verbatim");
+}
+
+TEST(web_fetch_tool, ExtractsUrlFromJsonWithQueryParams)
+{
+    std::string url = WebFetcherTool::ExtractUrl("{\"url\":\"https://ent.sina.cn/2026-04-28/detail.d.html?vt=4\"}");
+    TestRunner::AssertEq(url, std::string("https://ent.sina.cn/2026-04-28/detail.d.html?vt=4"),
+        "URL with query params must be preserved");
+}
+
+TEST(web_fetch_tool, ExtractsUrlFromJsonWithPercentEncoding)
+{
+    std::string url = WebFetcherTool::ExtractUrl("{\"url\":\"https://baike.baidu.com/item/%E5%91%A8%E6%B7%B1/67507045\"}");
+    TestRunner::AssertEq(url, std::string("https://baike.baidu.com/item/%E5%91%A8%E6%B7%B1/67507045"),
+        "Percent-encoded URL must be preserved verbatim");
+}
+
+TEST(web_fetch_tool, FallsBackToRawInputWhenNotJson)
+{
+    std::string url = WebFetcherTool::ExtractUrl("https://example.com");
+    TestRunner::AssertEq(url, std::string("https://example.com"),
+        "Bare URL input should pass through unchanged");
+}
+
+TEST(web_fetch_tool, ExtractedUrlHasNoLeadingQuote)
+{
+    // Direct regression test: the URL must not start with a double quote
+    // (the original bug signature).
+    std::string url = WebFetcherTool::ExtractUrl("{\"url\":\"https://example.com/\"}");
+    TestRunner::AssertTrue(url.empty() || url.front() != '"',
+        "URL must not begin with a double quote");
 }

@@ -2,8 +2,11 @@
 #include <iostream>
 #include <string>
 #include "src/utils/curl_client.h"
+#include "third_party/include/nlohmann/json.hpp"
 
 namespace jiuwen {
+
+using json = nlohmann::json;
 
 WebFetcherTool::WebFetcherTool() : Tool("web_fetcher", "Fetches the content of a given URL", {{"url", "The URL to fetch", "string", true}}){} std::string WebFetcherTool::FetchUrl(const std::string& url)
 {
@@ -21,22 +24,28 @@ WebFetcherTool::WebFetcherTool() : Tool("web_fetcher", "Fetches the content of a
     return resp.body;
 }
 
+std::string WebFetcherTool::ExtractUrl(const std::string& input)
+{
+    // The caller may pass either a bare URL or a JSON object {"url": "..."}.
+    // Parse with nlohmann/json: a hand-rolled substring extractor previously
+    // used here had an off-by-one that leaked the opening quote into the URL
+    // string ("\"https://..."), which curl then rejected as
+    // "URL using bad/illegal format or missing URL" on every fetch.
+    std::string url = input;
+    try {
+        auto j = json::parse(input);
+        if (j.is_object() && j.contains("url") && j["url"].is_string()) {
+            url = j["url"].get<std::string>();
+        }
+    } catch (...) {
+        // Not JSON — treat input as a raw URL.
+    }
+    return url;
+}
+
 std::string WebFetcherTool::Invoke(const std::string& input)
 {
-    // input is expected to be just the URL or JSON with "url" key
-    std::string url = input;
-    
-    // Simple check if input is JSON {"url": "..."}
-    size_t pos = input.find("\"url\"");
-    if (pos != std::string::npos) {
-        size_t start = input.find(":", pos) + 1;
-        size_t end_quote = input.find("\"", input.find("\"", start) + 1); // Find the closing quote of value
-        if (end_quote != std::string::npos) {
-            url = input.substr(start + 1, end_quote - start - 1);
-        }
-    }
-    
-    return FetchUrl(url);
+    return FetchUrl(ExtractUrl(input));
 }
 
 } // namespace jiuwen
