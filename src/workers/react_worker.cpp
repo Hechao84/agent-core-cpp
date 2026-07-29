@@ -16,6 +16,7 @@
 #include "src/core/worker_env.h"
 #include "src/skills/skill_engine.h"
 #include "src/utils/logger.h"
+#include "src/utils/time_utils.h"
 #include "src/utils/tool_parser.h"
 #include "third_party/include/nlohmann/json.hpp"
 
@@ -48,6 +49,31 @@ std::string EncodeToolCallTag(const ToolCall& tc)
         j["arguments"] = tc.argumentsJson;
     }
     return j.dump();
+}
+
+// Build the per-iteration Runtime Note appended at the tail of the
+// messages array. Kept out of the system prompt so the prompt prefix
+// (agents / soul / user / tools / memory / skills / tools catalog) stays
+// byte-stable across iterations and KV-cache friendly. Injecting the
+// current time at the tail instead has two effects:
+//   1. The system message becomes a stable cache prefix (the previous
+//      in-prompt `Current Time` field broke prefix-cache on every second
+//      boundary).
+//   2. The tail position is where the model's recency-attention is
+//      strongest, which suppresses a known failure mode where stale
+//      `time_info` tool results from earlier turns get treated as
+//      "today".
+std::string BuildRuntimeNote()
+{
+    std::string s;
+    s += "[Runtime Note]\n";
+    s += "Current Time: " + jiuwen::NowLocalHumanReadable() + " (Local Time)\n";
+    s += "Today's Date: " + jiuwen::NowLocalDateWithWeekday() + "\n";
+    s += "UTC Time: " + jiuwen::NowUtcIso8601() + "\n";
+    s += "Note: Tool results earlier in this conversation may reference older "
+         "dates/times. Treat the time above as authoritative for any "
+         "\"today\" / \"now\" references in the user's query.";
+    return s;
 }
 
 } // namespace
@@ -92,6 +118,17 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
 
         std::string systemPrompt = BuildPrompt("react_system", query, scratchpad, contextEngine);
         callback("\n[STATUS] Thinking... (Iteration " + std::to_string(iteration + 1) + ")\n");
+
+        // Inject the per-iteration Runtime Note at the tail of the messages
+        // array. msgHistory is a by-value copy of the context window, so this
+        // mutation never reaches ContextEngine's persistence. The note is a
+        // role=system message (legal at any position under the OpenAI spec;
+        // AnthropicModel::Format folds non-leading system messages into the
+        // top-level system field to satisfy Anthropic's protocol).
+        Message runtimeNote;
+        runtimeNote.role = "system";
+        runtimeNote.content = BuildRuntimeNote();
+        msgHistory.push_back(runtimeNote);
 
         ModelResponse resp = CallModelStream(
             systemPrompt,

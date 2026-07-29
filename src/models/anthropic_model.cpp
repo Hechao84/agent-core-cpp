@@ -275,6 +275,17 @@ std::string AnthropicModel::Format(const std::string& systemPrompt,
             // state and emit as a separate message.
             awaitingToolBlock = false;
         }
+        if (m.role == "system") {
+            // Anthropic's Messages API forbids role=system entries in the
+            // messages array — the system prompt must live in the top-level
+            // `system` field. The leading system message is already placed
+            // there above; any non-leading system message (e.g. the
+            // per-iteration Runtime Note injected at the tail by ReactWorker)
+            // is folded into the top-level system field so the model still
+            // sees the content without breaking the protocol.
+            payload["system"] = payload["system"].get<std::string>() + "\n\n" + fixed;
+            continue;
+        }
         msgs.push_back({{"role", m.role}, {"content", fixed}});
     }
 
