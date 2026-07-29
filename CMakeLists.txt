@@ -148,6 +148,7 @@ add_library(agent_framework SHARED
     src/core/capability_selector.cpp
     src/memory/http_memory_runtime.cpp
     src/memory/long_term_consolidator.cpp
+    src/memory/entity_decay.cpp
     src/tools/builtin_tools/memory_read_payload_tool.cpp
     src/workers/agent_worker_factory.cpp
     src/workers/react_worker.cpp
@@ -349,6 +350,7 @@ add_executable(unittest
     unittest/test_context_engine.cpp
     unittest/test_agent_config.cpp
     unittest/test_memory_runtime.cpp
+    unittest/test_entity_decay.cpp
     unittest/test_resource_manager.cpp
     unittest/test_agent_factory.cpp
     unittest/test_file_tools.cpp

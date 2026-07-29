@@ -69,6 +69,21 @@ struct MemoryConfig
     double modelTemperature{0.0};
     int modelMaxTokens{0};
 
+    // Event-type entities (topic/task/project/file) are time-bound: a
+    // "rainstorm on 2026-07-20" or "user.flight.july12" stops being useful
+    // once the event has passed. Such entities are dropped from the
+    // BuildContext output (NOT from storage — the rows stay for audit) once
+    // their updatedAt is older than eventEntityTtlDays. Persistent types
+    // (preference/user/style) are never dropped regardless of age.
+    //
+    // Default TTL is 7 days: long enough to keep "this week's" context alive
+    // for follow-up questions, short enough to prevent last month's event
+    // dates from polluting today's prompts (a known failure mode where the
+    // model treats a stale entity like beijing-rainstorm-2026-07-20 as if
+    // it described "today").
+    std::vector<std::string> eventEntityTypes{"topic", "task", "project", "file"};
+    int eventEntityTtlDays{7};
+
     ConfigNode extraParams;
 };
 

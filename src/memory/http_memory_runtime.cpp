@@ -6,6 +6,7 @@
 #include <chrono>
 #include <utility>
 
+#include "src/memory/entity_decay.h"
 #include "src/utils/curl_client.h"
 #include "src/utils/logger.h"
 #include "src/utils/retry_helper.h"
@@ -477,7 +478,14 @@ MemoryContextPackage HttpMemoryRuntime::BuildContext(const MemoryContextRequest&
             ++circuit_.buildContextFailures;
             return {};
         }
-        return DeserializeContextPackage(j);
+        MemoryContextPackage pkg = DeserializeContextPackage(j);
+        // Apply the same event-entity TTL filtering as the builtin runtime so
+        // HTTP-mode clients see consistent behaviour regardless of which
+        // MemoryRuntime implementation is configured. The remote server's own
+        // filtering (if any) is layered below us; doing it again here is a
+        // no-op when nothing is expired.
+        FilterExpiredEventEntities(pkg, config_);
+        return pkg;
     } catch (const std::exception& e) {
         LOG(WARN) << "[HttpMemoryRuntime] BuildContext parse error: " << e.what();
         ++circuit_.buildContextFailures;

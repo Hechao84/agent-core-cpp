@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "src/memory/entity_decay.h"
 #include "src/memory/type_bridge.h"
 #include "src/utils/logger.h"
 
@@ -63,7 +64,12 @@ MemoryContextPackage BuiltinMemoryRuntime::BuildContext(const MemoryContextReque
 {
     auto r = impl_->BuildContext(ToAgentContextRequest(request));
     if (!r) { LOG(WARN) << "[MemoryRuntime] BuildContext failed: " << r.error.message; ++buildContextFailures_; return {}; }
-    return FromAgentContextPackage(r.context);
+    MemoryContextPackage pkg = FromAgentContextPackage(r.context);
+    // Apply jiuwen-side event-entity TTL filtering. Done here (not inside
+    // agent-memory-cpp) so we don't touch the third-party store layer and
+    // the same filter function can be reused by HttpMemoryRuntime.
+    FilterExpiredEventEntities(pkg, config_);
+    return pkg;
 }
 
 MemoryPayloadWriteResult BuiltinMemoryRuntime::WritePayload(const MemoryPayloadWriteRequest& request)

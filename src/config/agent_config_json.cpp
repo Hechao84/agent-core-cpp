@@ -314,6 +314,14 @@ static void MergeMemoryConfig(const nlohmann::json& j, MemoryConfig& out,
     if (j.contains("modelTimeoutSeconds"))    out.modelTimeoutSeconds    = j["modelTimeoutSeconds"].get<int>();
     if (j.contains("modelTemperature"))       out.modelTemperature       = j["modelTemperature"].get<double>();
     if (j.contains("modelMaxTokens"))         out.modelMaxTokens         = j["modelMaxTokens"].get<int>();
+    if (j.contains("eventEntityTypes") && j["eventEntityTypes"].is_array()) {
+        std::vector<std::string> types;
+        for (const auto& v : j["eventEntityTypes"]) {
+            if (v.is_string()) types.push_back(v.get<std::string>());
+        }
+        out.eventEntityTypes = std::move(types);
+    }
+    if (j.contains("eventEntityTtlDays"))     out.eventEntityTtlDays     = j["eventEntityTtlDays"].get<int>();
     if (j.contains("extraParams") && j["extraParams"].is_object()) {
         out.extraParams = ConfigNode{};
         ConfigNodeFromJson(j["extraParams"], out.extraParams);
@@ -348,6 +356,8 @@ static nlohmann::json MemoryConfigToJson(const MemoryConfig& cfg)
     j["modelTimeoutSeconds"]        = cfg.modelTimeoutSeconds;
     j["modelTemperature"]           = cfg.modelTemperature;
     j["modelMaxTokens"]             = cfg.modelMaxTokens;
+    j["eventEntityTypes"]           = cfg.eventEntityTypes;
+    j["eventEntityTtlDays"]         = cfg.eventEntityTtlDays;
     j["extraParams"]                = ConfigNodeToJson(cfg.extraParams);
     return j;
 }
