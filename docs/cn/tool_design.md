@@ -98,9 +98,62 @@ struct ToolParam {
 
 `edit_file` 采用**精确字符串替换**模式（类似 sed），而非行号模式，因为 LLM 生成的行号经常不准确。
 
-### 3.3 Web 工具族
+#### `web_search` 反爬与多后端设计
 
-`web_search` 和 `web_fetcher` 提供网络访问能力。`web_search` 支持多搜索引擎回退策略。
+`web_search` 按**查询语言路由**两层引擎链：
+
+| 查询语言 | 引擎顺序 |
+|---|---|
+| 含 CJK 字符 | **Baidu（直连国内 IP）→ Sogou（经代理）**——CJK 查询到此停止 |
+| 纯 ASCII | DDG → Wikipedia → Bing |
+
+引擎选择由 `ContainsCJK(query)` 决定（UTF-8 解码，检测 U+3000-U+9FFF / U+F900-U+FAFF / U+FF00-U+FFEF CJK Unicode 块）。中文查询走中文引擎：从国内 IP 直连 Baidu（不经代理、不共享代理出口 IP 的封禁问题），中文新闻/财经/趣闻查询覆盖更好；英文查询走 Western 引擎链：Baidu/Sogou 的英文索引覆盖差，跳过。
+
+**Layer 1 — 请求形态伪装**（降低挑战触发率）：
+
+- UA per-process 固定：进程首次调用时从 5 个 Chrome / Firefox / Win / Mac / Linux UA 池中按 `std::random_device` 锁定一个，后续不变。避免"同 IP 多浏览器切换"的可疑指纹。
+- DDG 走 POST 表单提交（`req.body = "q=..."`）替代 GET querystring。某些反爬启发式把 POST 当搜索框提交更友好。
+- 跨调用 per-engine 冷却：DDG 8s / Bing 15s / Wikipedia 1s / **Baidu 5s / Sogou 8s**。同引擎的下一次调用若距上次不足冷却时长则 sleep 补足，避免模型连续硬刷触发限流窗口。
+
+**Layer 2 — fail-fast 重试策略**：
+
+`ShouldRetry(resp, challengeDetected)` 仅在以下情况重试：
+- curl 传输错误（CURLE_*）
+- HTTP 429 / 503（真瞬时状态）
+
+显式**不重试**：
+- HTTP 202 / 418 / 403（DDG/Bing/Baidu/Sogou"必须解 JS 挑战"硬封禁——重试只是把封禁坐实并升级）
+- body-marker 挑战（`anomaly.js` / `captcha` / `CfConfig` / `百度安全验证` / `antispider` 等——需 JS 执行，plain-HTTP 重试无解）
+
+`challengeDetected` 参数保留以维持 API 稳定，但其值不影响结果——重试决策只在 curl 错误和 429/503 时为真。这把单次失败延迟从 ~9s 降到 ~1s，模型快速拿到反馈。
+
+引擎专属挑战检测：
+
+- **DDG**：`IsDDGChallenge` — 状态 202 / 418 / 429 / 503 或 body 含 `/anomaly.js` / `challenge-form` / `duckduckgo.com/anomaly.js`。
+- **Bing**：`IsBingChallenge` — 状态 403 / 429 / 503 或 body 含 `CfConfig` / `class="captcha"` / `/challenge/verify` / `BingBot` / `/identity/`。Bing 反爬页常以 HTTP 200 返回 Cloudflare Turnstile 挑战体，body 标记是主信号。
+- **Baidu**：`IsBaiduChallenge` — 状态 403 / 429 / 503 或 body 含 `百度安全验证` / `百度验证` / `waptcha` / `safecheck` / `请输入验证码` / `网络不给力` / `/captcha/`。Baidu 的软挑战页常以 HTTP 200 返回 `<title>百度安全验证</title>` 或"网络不给力，请稍后重试"页面。
+- **Sogou**：`IsSogouChallenge` — 状态 403 / 429 / 503 或 body 含 `antispider` / `用户您好` / `请输入验证码` / `/captcha/` / `sogou_vr_captcha`。
+
+**Layer 3'' — 中文搜索引擎后端**：
+
+- **Baidu（直连）**：`https://www.baidu.com/s?wd=<enc>&ie=utf-8&tn=baidurt&rn=<n>`。`noProxyHosts="baidu.com"` 通过 `CURLOPT_NOPROXY` 绕过 `HTTPS_PROXY` 环境变量，让请求从国内 IP 直连——绕开代理出口 IP 的封禁问题（代理出口 IP 被其他 VPN 用户拖累，被西方引擎按 IP 封禁）。`tn=baidurt` 强制返回旧版 HTML 模板（标题在 `<h3 class="t"><a href="external-url">title</a></h3>` 中可见，新版默认模板把标题 JS 渲染到空 `<a>` 标签里，plain-HTML regex 抓不到）。`ie=utf-8` 让 Baidu 返 UTF-8 而非 GBK。结果 URL 是**直接外部 URL**（不经 `baidu.com/link?url=` 重定向跳转），无需解码。snippet 在 JS-molecule 中无法 plain-HTML 提取——agent 用 `web_fetcher` 取详情。
+- **Sogou（经代理）**：`https://www.sogou.com/web?query=<enc>&ie=utf8&oe=utf8&rn=<n>`。经 `HTTPS_PROXY` 环境变量（本地 Clash VPN）走代理。`ie=utf8&oe=utf8` 让 Sogou 返 UTF-8。结果块在 `<div class="vrwrap">` 内，title 在 `<a name="dttl" href="/link?url=...">TITLE</a>`，snippet 在 `<div class="fz-mid space-txt ...">SNIPPET</div>`。`/link?url=` 是 Sogou 内部跟踪跳转，保留原 href（解 base64 真实 URL 是单独行为，超范围）。
+
+**Layer 4 — 5 分钟结果缓存**：
+
+`WebSearchResultCache` 单例（`web_search_tool.h` 声明）以 `"<engine>|<query>"` 为 key 缓存成功结果，TTL 默认 300s。命中即跳过冷却 + 网络往返。失败结果不缓存（避免瞬时 IP-flag 污染后续调用）。线程安全（内部 mutex）。
+
+**Layer 5 — 工具 description 行为约束**：
+
+`WebSearchTool` 构造里的 description 字符串明告诉模型："issue ONE web_search call per turn; for details on a result, use web_fetcher on its URL. Do NOT issue multiple web_search calls with rephrased queries in the same turn — that pattern looks like a bot to search engines and triggers anti-bot challenges that block the agent's IP for everyone." 直击"模型 17s 内 3 次近似 query 硬刷"的反爬触发根因。错误消息尾部也追加 IP-flagged 提示，引导模型退回 `web_fetcher` 或重写 query 而非硬刷。
+
+**纯函数与可测性**：
+
+`IsDDGChallenge` / `IsBingChallenge` / `IsBaiduChallenge` / `IsSogouChallenge` / `ShouldRetry` / `ComputeBackoffMs` / `PickUserAgent` / `ContainsCJK` / `ParseDdgLiteResults` / `ParseBingResults` / `ParseBaiduResults` / `ParseSogouResults` / `ParseWikipediaResults` 全部以自由函数形式声明在 `web_search_tool.h`，便于离线单测。`WebSearchResultCache` 为类形式以便注入短 TTL 测试过期。重试循环 `HttpGetWithRetry` + 直连 helper `HttpGetOnce` / `HttpPostOnce` + per-engine 冷却 `CooldownBefore` 留在 `.cpp` 匿名命名空间内（端到端由 `integration_tests/smoke_web_search.cpp` 覆盖）。
+
+**已知的固有局限**：
+
+所有 HTML 抓取类搜索引擎（DDG / Bing / Brave / Baidu / Sogou）都按 IP 限流，agent 出站 IP（无论是 VPN 代理出口 IP 还是直连国内 IP）在连续多次请求后都会被封禁。本设计的 Layer 1+2+5 大幅降低触发概率，但无法完全消除——频繁使用下仍会偶发"全部引擎失败"。若需"始终拿得到结果"，唯一稳健解是接入账号绑定的搜索 API（如 Brave Search API 免费档，按账号限流不按 IP），作为未来保险。
 
 ### 3.4 SkillSearchTool 特殊设计
 

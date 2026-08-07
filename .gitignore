@@ -48,6 +48,11 @@ docs/cn/review/
 
 # Agent Runtime Datas
 data/
+# Exception: unittest fixtures under unittest/data/ ARE tracked (HTML/JSON
+# test fixtures, not runtime data). The leading slash anchors the negation
+# to the repo-root unittest/data/ path so it does NOT also un-ignore the
+# runtime data/ dir.
+!/unittest/data/
 
 # Customer Skills
 my_skills/

@@ -1,0 +1,28 @@
+{
+  "batchcomplete": "",
+  "query": {
+    "searchinfo": {
+      "totalhits": 3
+    },
+    "search": [
+      {
+        "ns": 0,
+        "title": "ChangXin Memory Technologies",
+        "pageid": 59571822,
+        "snippet": "<span class=\"searchmatch\">ChangXin</span> Memory <span class=\"searchmatch\">Technologies</span> (CXMT) is a Chinese semiconductor integrated device manufacturer headquartered in Hefei, Anhui, specializing in the production of dynamic random-access memory (DRAM)."
+      },
+      {
+        "ns": 0,
+        "title": "Semiconductor industry",
+        "pageid": 27031,
+        "snippet": "The semiconductor <span class=\"searchmatch\">industry</span> is the aggregate of companies engaged in the design and fabrication of semiconductor devices."
+      },
+      {
+        "ns": 0,
+        "title": "Dynamic random-access memory",
+        "pageid": 7856,
+        "snippet": "<span class=\"searchmatch\">Dynamic random-access memory</span> (DRAM) is a type of random-access memory that stores each bit of data in a separate capacitor."
+      }
+    ]
+  }
+}

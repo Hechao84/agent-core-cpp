@@ -22,6 +22,24 @@ struct CurlRequest {
     bool followLocation{false};        // CURLOPT_FOLLOWLOCATION
     bool sslVerify{true};              // CURLOPT_SSL_VERIFYPEER / VERIFYHOST
     std::string userAgent;             // CURLOPT_USERAGENT; empty = don't set
+    std::string referer;               // CURLOPT_REFERER; empty = don't set
+    // When true, enables curl's in-memory cookie engine via
+    // CURLOPT_COOKIEFILE="" (load no file, start an in-memory jar) and
+    // leaves CURLOPT_COOKIEJAR unset (don't persist to disk). Cookies then
+    // survive across requests on the same thread_local handle (matches
+    // ThreadCurlHandle's per-thread reuse model) — useful for search
+    // engines that set a session cookie on the first challenge response
+    // and accept it on subsequent requests. No disk I/O, no cleanup.
+    bool enableCookies{false};
+    // CURLOPT_NOPROXY. When non-empty, curl bypasses HTTPS_PROXY/HTTP_PROXY
+    // env vars for hosts matching the listed domains. Comma-separated,
+    // e.g. "baidu.com,sogou.com" or "*" for all hosts. Used by WebSearchTool
+    // to route Chinese search engines through the local network (China IP)
+    // directly instead of through a VPN proxy — the VPN exit IP is shared
+    // with other users and gets rate-limited/flagged by Western engines,
+    // while Chinese engines are reachable from the China IP without a proxy
+    // and have better coverage for Chinese queries anyway.
+    std::string noProxyHosts;
 };
 
 // Response result. curlCode is the raw transport-level code; retry

@@ -1,0 +1,54 @@
+<!--
+  Fixture for ParseDdgLiteResults unit tests. Captured from a real
+  lite.duckduckgo.com/lite/ response and sanitized: rut= session
+  tokens and any user-identifying values neutralized to SANITIZED.
+
+  Structure (stable per observed lite endpoint). The real anchor tag
+  uses the form: a rel=nofollow href=duck-redirect-with-uddg-param,
+  with class='result-link', and the snippet sits in a sibling td
+  with class='result-snippet'. (Tag delimiters in this comment are
+  spelled out in prose so the parser regex does not accidentally
+  match the documentation example as a real result.)
+-->
+<html><body>
+<table>
+  <tr>
+    <td>1.&nbsp;</td>
+    <td>
+      <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fsqltutorial.org%2Fplayground%2F&amp;rut=SANITIZED" class='result-link'>SQL Playground</a>
+    </td>
+  </tr>
+  <tr>
+    <td>&nbsp;&nbsp;&nbsp;</td>
+    <td class='result-snippet'>
+      SQL Playground is a free and interactive tool to practice SQL statements online.
+    </td>
+  </tr>
+
+  <tr>
+    <td>2.&nbsp;</td>
+    <td>
+      <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fsqlfiddle.com%2F&amp;rut=SANITIZED" class='result-link'>SQL Fiddle - Online SQL Compiler for learning &amp; practice</a>
+    </td>
+  </tr>
+  <tr>
+    <td>&nbsp;&nbsp;&nbsp;</td>
+    <td class='result-snippet'>
+      Free online SQL Test tool for easy SQL query learning and testing.
+    </td>
+  </tr>
+
+  <tr>
+    <td>3.&nbsp;</td>
+    <td>
+      <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fsqltest.net%2F&amp;rut=SANITIZED" class='result-link'>SQL Test</a>
+    </td>
+  </tr>
+  <tr>
+    <td>&nbsp;&nbsp;&nbsp;</td>
+    <td class='result-snippet'>
+      You can now generate SQL queries for inserting or editing data directly from the SQL editor.
+    </td>
+  </tr>
+</table>
+</body></html>

@@ -1,0 +1,54 @@
+<!--
+  Fixture for ParseBaiduResults unit tests. Captured from a real
+  www.baidu.com/s?wd=...&tn=baidurt&ie=utf-8 response and sanitized:
+  real external URLs preserved (Baidu's baidurt template returns direct
+  external URLs, not baidu.com/link?url= redirect hops); tracking IDs
+  and personal tokens neutralized to SANITIZED.
+
+  Structure (stable per observed baidurt template). The title anchor
+  carries the external URL directly and the visible title text, with <em>
+  wrappers around matched terms (StripTags handles those). Snippets
+  live in JS-rendered molecules and are not parsed by the current parser
+  — the agent uses web_fetcher on the URL for details.
+
+  Tag delimiters in this comment are spelled out in prose so the parser
+  regex does not accidentally match the documentation example as a real
+  result.
+-->
+<html><body>
+<div class="result c-container">
+  <h3 class="t">
+    <a href="https://quote.eastmoney.com/concept/sh688825.html" target="_blank">
+      <em>长鑫科技</em>(688825)_最新价格_行情_走势图—东方财富网
+    </a>
+  </h3>
+</div>
+
+<div class="result c-container">
+  <h3 class="t">
+    <a href="https://xueqiu.com/S/SH688825" target="_blank">
+      <em>长鑫科技</em>(688825) 股票股价_股价行情_财报_数据报告 - 雪球
+    </a>
+  </h3>
+</div>
+
+<div class="result c-container">
+  <h3 class="t">
+    <a href="https://stockpage.10jqka.com.cn/688825" target="_blank">
+      <em>长鑫科技</em>(688825)个股资金流向查询_个股行情_同花顺财经
+    </a>
+  </h3>
+</div>
+
+<!-- Non-result anchors that should NOT be picked up by the parser:
+     internal Baidu nav (preferences, login, news.baidu.com, /sf/vsearch,
+     hao123 homepage). These are NOT inside any <h3> wrapper, so the
+     parser's <h3>-requirement filters them out. (Baidu-owned hao123 lives
+     on a different domain so domain-based filtering wouldn't catch it,
+     but the h3 wrapper requirement does.) -->
+<a href="http://www.baidu.com/gaoji/preferences.html">设置</a>
+<a href="https://passport.baidu.com/v2/?login&tpl=mn">登录</a>
+<a href="http://news.baidu.com/ns?cl=2&rn=20&tn=news&word=test">新闻</a>
+<a href="https://www.hao123.com" name="tj_trhao123">hao123</a>
+<a href="/sf/vsearch?pd=video&wd=test">视频大全</a>
+</body></html>

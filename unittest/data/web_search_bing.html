@@ -1,0 +1,31 @@
+<!--
+  Fixture for ParseBingResults unit tests. Captured from a real
+  www.bing.com/search response and sanitized: SERP impression IDs,
+  fclid session tokens, MUID/u cookie-derived values, and tracking
+  parameters neutralized. The bing.com/ck/a tracking href is kept
+  verbatim because the existing parser preserves whatever href the
+  title anchor carries (decoding the base64-wrapped real URL would
+  be a separate behaviour change out of scope for this commit).
+
+  Structure (stable per observed Bing SERP). Each result is a li
+  with class="b_algo" containing h2 with an a[href] for the title
+  and a p.b_lineclamp2 for the snippet. (Tag delimiters in this
+  comment are spelled out in prose so the parser regex does not
+  accidentally match the documentation example as a real result.)
+-->
+<html><body>
+<ul id="b_results">
+  <li class="b_algo" data-id iid=SERP.SANITIZED>
+    <h2 class=""><a target="_blank" href="https://www.bing.com/ck/a?...&amp;u=a1aHR0cHM6Ly9zcWx0dXRvcmlhbC5vcmcvcGxheWdyb3VuZC8&amp;ntb=1" h="ID=SERP,SANITIZED">SQL Playground</a></h2>
+    <p class="b_lineclamp2">SQL Playground is a free and interactive tool to practice SQL statements online.</p>
+  </li>
+  <li class="b_algo" data-id iid=SERP.SANITIZED>
+    <h2 class=""><a target="_blank" href="https://www.bing.com/ck/a?...&amp;u=a1aHR0cHM6Ly9zcWxmaWRkbGUuY29tLw&amp;ntb=1" h="ID=SERP,SANITIZED">SQL Fiddle - Online SQL Compiler for learning &amp; practice</a></h2>
+    <p class="b_lineclamp2">Free online SQL Test tool for easy SQL query learning and testing.</p>
+  </li>
+  <li class="b_algo" data-id iid=SERP.SANITIZED>
+    <h2 class=""><a target="_blank" href="https://www.bing.com/ck/a?...&amp;u=a1aHR0cHM6Ly93d3cuc3FscHJhY3RpY2UuaW4vcHJhY3RpY2U&amp;ntb=1" h="ID=SERP,SANITIZED">SQL Practice Online - Free Online SQL Compiler</a></h2>
+    <p class="b_lineclamp2">You can now generate SQL queries for inserting or editing data directly from the SQL editor.</p>
+  </li>
+</ul>
+</body></html>

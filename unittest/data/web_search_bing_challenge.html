@@ -1,0 +1,16 @@
+<!--
+  Fixture for IsBingChallenge unit tests. Synthesized minimal page
+  mimicking Bing's Cloudflare-Turnstile challenge surface (CfConfig
+  object + captcha container divs). Real responses typically return
+  this body with HTTP 200 (not 403/503), so the body-marker detector
+  is the primary signal.
+-->
+<html><head><script>
+var CfConfig ={"lang":"en","siteKey":"SANITIZED","isDarkMode":false,"isMobile":false,"verifyEndpoint":"https://www.bing.com/challenge/verify?partner=7&token=SANITIZED","captchaSuccessPostMessage":"verificationComplete","captchaFailedPostMessage":"verificationFailed","impressionGuid":"SANITIZED","ruleId":"SANITIZED","partner":"7","scExternalChallengeFlightEnabled":false};
+</script></head>
+<body>
+<div class="captcha">
+  <div class="captcha_header"></div>
+  <div class="captcha_text">Please verify you are a human.</div>
+</div>
+</body></html>

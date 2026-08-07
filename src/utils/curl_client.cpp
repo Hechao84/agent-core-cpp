@@ -134,6 +134,23 @@ void ApplyOptions(CURL* h, const CurlRequest& req, struct curl_slist* headerList
     if (!req.userAgent.empty()) {
         curl_easy_setopt(h, CURLOPT_USERAGENT, req.userAgent.c_str());
     }
+    if (!req.referer.empty()) {
+        curl_easy_setopt(h, CURLOPT_REFERER, req.referer.c_str());
+    }
+    if (req.enableCookies) {
+        // Empty COOKIEFILE enables the in-memory cookie engine without
+        // loading any file from disk. COOKIEJAR is left unset so cookies
+        // are not persisted at handle-release time. The cookies live for
+        // the lifetime of the thread_local handle.
+        curl_easy_setopt(h, CURLOPT_COOKIEFILE, "");
+    }
+    if (!req.noProxyHosts.empty()) {
+        // Bypass HTTPS_PROXY/HTTP_PROXY env vars for the listed hosts.
+        // Used by WebSearchTool to send Chinese search engines (Baidu/Sogou)
+        // via the local network (China IP) directly, avoiding the shared
+        // VPN exit IP that gets rate-limited by Western engines.
+        curl_easy_setopt(h, CURLOPT_NOPROXY, req.noProxyHosts.c_str());
+    }
 }
 
 // Core perform routine shared by Post/Get/PostStream/GetStream. When onChunk

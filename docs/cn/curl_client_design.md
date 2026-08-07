@@ -273,25 +273,43 @@ CurlResponse resp = CurlClient::Post(req);
 
 当前实现即是 Streamable HTTP MCP 的标准语义（每请求一 POST + 会话头），连接复用收益由 CurlClient 的 thread_local handle 承担（同线程连续 MCP 调用复用 TCP/TLS/DNS）。若未来需要真正的持久 SSE 订阅（如服务器主动 push），需在 MCPClient 层另行设计长连接 + 事件分发，不在本次统一范围。
 
-### 5.3 WebSearchTool + WebFetchTool（Phase 4）
+### 5.3 WebSearchTool + WebFetchTool
 
-**当前**：HttpGet 直接操作 curl_easy_*，UrlEncode/UrlDecode 新建临时 handle，DDG 反爬检测。
+WebSearchTool 与 WebFetchTool 均通过 `CurlClient::Get` / `CurlClient::Post` 发起请求，不直接调用 `curl_easy_*`。WebSearchTool 的请求构造（DDG 走 POST 表单提交）：
 
-**迁移后**：
 ```cpp
 CurlRequest req;
-req.url = url;
-req.headers = {"User-Agent: Chrome UA", "Accept: text/html,...", "Accept-Language: en-US,..."};
+req.url = "https://lite.duckduckgo.com/lite/";
+req.body = "q=" + CurlClient::UrlEncode(query);  // POST form data
+req.headers = {"User-Agent: " + ua,
+               "Content-Type: application/x-www-form-urlencoded",
+               "Accept: text/html,application/xhtml+xml,...",
+               "Accept-Language: en-US,en;q=0.9,zh-CN;q=0.8"};
 req.followLocation = true;
 req.sslVerify = false;
 req.requestTimeout = timeoutSec;
-
-CurlResponse resp = CurlClient::Get(req);
+req.userAgent   = ua;   // CURLOPT_USERAGENT（与上面的 User-Agent 头保持同步）
+req.referer     = "https://lite.duckduckgo.com/";
+req.enableCookies = true;
 ```
 
-- UrlEncode/UrlDecode 改为 `CurlClient::UrlEncode/UrlDecode`
-- DDG 反爬检测保留在 WebSearchTool
-- WebFetchTool 的 userAgent 通过 `req.userAgent` 设置
+`CurlRequest` 字段职责：
+
+- `userAgent`（`CURLOPT_USERAGENT`）：curl 自身 UA 行为依赖（HTTP/2 协商、ALPN 等），与 header 列表里的 `User-Agent:` 头需同步设置，避免 curl 内置 UA 与发往服务器的 UA 不一致。
+- `referer`（`CURLOPT_REFERER`）：发起请求时携带的来源页。搜索引擎对带 referer 的请求信任度高于裸 query 请求。
+- `enableCookies`：为 true 时设 `CURLOPT_COOKIEFILE=""` 启用 curl 内存 cookie 引擎（不读盘、不写盘），cookie 在 `thread_local` handle 生命周期内跨请求复用——首次访问 Bing 主页拿到的 session cookie 会自动带到后续 `/search` 请求，是穿透 Bing Cloudflare Turnstile 挑战的关键。
+- `noProxyHosts`（`CURLOPT_NOPROXY`）：非空时 curl 绕过 `HTTPS_PROXY`/`HTTP_PROXY` 环境变量对所列域名的代理转发。仅 `SearchBaidu` 用 `"baidu.com"`——让请求从国内 IP 直连 Baidu，绕开代理出口 IP（VPN 共享出口 IP 被其他用户拖累、被西方引擎按 IP 封禁的问题）。其他引擎（DDG/Sogou/Bing/Wikipedia）经代理走或本身不需要代理。
+
+WebSearchTool 的反爬检测与重试策略以自由函数形式实现（声明见 `src/tools/builtin_tools/web_search_tool.h`）：
+
+- `IsDDGChallenge(status, body)` / `IsBingChallenge(status, body)`：引擎专属挑战检测，纯函数，单测用 fixture body 直接验证。
+- `ShouldRetry(resp, challengeDetected)`：重试决策纯函数。Layer 2 修正后**仅在 curl 传输错误或 HTTP 429 / 503 时返 true**——`202/418/403` 与 body-marker 挑战一律不重试（重试只是把封禁坐实并升级）。`challengeDetected` 参数保留维持 API 稳定，但其值不影响结果。
+- `ComputeBackoffMs(attempt)`：指数退避 `1000 << attempt`，1s / 2s / 4s。
+- `PickUserAgent()`：**per-process 固定**——进程首次调用时从 5 个 UA 池中按 `std::random_device` 锁定一个，缓存到 function-local static，后续不变。避免 per-query 切换导致的"同 IP 多浏览器"可疑指纹。
+- `ParseDdgLiteResults(body, maxResults)` / `ParseBingResults(body, maxResults)`：HTML 解析器，单测用 `unittest/data/web_search_*.html` fixture 离线验证。
+- `ParseWikipediaResults(jsonBody, maxResults)`：JSON 解析器，单测用 `unittest/data/web_search_wikipedia.json` fixture 验证。`WebSearchResultCache` 类（`Instance()` 单例 + `Lookup/Store/Clear`）实现 5 分钟结果缓存，TTL 可注入便于测试过期。
+
+跨调用 per-engine 冷却由 `CooldownBefore(engine)` 在 `.cpp` 匿名命名空间实现：DDG 8s、Bing 15s、Wikipedia 1s，避免模型快速连续调用触发限流窗口。重试循环 `HttpGetWithRetry` 留在 `.cpp` 匿名命名空间内不对外暴露——它只是上述纯函数 + `CurlClient::Get` 的组合，端到端由 `integration_tests/smoke_web_search.cpp` 覆盖。`UrlEncode` / `UrlDecode` 通过 `CurlClient::UrlEncode/UrlDecode` 复用 thread_local handle，不新建临时 handle。WebFetchTool 的 `userAgent` 通过 `req.userAgent` 设置。
 
 ### 5.4 OpenAIModel + AnthropicModel（Phase 5，最复杂）
 

@@ -1,0 +1,53 @@
+<!--
+  Fixture for ParseSogouResults unit tests. Captured from a real
+  www.sogou.com/web?query=...&ie=utf8&oe=utf8 response and sanitized:
+  /link?url= tokens neutralized to SANITIZED, session IDs neutralized.
+
+  Structure (stable per observed Sogou SERP). Each result lives in a
+  div with class="vrwrap"; the title anchor has name="dddl" and a
+  /link?url= tracking href; the snippet lives in a sibling div with
+  class starting "fz-mid space-txt" (the base-ellipsis clamp2 modifier
+  is a CSS-only truncation hint that does not affect the snippet text).
+
+  Tag delimiters in this comment are spelled out in prose so the parser
+  regex does not accidentally match the documentation example as a real
+  result.
+-->
+<html><body>
+<div class="results">
+
+  <div class="vrwrap" id="sogou_vr_30000000_wrap_0">
+    <h3 class="vr-title">
+      <a name="dttl" target="_blank" href="/link?url=SANITIZED1" id="sogou_vr_30000000_0">
+        <em>测试</em>结果一 - 示例网站
+      </a>
+    </h3>
+    <div class="fz-mid space-txt base-ellipsis clamp2" id="cacheresult_summary_0">
+      这是第一条结果的摘要文本，描述了页面内容的关键信息。
+    </div>
+  </div>
+
+  <div class="vrwrap" id="sogou_vr_30000001_wrap_0">
+    <h3 class="vr-title">
+      <a name="dttl" target="_blank" href="/link?url=SANITIZED2" id="sogou_vr_30000001_0">
+        <em>测试</em>结果二 - 搜狗百科
+      </a>
+    </h3>
+    <div class="fz-mid space-txt base-ellipsis clamp2" id="cacheresult_summary_1">
+      第二条结果的摘要，提供更多关于该主题的背景信息。
+    </div>
+  </div>
+
+  <div class="vrwrap" id="sogou_vr_30000002_wrap_0">
+    <h3 class="vr-title">
+      <a name="dttl" target="_blank" href="/link?url=SANITIZED3" id="sogou_vr_30000002_0">
+        <em>测试</em>结果三 - 知乎专栏
+      </a>
+    </h3>
+    <div class="fz-mid space-txt base-ellipsis clamp2" id="cacheresult_summary_2">
+      第三条结果的摘要，讨论了相关的实践经验和注意事项。
+    </div>
+  </div>
+
+</div>
+</body></html>
