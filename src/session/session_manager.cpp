@@ -504,11 +504,21 @@ std::shared_ptr<SessionEntry> SessionManager::FindOrCreateEntry(const std::strin
 
     MemoryRuntime* memoryRuntime = memoryRuntime_.get();
     if (memoryRuntime) {
-        entry->contextEngine->SetMemoryContextProvider([memoryRuntime, sessionId, agentId = config_.id]() {
+        entry->contextEngine->SetMemoryContextProvider([memoryRuntime, sessionId, agentId = config_.id](const std::string& query) {
             MemoryContextRequest request;
             request.agentId = agentId;
             request.sessionId = sessionId;
-            LOG(INFO) << "[MemoryRuntime] BuildContext begin agentId=" << agentId << " sessionId=" << sessionId;
+            // The current user query drives relevance-scoped retrieval in the
+            // memory runtime (long-term entity/relation search and payload
+            // keyword filtering). Without it the runtime dumps the most-recent
+            // N entities/relations and payloads regardless of relevance.
+            request.query = query;
+            // Hard caps so a loose query match can never re-flood the prompt
+            // with the pre-change volume of recent memory.
+            request.metadata["payload_limit"] = 5;
+            request.metadata["long_term_limit"] = 8;
+            LOG(INFO) << "[MemoryRuntime] BuildContext begin agentId=" << agentId << " sessionId=" << sessionId
+                      << " queryChars=" << query.size();
             MemoryContextPackage context = memoryRuntime->BuildContext(request);
             LOG(INFO) << "[MemoryRuntime] BuildContext end agentId=" << agentId << " sessionId=" << sessionId
                       << " memoryTextChars=" << context.memoryText.size()

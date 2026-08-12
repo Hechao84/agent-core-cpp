@@ -8,6 +8,7 @@
 
 #include "src/memory/entity_decay.h"
 #include "src/utils/curl_client.h"
+#include "src/utils/encoding.h"
 #include "src/utils/logger.h"
 #include "src/utils/retry_helper.h"
 
@@ -440,7 +441,15 @@ MemoryStats HttpMemoryRuntime::DeserializeStats(const nlohmann::json& j) const
 
 bool HttpMemoryRuntime::AppendEvent(const MemoryEvent& event)
 {
-    nlohmann::json body = SerializeEvent(event);
+    // Sanitize text fields before JSON serialization so body.dump() cannot
+    // throw on invalid UTF-8 (mirrors the builtin runtime's ingestion guard).
+    MemoryEvent sanitized = event;
+    sanitized.content = FixStringUTF8(sanitized.content);
+    sanitized.role = FixStringUTF8(sanitized.role);
+    sanitized.toolName = FixStringUTF8(sanitized.toolName);
+    sanitized.toolCallId = FixStringUTF8(sanitized.toolCallId);
+    sanitized.payloadRef = FixStringUTF8(sanitized.payloadRef);
+    nlohmann::json body = SerializeEvent(sanitized);
     auto resp = HttpPost("/v1/events", body.dump());
     if (resp.status != 200) {
         LOG(WARN) << "[HttpMemoryRuntime] AppendEvent HTTP " << resp.status << ": " << resp.body;
@@ -495,7 +504,11 @@ MemoryContextPackage HttpMemoryRuntime::BuildContext(const MemoryContextRequest&
 
 MemoryPayloadWriteResult HttpMemoryRuntime::WritePayload(const MemoryPayloadWriteRequest& request)
 {
-    nlohmann::json body = SerializePayloadWriteRequest(request);
+    MemoryPayloadWriteRequest sanitized = request;
+    sanitized.content = FixStringUTF8(sanitized.content);
+    sanitized.contentType = FixStringUTF8(sanitized.contentType);
+    sanitized.toolName = FixStringUTF8(sanitized.toolName);
+    nlohmann::json body = SerializePayloadWriteRequest(sanitized);
     auto resp = HttpPost("/v1/payloads", body.dump());
     MemoryPayloadWriteResult result;
     if (resp.status != 200) {

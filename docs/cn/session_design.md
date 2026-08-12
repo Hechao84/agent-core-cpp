@@ -405,10 +405,10 @@ SetupAgentContextRouting()
   │  ├── agent_->SetMemoryRuntime(memoryRuntime_.get())
   │  │
   │  └── 对每个 SessionEntry:
-  │      ├── contextEngine->SetMemoryContextProvider(
-  │      │     [=]() { return memoryRuntime_->BuildContext(request); })
-  │      └── contextEngine->SetMemoryEventSink(
-  │              [=](event) { memoryRuntime_->AppendEvent(event); })
+   │      ├── contextEngine->SetMemoryContextProvider(
+   │      │     [=](query) { request.query = query; return memoryRuntime->BuildContext(request); })
+   │      └── contextEngine->SetMemoryEventSink(
+   │              [=](event) { memoryRuntime->AppendEvent(event); })
 ```
 
 这种回调桥接确保：

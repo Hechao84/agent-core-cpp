@@ -85,12 +85,12 @@ AgentConfig
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| maxContextTokens | int | 4096 | 最大 token 数 |
+| maxContextTokens | int | 4096 | 最大 token 数（应用层常按模型上下文窗口覆盖，如 demo-agent 设为 16384） |
 | maxMessages | int | 50 | 最大消息数 |
 | sessionId | string | - | 会话 ID |
 | storagePath | string | - | 存储路径 |
 | storageType | StorageType | JSON_FILE | 存储类型 |
-| enableSummarization | bool | false | 启用压缩 |
+| enableSummarization | bool | false | 保留字段；当前未实际门控，段压缩无条件生效（见 `docs/cn/context_engine_design.md` 6.3） |
 
 > `idleConsolidationSeconds` 原在此处，已迁移至 `MemoryConfig`（与整合策略字段集中）。旧配置文件中的 `contextConfig.idleConsolidationSeconds` 仍能被反序列化双读 fallback 拾起，但写回时只写新位置。
 

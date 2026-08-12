@@ -464,6 +464,59 @@ TEST(context_engine, CompressSegmentRetainsSummaryAtExtremeLowBudget)
     TestRunner::AssertTrue(hasAssistantSummary);
 }
 
+TEST(context_engine, PreviousSegmentCompressedNotDroppedWhenNewTurnOverflows)
+{
+    // When the latest segment fits but the immediately preceding segment
+    // does not, ApplyContextLimits must compress the preceding segment into a
+    // summary marker (retaining its last assistant text) rather than drop it
+    // wholesale. This is the multi-turn continuity guarantee: a follow-up
+    // turn must still see the previous turn's conclusions (here the resolved
+    // origin/destination) instead of re-asking the user.
+    ContextConfig config;
+    config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
+    config.sessionId = "test_prev_segment_compressed";
+    config.enableSummarization = true;
+    config.maxContextTokens = 300;   // new segment fits; old large segment overflows
+    config.maxMessages = 50;
+    ContextEngine engine(config);
+    engine.Initialize();
+
+    // Older segment: user query + a long assistant turn whose content starts
+    // with the resolved route fact, followed by a large filler (simulating a
+    // tool-heavy turn that overflows the budget).
+    Message oldUser;
+    oldUser.role = "user";
+    oldUser.content = "plan route from shenzhen airport to huawei sanyapo";
+    engine.AddMessage(oldUser);
+
+    Message oldAssistant;
+    oldAssistant.role = "assistant";
+    oldAssistant.content = "DEST=HUAWEI-SANYAPO-A 113.91,22.93 ORIGIN=SHENZEN-AIRPORT"
+                           + std::string(2000, 'x');  // ~500 tokens -> forces compression
+    engine.AddMessage(oldAssistant);
+
+    // Newer segment: the follow-up query (small, fits on its own).
+    Message newUser;
+    newUser.role = "user";
+    newUser.content = "generate navigation link";
+    engine.AddMessage(newUser);
+
+    auto window = engine.GetContextWindow();
+    std::string combined;
+    for (const auto& m : window) { combined += m.content; }
+
+    // The follow-up query is retained.
+    TestRunner::AssertContains(combined, "generate navigation link");
+    // The previous turn's conclusions survive as a compressed marker (not
+    // dropped wholesale). Without the fix the window would contain only the
+    // newest query and lose both the origin and the destination.
+    TestRunner::AssertContains(combined, "DEST=HUAWEI-SANYAPO-A");
+    TestRunner::AssertContains(combined, "Context segment compressed");
+    // The raw filler is trimmed away by compression (proving compression
+    // actually happened, not full retention).
+    TestRunner::AssertTrue(combined.size() < 1500);
+}
+
 TEST(context_engine, CompressSegmentTruncatesLoneSummaryWhenSegmentDoesNotStartWithUser)
 {
     // Edge case for the CompressSegment保底: when a segment does NOT start
@@ -533,11 +586,14 @@ TEST(context_engine, MemoryContextProviderOverridesLegacyMemory)
     config.storageType = ContextConfig::StorageType::MEMORY_ONLY;
     ContextEngine engine(config);
     engine.Initialize();
-    engine.SetMemoryContextProvider([]() {
+    engine.SetMemoryContextProvider([](const std::string& query) {
+        // Query is forwarded for relevance-scoped retrieval; echo it back so
+        // the test can verify the provider receives the caller's query.
+        (void)query;
         return std::string("runtime memory");
     });
 
-    TestRunner::AssertEq(engine.GetMemoryContent(), std::string("runtime memory"));
+    TestRunner::AssertEq(engine.GetMemoryContent("user query"), std::string("runtime memory"));
 }
 
 TEST(context_engine, AddMessageEmitsMemoryEvent)

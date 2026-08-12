@@ -4,6 +4,7 @@
 
 #include "src/memory/entity_decay.h"
 #include "src/memory/type_bridge.h"
+#include "src/utils/encoding.h"
 #include "src/utils/logger.h"
 
 #include "agent_memory/builtin_memory_runtime.h"
@@ -55,7 +56,18 @@ BuiltinMemoryRuntime::~BuiltinMemoryRuntime() = default;
 
 bool BuiltinMemoryRuntime::AppendEvent(const MemoryEvent& event)
 {
-    auto r = impl_->AppendEvent(ToAgentEvent(event));
+    // Sanitize text fields at the ingestion boundary. Tool results (notably
+    // web_fetcher) can carry content sliced mid-multibyte or other invalid
+    // UTF-8; without repair the consolidation loop's JSON serialization
+    // aborts with "invalid UTF-8 byte ..." and long-term memory never gets
+    // the extracted facts.
+    MemoryEvent sanitized = event;
+    sanitized.content = FixStringUTF8(sanitized.content);
+    sanitized.role = FixStringUTF8(sanitized.role);
+    sanitized.toolName = FixStringUTF8(sanitized.toolName);
+    sanitized.toolCallId = FixStringUTF8(sanitized.toolCallId);
+    sanitized.payloadRef = FixStringUTF8(sanitized.payloadRef);
+    auto r = impl_->AppendEvent(ToAgentEvent(sanitized));
     if (!r.succeeded) { LOG(WARN) << "[MemoryRuntime] AppendEvent failed: " << r.error.message; ++appendFailures_; }
     return r.succeeded;
 }
@@ -74,7 +86,14 @@ MemoryContextPackage BuiltinMemoryRuntime::BuildContext(const MemoryContextReque
 
 MemoryPayloadWriteResult BuiltinMemoryRuntime::WritePayload(const MemoryPayloadWriteRequest& request)
 {
-    auto result = FromAgentPayloadWriteResult(impl_->WritePayload(ToAgentPayloadWriteRequest(request)));
+    // Sanitize the offloaded content before persistence: large tool results
+    // (web_fetcher, 244K-847K chars) are sliced by size and can land mid
+    // multibyte, producing invalid UTF-8 that later breaks consolidation.
+    MemoryPayloadWriteRequest sanitized = request;
+    sanitized.content = FixStringUTF8(sanitized.content);
+    sanitized.contentType = FixStringUTF8(sanitized.contentType);
+    sanitized.toolName = FixStringUTF8(sanitized.toolName);
+    auto result = FromAgentPayloadWriteResult(impl_->WritePayload(ToAgentPayloadWriteRequest(sanitized)));
     if (!result.succeeded) { ++writeFailures_; }
     return result;
 }

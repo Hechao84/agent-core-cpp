@@ -368,6 +368,7 @@ ContextEngine::AddMessage(message)
   │
   ▼
 MemoryRuntime::AppendEvent(event)
+  │  ├── 文本字段先经 FixStringUTF8 净化（见 7.4）
   │  ├── BuiltinMemoryRuntime → impl_->AppendEvent()
   │  │   → agent-memory-cpp 存储到 events 表
   │  ├── HttpMemoryRuntime → HTTP POST 到服务器
@@ -376,13 +377,17 @@ MemoryRuntime::AppendEvent(event)
 ### 7.2 上下文构建
 
 ```
-AgentWorker::BuildPrompt
-  │  ├── "{$memory}" → LoadMemoryContent()
-  │  │   → memoryContextProvider_()
+AgentWorker::BuildPrompt(query)
+  │  ├── "{$memory}" → ContextEngine::GetMemoryContent(query)
+  │  │   → memoryContextProvider_(query)
   │
   ▼
 MemoryRuntime::BuildContext(request)
-  │  ├── request: {agentId, sessionId, query, tokenBudget}
+  │  ├── request: {agentId, sessionId, query, tokenBudget, metadata}
+  │  │   ├── query 非空 → 长期实体/关系走 SearchLongTermMemory（语义检索），
+  │  │   │              payload 走关键词过滤
+  │  │   ├── query 为空 → 回退到"取最近 N 条"的无差别回灌
+  │  │   └── metadata.payload_limit / long_term_limit：硬上限，防止 query 命中过宽时回灌过多
   │  │
   │  ├── BuiltinMemoryRuntime:
   │  │   ├── impl_->BuildContext(agentRequest)
@@ -402,6 +407,8 @@ memoryText 注入系统提示
   │  ├── 包含相关实体和关系
   │  └── 包含 payload 引用
 ```
+
+> **query 驱动相关性**：未传入 query 时，`agent-memory-cpp` 的 `context_builder` 对长期记忆走 `LoadLongTermMemory`（取最近 N 条不过滤）、对 payload 在 `MatchesPayloadQuery` 中对一切返回 true，导致与当前 query 无关的旧实体/旧 payload 被全量回灌到系统提示。`SessionManager` 的 provider 因此必须把当前用户 query 填入 `request.query`，激活相关性检索与 payload 关键词过滤。`payload_limit` / `long_term_limit` 作为硬上限兜底。
 
 ### 7.3 整合流程
 
@@ -434,6 +441,16 @@ MemoryRuntime::Consolidate(request, modelClient)
   │  │   ├── HTTP POST /memory/consolidate
   │  │   └── modelClient 不使用（server 有自己的模型），WARN 提示后调用无参重载
 ```
+
+### 7.4 入库边界 UTF-8 净化
+
+`AppendEvent` 与 `WritePayload` 在把内容交给底层存储/HTTP 之前，先对文本字段调用 `jiuwen::FixStringUTF8`（`src/utils/encoding.{h,cpp}`）：
+
+- `AppendEvent`：净化 `content` / `role` / `toolName` / `toolCallId` / `payloadRef`。
+- `WritePayload`：净化 `content` / `contentType` / `toolName`。
+- `BuiltinMemoryRuntime` 与 `HttpMemoryRuntime` 同样处理，确保两种 runtime 行为一致。
+
+`FixStringUTF8` 按 RFC 3629 严格校验：overlong 2 字节引导（0xC0/0xC1）、UTF-16 代理区（0xED A0-BF）、overlong 3/4 字节序列、截断的多字节序列，一律替换为 U+FFFD（`EF BF BD`）。净化的必要性在于：`web_fetcher` 等工具结果按字节切片入库时可能落在多字节字符中间，导致后续整合循环 `Consolidate` 将 events/payloads 序列化进 JSON 时触发 `invalid UTF-8 byte ... 0xC1` 而中止，长期记忆永远拿不到提取出的事实。
 
 ## 8. 双记忆架构
 

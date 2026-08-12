@@ -460,7 +460,7 @@ std::string AgentWorker::BuildPrompt(const std::string& templateName, const std:
 
     // 7. Load memory context into {$memory}
     if (contextEngine) {
-        std::string memoryContent = contextEngine->GetMemoryContent();
+        std::string memoryContent = contextEngine->GetMemoryContent(query);
         if (!memoryContent.empty()) {
             vars["memory"] = "# Long-term Memory\n\n" + memoryContent;
         } else {

@@ -412,10 +412,9 @@ SessionManager ─────────────────────�
   │  ├── SetContextEngineGetter(回调)                              │
   │  ├── SetMemoryRuntime(memoryRuntime_.get())                    │
   │  └── SetupAgentContextRouting()                                │
-  │      ├── ContextEngine::SetMemoryContextProvider(              │
-  │      │       [=](){ memoryRuntime->BuildContext(...) })        │
-  │      └── ContextEngine::SetMemoryEventSink(                    │
-  │              [=](event){ memoryRuntime->AppendEvent(event) })  │
+   │      ├── ContextEngine::SetMemoryContextProvider(            │
+   │      │       [=](query){ memoryRuntime->BuildContext(...) })  │
+   │      └── ContextEngine::SetMemoryEventSink(                  │
   │                                                                │
    │  Invoke(sessionId, message, callback)                          │
    │  ├── 入口内联门控: 可选 maxConcurrent_ 限流, ++count            │

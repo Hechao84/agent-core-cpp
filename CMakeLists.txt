@@ -367,6 +367,7 @@ add_executable(unittest
     unittest/test_progressive_disclosure.cpp
     unittest/test_capability_selector.cpp
     unittest/test_auto_resolution.cpp
+    unittest/test_encoding.cpp
 )
 target_include_directories(unittest PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR} 

@@ -34,8 +34,12 @@ public:
                                                const std::vector<Message>& history,
                                                const Message& currentMessage) const;
 
-    std::string GetMemoryContent() const;
-    void SetMemoryContextProvider(std::function<std::string()> provider);
+    // The current user query drives relevance-scoped retrieval inside the
+    // memory runtime (long-term entity/relation search and payload
+    // filtering). An empty query reproduces the legacy "dump recent N"
+    // behavior, so callers without a query can pass an empty string.
+    std::string GetMemoryContent(const std::string& query) const;
+    void SetMemoryContextProvider(std::function<std::string(const std::string&)> provider);
     void SetMemoryEventSink(std::function<void(const MemoryEvent&)> sink);
     std::string GetConsolidationPayload(int maxMessages = 100) const;
 
@@ -50,7 +54,7 @@ private:
     ContextConfig config_;
     std::vector<Message> memoryBuffer_;
     std::unique_ptr<ContextStorageBase> storage_;
-    std::function<std::string()> memoryContextProvider_;
+    std::function<std::string(const std::string&)> memoryContextProvider_;
     std::function<void(const MemoryEvent&)> memoryEventSink_;
     mutable std::mutex memoryMutex_;  // Lock layer L6 (message buffer + storage)
 

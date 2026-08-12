@@ -477,10 +477,10 @@ BuildPrompt(templateName, query, context, contextEngine)
   │  3. 渲染占位符 (RenderPrompt):
   │     ├── {$query} → query
   │     ├── {$context} → context (来自 ContextEngine)
-  │     ├── {$memory} → LoadMemoryContent()
-  │     │   ├── 若 WorkerEnv::GetMemoryRuntime() 存在:
-  │     │   │   → memoryRuntime->BuildContext(request).memoryText
-  │     │   └── 否则 → 空字符串
+   │     ├── {$memory} → GetMemoryContent(query)
+   │     │   ├── 若 WorkerEnv::GetMemoryRuntime() 存在:
+   │     │   │   → memoryRuntime->BuildContext(request{query}).memoryText
+   │     │   └── 否则 → 空字符串
   │     ├── {$skills} → skillEngine_->GetSkillCatalog()
   │     └── {$todo} → GetTodoSnippet()
   │

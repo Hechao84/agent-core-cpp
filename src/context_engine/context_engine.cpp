@@ -298,13 +298,19 @@ std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message
     std::vector<std::vector<Message>> selectedReversed;
     int totalTokens = 0;
     int selectedSegments = 0;
-    bool compressedCurrentSegment = false;
+    int compressedSegments = 0;
 
+    // Walk segments newest->oldest, greedily admitting full segments while
+    // they fit. The first segment that does not fit is compressed into a
+    // summary marker (tool-result previews + last assistant text) instead of
+    // being dropped wholesale, so the conclusions of the immediately
+    // preceding turn survive even when a new turn pushes the full segment
+    // out of the window. Iteration then stops: the result is a contiguous
+    // recent window followed by at most one compressed boundary marker.
     for (int i = static_cast<int>(segments.size()) - 1; i >= 0; --i) {
         const auto& segment = segments[i];
         std::vector<Message> segmentMessages(sanitized.begin() + segment.start, sanitized.begin() + segment.end);
         int segmentTokens = CalculateMessagesTokens(segmentMessages);
-        bool isLatest = i == static_cast<int>(segments.size()) - 1;
         bool fitsMessages = static_cast<int>(segmentMessages.size()) <= config_.maxMessages;
         bool fitsTokens = totalTokens + segmentTokens <= config_.maxContextTokens;
         bool fits = fitsMessages && fitsTokens;
@@ -316,15 +322,13 @@ std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message
             continue;
         }
 
-        if (isLatest) {
-            int budget = std::max(config_.maxContextTokens - totalTokens, 1);
-            auto compressed = CompressSegment(sanitized, segment, budget);
-            if (!compressed.empty()) {
-                selectedReversed.push_back(compressed);
-                totalTokens += CalculateMessagesTokens(compressed);
-                ++selectedSegments;
-                compressedCurrentSegment = true;
-            }
+        int budget = std::max(config_.maxContextTokens - totalTokens, 1);
+        auto compressed = CompressSegment(sanitized, segment, budget);
+        if (!compressed.empty()) {
+            selectedReversed.push_back(compressed);
+            totalTokens += CalculateMessagesTokens(compressed);
+            ++selectedSegments;
+            ++compressedSegments;
         }
         break;
     }
@@ -357,7 +361,7 @@ std::vector<Message> ContextEngine::ApplyContextLimits(const std::vector<Message
               << " totalSegments=" << segments.size()
               << " selectedSegments=" << selectedSegments
               << " droppedSegments=" << (segments.size() - selectedSegments)
-              << " compressedCurrentSegment=" << (compressedCurrentSegment ? "true" : "false")
+              << " compressedSegments=" << compressedSegments
               << " droppedUnpairedToolMessages=" << droppedUnpairedToolMessages
               << " assistantToolCalls=" << assistantToolCallCount
               << " toolResults=" << toolResultCount
@@ -579,16 +583,16 @@ std::vector<Message> ContextEngine::BuildMessagesForLLM(
     return result;
 }
 
-std::string ContextEngine::GetMemoryContent() const
+std::string ContextEngine::GetMemoryContent(const std::string& query) const
 {
-    std::function<std::string()> provider;
+    std::function<std::string(const std::string&)> provider;
     {
         std::lock_guard<std::mutex> lock(memoryMutex_);
         provider = memoryContextProvider_;
     }
     if (provider) {
         try {
-            std::string content = provider();
+            std::string content = provider(query);
             if (!content.empty()) {
                 return content;
             }
@@ -601,7 +605,7 @@ std::string ContextEngine::GetMemoryContent() const
     return LoadMemoryContext();
 }
 
-void ContextEngine::SetMemoryContextProvider(std::function<std::string()> provider)
+void ContextEngine::SetMemoryContextProvider(std::function<std::string(const std::string&)> provider)
 {
     std::lock_guard<std::mutex> lock(memoryMutex_);
     memoryContextProvider_ = std::move(provider);

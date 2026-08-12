@@ -13,7 +13,7 @@ ContextEngine
  ├── config_ (ContextConfig)
  ├── memoryBuffer_ (vector<Message>)     ← 内存中的消息缓冲区
  ├── storage_ (unique_ptr<ContextStorageBase>) ← 持久化存储后端
- ├── memoryContextProvider_ (function<string()>) ← MemoryRuntime 上下文回调
+ ├── memoryContextProvider_ (function<string(const string&)>) ← MemoryRuntime 上下文回调（参数为当前用户 query）
  ├── memoryEventSink_ (function<void(MemoryEvent)>) ← MemoryRuntime 事件回调
  ├── memoryMutex_ (mutex)               ← 保护 memoryBuffer_ 及两个回调对象的并发访问
 ```
@@ -219,24 +219,26 @@ BuildMessageSegments(messages)
 
 ```
 ApplyContextLimits(messages)
-  │  1. 计算总 token 数
-  │  2. 若总 token ≤ maxContextTokens → 返回原始消息
-  │  3. BuildMessageSegments(messages)
-  │  4. 从最新段开始，保留尽可能多的完整段
-  │     ├── budget = maxContextTokens
-  │     ├── 对每个段（从最新到最旧）:
-  │     │   ├── 若段 token ≤ budget → 保留，budget -= tokens
-  │     │   └── 若段 token > budget → 停止保留
-  │  5. 对超出预算的旧段:
-  │     ├── 若 enableSummarization → CompressSegment(压缩)
-  │     └── 否则 → 移除
-  │  6. 检查 maxMessages 限制，裁剪超出数量的旧消息
-  │  7. 返回裁剪后的消息列表
+   │  1. sanitized = 合并可合并的相邻同角色消息
+   │  2. segments = BuildMessageSegments(sanitized)
+   │  3. 从最新段向最旧段贪心回溯，维护 totalTokens：
+   │     ├── 若段 token + totalTokens ≤ maxContextTokens 且条数 ≤ maxMessages
+   │     │   → 整段保留，totalTokens += tokens
+   │     └── 否则（首个塞不下的段）：
+   │         ├── budget = max(1, maxContextTokens - totalTokens)
+   │         ├── compressed = CompressSegment(sanitized, segment, budget)
+   │         ├── 若 compressed 非空 → 保留压缩标记，totalTokens += tokens
+   │         └── 停止回溯（结果 = 一段连续的完整最近段 + 至多一个压缩边界标记）
+   │  4. DropUnpairedToolMessages 清理悬空 tool 消息
+   │  5. 若总条数 > maxMessages → 裁剪最旧的若干条
+   │  6. 返回裁剪后的消息列表
 ```
+
+**关键不变量**：首个塞不下的段被压缩留存（保留段首 user + tool 结果预览 + 最后一条 assistant 文本），而非整段丢弃。这保证新轮次仍能看到上一轮的结论（例如已解析的坐标/路线），即使完整工具输出无法塞进预算。最新段本身过大时同样走压缩路径，因此最新轮次至少留一条标记消息。
 
 ### 6.4 CompressSegment
 
-当 `config_.enableSummarization = true` 时，超出 token 预算的旧段被压缩。
+当某个段无法整段塞进剩余预算时，由 `ApplyContextLimits` 调用 `CompressSegment` 将其压缩为一个边界标记。
 
 **双重条件守卫**：仅当段**同时**超 token 预算（`CalculateMessagesTokens > tokenBudget`）**且**超消息数上限（`size > config_.maxMessages`）时才压缩；否则原样返回。这避免了对"仅超一项"的段做不必要的摘要化。
 
@@ -308,19 +310,20 @@ ContextEngine 不直接依赖 `MemoryRuntime` 类型，而是通过两个回调�
 ### 7.2 memoryContextProvider
 
 ```cpp
-void SetMemoryContextProvider(std::function<std::string()> provider);
+void SetMemoryContextProvider(std::function<std::string(const std::string&)> provider);
+std::string GetMemoryContent(const std::string& query) const;
 ```
 
-在 `AgentWorker::BuildPrompt` 中，`{$memory}` 占位符的替换调用此回调：
+在 `AgentWorker::BuildPrompt` 中，`{$memory}` 占位符的替换调用此回调，传入当前轮次的用户 query：
 
 ```
-BuildPrompt → RenderPrompt
-  │  ├── "{$memory}" → LoadMemoryContent()
-  │  │   ├── 若 memoryContextProvider_ 存在 → provider() → MemoryRuntime::BuildContext()
-  │  │   └── 否则 → 返回空字符串
+BuildPrompt(query) → RenderPrompt
+   │  ├── "{$memory}" → GetMemoryContent(query)
+   │  │   ├── 若 memoryContextProvider_ 存在 → provider(query) → MemoryRuntime::BuildContext(request{query=...})
+   │  │   └── 否则 → LoadMemoryContext()（遗留本地记忆）
 ```
 
-`MemoryRuntime::BuildContext()` 返回 `MemoryContextPackage`，其中 `memoryText` 字段包含长期记忆的文本摘要，被注入到系统提示中。
+`MemoryRuntime::BuildContext(request)` 返回 `MemoryContextPackage`，其中 `memoryText` 字段包含长期记忆的文本摘要，被注入到系统提示中。`request.query` 触发记忆运行时内部的相关性检索：query 非空时对长期实体/关系做语义检索、对 payload 做关键词过滤；query 为空时回退到"取最近 N 条"的无差别回灌。
 
 ### 7.3 memoryEventSink
 
@@ -345,8 +348,18 @@ AddMessage(message)
 `SessionManager::SetupAgentContextRouting()` 为每个 ContextEngine 设置这两个回调：
 
 ```cpp
-contextEngine->SetMemoryContextProvider([=]() {
-    return memoryRuntime_->BuildContext(request).memoryText;
+contextEngine->SetMemoryContextProvider([memoryRuntime, sessionId, agentId](const std::string& query) {
+    MemoryContextRequest request;
+    request.agentId = agentId;
+    request.sessionId = sessionId;
+    request.query = query;                         // 驱动相关性检索
+    request.metadata["payload_limit"] = 5;         // payload 硬上限
+    request.metadata["long_term_limit"] = 8;       // 长期记忆条数硬上限
+    return memoryRuntime->BuildContext(request).memoryText;
+});
+
+contextEngine->SetMemoryEventSink([=](const MemoryEvent& event) {
+    memoryRuntime->AppendEvent(event);
 });
 
 contextEngine->SetMemoryEventSink([=](const MemoryEvent& event) {
@@ -382,7 +395,7 @@ contextEngine->SetMemoryEventSink([=](const MemoryEvent& event) {
 | `sessionId` | string | - | 会话 ID |
 | `storagePath` | string | - | 存储路径 |
 | `storageType` | StorageType | JSON_FILE | 存储后端类型 |
-| `enableSummarization` | bool | false | 是否启用旧消息压缩 |
+| `enableSummarization` | bool | false | 保留字段；当前未实际门控，段压缩无条件生效（见 6.3） |
 
 > `idleConsolidationSeconds` 原列于此表，已迁移到 `MemoryConfig`（详见 `docs/cn/config_design.md` MemoryConfig 字段表）。该字段语义属于记忆子系统策略而非上下文引擎，与 `excludedConsolidationSessionIds` 同处管理。
 
