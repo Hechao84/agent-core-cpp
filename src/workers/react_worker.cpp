@@ -106,7 +106,7 @@ std::string ReactAgentWorker::ReactLoop(const std::string& query, ContextEngine*
         return "";
     }
 
-    for (int iteration = 0; iteration < config_.maxIterations; ++iteration) {
+    for (int iteration = 0; config_.maxIterations < 0 || iteration < config_.maxIterations; ++iteration) {
         if (IsCancelled(myGeneration)) {
             callback("\n[STATUS] Cancelled\n");
             return "";

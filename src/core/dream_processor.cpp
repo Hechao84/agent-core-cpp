@@ -283,7 +283,7 @@ bool DreamProcessor::Phase2Execution(
     std::string scratchpad;
     std::string systemPrompt = LoadDreamPhase2Prompt();
 
-    for (int iteration = 0; iteration < config_.maxIterations; ++iteration) {
+    for (int iteration = 0; config_.maxIterations < 0 || iteration < config_.maxIterations; ++iteration) {
         std::string prompt = BuildPhase2Prompt(findings, scratchpad, memoryContent, soulContent, userContent);
         Message userMsg;
         userMsg.role = "user";

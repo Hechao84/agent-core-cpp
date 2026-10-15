@@ -62,7 +62,7 @@ AgentConfig BuildAgentConfig()
     config.id = "demo-agent";
     config.name = "Demo Agent";
     config.mode = AgentWorkMode::REACT;
-    config.maxIterations = 100;
+    config.maxIterations = -1; // -1 = unlimited
 
     // Data directory layout
     config.dataBasePath = "./data";

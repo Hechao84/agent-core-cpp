@@ -105,7 +105,7 @@ struct SessionConfig
     std::map<std::string, std::string> metadata; // channel, sender, etc.
 
     // Per-session agent overrides (fallback to global defaults)
-    int maxIterations{0}; // 0 = use global default
+    int maxIterations{0}; // 0 = use global default; -1 = force unlimited
 };
 
 // Session invocation result
@@ -134,7 +134,7 @@ struct DreamConfig
     std::string dataBasePath;
     std::string historyPath;
     int maxBatchSize{20};
-    int maxIterations{10};
+    int maxIterations{10}; // -1 = unlimited
     int maxToolResultChars{16000};
     int historyEntryPreviewMaxChars{4000};
     int memoryFileMaxChars{32000};
@@ -187,7 +187,7 @@ struct AgentConfig
     DreamConfig dreamConfig;
     MemoryConfig memoryConfig;
     std::string skillDirectory;
-    int maxIterations{10};
+    int maxIterations{10}; // -1 = unlimited
 
     // Multi-session settings
     std::string dataBasePath; // "./data" - root of all data

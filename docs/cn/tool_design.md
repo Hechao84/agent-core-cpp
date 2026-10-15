@@ -88,7 +88,7 @@ struct ToolParam {
 | `list_dir` | `ListDirTool` | 列出目录内容 | `path`（必需） |
 | `glob` | `GlobTool` | 文件路径模式匹配 | `pattern`（必需）、`path`（可选） |
 | `grep` | `GrepTool` | 文件内容搜索 | `pattern`（必需）、`path`（可选） |
-| `exec` | `ExecTool` | 执行 Shell 命令 | `command`（必需）、`timeout`（可选） |
+| `exec` | `ExecTool` | 执行 Shell 命令（Linux 下经 bash -c 执行，支持 bash 语法） | `command`（必需）、`timeout`（可选） |
 | `skill_search` | `SkillSearchTool` | 搜索并加载技能指令 | `query`（必需） |
 | `file_state` | `FileStateTool` | 跟踪文件状态变化 | `path`（必需） |
 

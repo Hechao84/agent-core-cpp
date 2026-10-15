@@ -59,7 +59,7 @@ AgentConfig
  │   └── extraParams
  │
  ├── skillDirectory (string)       ← 技能目录路径
- ├── maxIterations (int)           ← ReAct 循环最大迭代数 (默认 10)
+ ├── maxIterations (int)           ← ReAct 循环最大迭代数 (默认 10，-1 = 无限制)
  │
  ├── dataBasePath (string)         ← 数据根目录 (默认 "./data")
  ├── maxConcurrentSessions (int)   ← 最大并发会话数 (默认 3)
@@ -101,7 +101,7 @@ AgentConfig
 | dataBasePath | string | - | 数据路径 |
 | historyPath | string | - | 历史路径 |
 | maxBatchSize | int | 20 | 每次最大历史条目数 |
-| maxIterations | int | 10 | Phase 2 最大迭代数 |
+| maxIterations | int | 10 | Phase 2 最大迭代数（-1 = 无限制） |
 | maxToolResultChars | int | 16000 | 工具结果截断 |
 | historyEntryPreviewMaxChars | int | 4000 | 历史条目预览截断 |
 | memoryFileMaxChars | int | 32000 | 记忆文件截断 |

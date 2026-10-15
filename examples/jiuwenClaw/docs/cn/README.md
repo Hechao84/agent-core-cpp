@@ -195,7 +195,7 @@ jiuwenClaw [OPTIONS]
           "temperature": 0.2
         }
       },
-      "maxIterations": 100,
+      "maxIterations": -1,
       "mcpServerIds": ["amap"]
     }
   ]

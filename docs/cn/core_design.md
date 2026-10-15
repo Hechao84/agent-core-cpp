@@ -390,7 +390,7 @@ struct DreamFinding {
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `maxBatchSize` | 20 | 每次处理的最大历史条目数 |
-| `maxIterations` | 10 | Phase 2 最大工具调用迭代数 |
+| `maxIterations` | 10 | Phase 2 最大工具调用迭代数（-1 = 无限制） |
 | `maxToolResultChars` | 16000 | 工具结果截断长度 |
 | `historyEntryPreviewMaxChars` | 4000 | 历史条目预览最大字符数 |
 | `memoryFileMaxChars` | 32000 | 记忆文件最大字符数 |

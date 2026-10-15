@@ -329,7 +329,7 @@ UnregisterMCPServer(id)
 | `list_dir` | `ListDirTool` | 列出目录内容 |
 | `glob` | `GlobTool` | 文件路径模式匹配 |
 | `grep` | `GrepTool` | 文件内容搜索 |
-| `exec` | `ExecTool` | 执行 Shell 命令 |
+| `exec` | `ExecTool` | 执行 Shell 命令（经 bash -c 执行） |
 | `skill_search` | `SkillSearchTool` | 搜索并加载技能 |
 | `file_state` | `FileStateTool` | 跟踪文件状态变化 |
 

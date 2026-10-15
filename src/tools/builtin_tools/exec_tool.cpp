@@ -50,11 +50,25 @@ static int ParseIntField(const std::string& json, const std::string& key, int de
     if (colonPos == std::string::npos) return defaultVal;
     size_t valStart = json.find_first_not_of(" \t", colonPos + 1);
     if (valStart == std::string::npos) return defaultVal;
-    try { 
-        return std::stoi(json.substr(valStart)); 
-    } catch (...) { 
-        return defaultVal; 
+    try {
+        return std::stoi(json.substr(valStart));
+    } catch (...) {
+        return defaultVal;
     }
+}
+
+static std::string ShellQuote(const std::string& s)
+{
+    std::string out = "'";
+    for (char c : s) {
+        if (c == '\'') {
+            out += "'\\''";
+        } else {
+            out += c;
+        }
+    }
+    out += "'";
+    return out;
 }
 
 ExecTool::ExecTool()
@@ -198,9 +212,14 @@ std::string ExecTool::ReadFileContent(const std::string& filePath)
 #else
 std::string ExecTool::ExecutePosix(const std::string& command, const std::string& workingDir, int timeoutSec)
 {
-    std::string fullCmd = command;
+    // Wrap the command in `bash -c` so bash syntax (function definitions,
+    // arithmetic ((...)), [[ ]], arrays, etc.) is supported. popen still
+    // invokes /bin/sh -c, but sh only needs to parse the `bash -c '...'`
+    // structure and hand the real command to bash.
+    std::string bashCmd = "bash -c " + ShellQuote(command);
+    std::string fullCmd = bashCmd;
     if (!workingDir.empty()) {
-        fullCmd = "cd " + workingDir + " && " + command;
+        fullCmd = "cd " + ShellQuote(workingDir) + " && " + bashCmd;
     }
 
     fullCmd = "timeout " + std::to_string(timeoutSec) + "s " + fullCmd + " 2>&1";
